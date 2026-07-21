@@ -9,6 +9,7 @@ public sealed class RobloxWebSessionService : IDisposable
 {
     private static readonly TimeSpan AccountTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan ApiTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan LocaleTimeout = TimeSpan.FromSeconds(2);
     private WebView2? _browser;
     private int _generation;
     private bool _isReady;
@@ -19,11 +20,17 @@ public sealed class RobloxWebSessionService : IDisposable
 
     public WebView2 BeginBrowserReplacement()
     {
+        ReleaseBrowser();
+        _browser = new WebView2();
+        return _browser;
+    }
+
+    public void ReleaseBrowser()
+    {
         _generation++;
         _isReady = false;
         _browser?.Dispose();
-        _browser = new WebView2();
-        return _browser;
+        _browser = null;
     }
 
     public async Task<bool> InitializeAsync(
@@ -132,6 +139,24 @@ public sealed class RobloxWebSessionService : IDisposable
         return ticketElement.GetString();
     }
 
+    public async Task<string?> GetUserLocaleAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        var message = await RunMessageScriptAsync(
+            requestId,
+            RobloxWebScripts.GetUserLocale(requestId),
+            LocaleTimeout,
+            cancellationToken);
+        if (message is null ||
+            !message.Value.TryGetProperty("locale", out var localeElement))
+        {
+            return null;
+        }
+
+        return localeElement.GetString();
+    }
+
     public async Task<string?> GetExperienceNameAsync(
         long placeId,
         CancellationToken cancellationToken = default)
@@ -172,16 +197,13 @@ public sealed class RobloxWebSessionService : IDisposable
 
     public void Dispose()
     {
-        _generation++;
-        _isReady = false;
-        _browser?.Dispose();
-        _browser = null;
+        ReleaseBrowser();
     }
 
     private void Configure(CoreWebView2 core)
     {
         core.Settings.AreDevToolsEnabled = false;
-        core.Settings.AreDefaultContextMenusEnabled = false;
+        core.Settings.AreDefaultContextMenusEnabled = true;
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.IsZoomControlEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;

@@ -34,7 +34,9 @@ itself.
 - Shares Recent and Favorites across accounts while preserving the account and
   public/private context of each launch.
 - Launches one account at a time or runs a best-effort sequential batch with a
-  configurable delay. Roblox still decides whether multiple Players may run.
+  configurable delay. Batch mode verifies selected sign-ins before closing any
+  running clients, can be cancelled, and restores the previously selected
+  account. Roblox still decides whether multiple Players may run.
 - Closes all visible and background Roblox Player processes on request.
 - Provides optional interface sounds and a user-selected startup sound.
 
@@ -49,6 +51,10 @@ executable is location-checked and Windows-signature-checked before launch.
 Optional post-launch integrations accept loopback addresses only and are off
 until the user configures them. HandleScope is never bundled, installed,
 elevated, or started by Roblox One.
+
+The embedded sign-in view intentionally does not load extensions or password
+manager integrations. It supports normal clipboard paste and its context menu,
+while keeping each Roblox account in its own isolated local browser profile.
 
 Read [Privacy](docs/PRIVACY.md) for the complete data/network summary and
 [Security](SECURITY.md) before reporting a security issue.

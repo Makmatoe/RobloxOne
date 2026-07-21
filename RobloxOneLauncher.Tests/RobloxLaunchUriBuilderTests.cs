@@ -113,6 +113,24 @@ public sealed class RobloxLaunchUriBuilderTests
                 "not-a-guid"));
     }
 
+    [Theory]
+    [InlineData("nl-NL", "nl_nl")]
+    [InlineData("pt_BR", "pt_br")]
+    [InlineData(null, "en_us")]
+    [InlineData("invalid+value", "en_us")]
+    public void Build_UsesValidatedRobloxLocale(string? locale, string expected)
+    {
+        var launchUri = RobloxLaunchUriBuilder.Build(
+            new LaunchTarget(123456, null, null),
+            "ticket",
+            locale: locale);
+
+        var parts = ParseProtocolParts(launchUri);
+
+        Assert.Equal(expected, parts["robloxLocale"]);
+        Assert.Equal(expected, parts["gameLocale"]);
+    }
+
     private static ProtocolPartsDictionary ParseProtocolParts(string launchUri)
     {
         var segments = launchUri.Split('+');

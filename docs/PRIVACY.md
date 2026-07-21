@@ -17,7 +17,9 @@ Roblox One stores application settings and isolated browser profiles under
   classification, and a server JobId when a best-effort local match succeeds;
 - private-server codes only when the user explicitly saves or launches such a
   destination;
-- sound preferences and the safe local filename of an imported sound; and
+- sound preferences and the safe local filename of an imported sound;
+- a settings backup and, only after unrecoverable settings corruption, a small
+  marker that keeps automatic browser-profile cleanup paused; and
 - optional local integration configuration or connection metadata created by
   those separately installed integrations.
 
@@ -52,16 +54,20 @@ HandleScope.
 Account pages run in Microsoft WebView2 profiles. Roblox One limits top-level
 navigation to official Roblox HTTPS domains and blocks downloads, external app
 protocols, password autofill integration, and camera, microphone, location, and
-notification permissions. Microsoft services may install or update the
-WebView2 Runtime independently of Roblox One.
+notification permissions. Browser extensions are not loaded; standard
+clipboard paste and the context menu remain available for credentials copied
+from a password manager. Microsoft services may install or update the WebView2
+Runtime independently of Roblox One.
 
 ## Deleting local data
 
 Removing an account in Roblox One is intended to delete that account slot's
 complete local WebView2 profile, including cookies, local storage, cache,
 history, service workers, and autofill data. Clear Recent/Public/Private history
-with the corresponding in-app controls; clearing history does not remove pinned
-Favorites unless the user removes those entries separately.
+with the corresponding in-app controls. The account filter also scopes a clear
+operation when one account is selected. Clearing history does not remove pinned
+Favorites unless the user removes those entries separately, and removing an
+account does not silently erase its shared Recent/Favorite records.
 
 To remove all Roblox One data, first remove accounts in the app, close Roblox
 One, and then delete `%LOCALAPPDATA%\RobloxOne`. This action signs those local

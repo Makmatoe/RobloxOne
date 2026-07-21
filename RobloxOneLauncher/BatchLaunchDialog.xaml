@@ -30,6 +30,9 @@
                 <TextBlock Text="Starting the batch closes every currently running verified Roblox Player instance."
                            Foreground="#E0A33A" FontSize="12" FontWeight="SemiBold"
                            Margin="0,9,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="Roblox One verifies every selected sign-in first, so an unavailable account cannot close your clients before the batch starts."
+                           Foreground="#8E99AD" FontSize="11"
+                           Margin="0,6,0,0" TextWrapping="Wrap"/>
             </StackPanel>
 
             <Grid Grid.Row="1" Margin="0,22,0,10">
@@ -59,7 +62,7 @@
                             <Setter Property="Padding" Value="0"/>
                             <Setter Property="Margin" Value="0,0,0,5"/>
                             <Setter Property="Background" Value="Transparent"/>
-                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}"/>
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>

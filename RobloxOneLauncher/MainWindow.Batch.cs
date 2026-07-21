@@ -28,10 +28,17 @@ public partial class MainWindow
         if (dialog.ShowDialog() != true)
             return;
 
+        var originalProfile = _activeProfile;
+        _batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _launchHookCancellation.Token);
         SetOperationBusy(true);
+        CancelBatchButton.Visibility = Visibility.Visible;
+        CancelBatchButton.IsEnabled = true;
+        BatchLaunchResult? result = null;
+        var restoredOriginalProfile = true;
         try
         {
-            await RunBatchLaunchAsync(
+            result = await RunBatchLaunchAsync(
                 dialog.SelectedAccounts,
                 accountDestination,
                 destination,
@@ -39,20 +46,58 @@ public partial class MainWindow
                 serverJobId,
                 trackedPlaceId,
                 dialog.Delay,
-                _launchHookCancellation.Token);
+                _batchCancellation.Token);
         }
         catch (OperationCanceledException)
         {
-            // Closing Roblox One cancels the remaining batch safely.
+            result = BatchLaunchResult.CancelledResult(dialog.SelectedAccounts.Count);
         }
         finally
         {
             _launchInProgress = false;
+            CancelBatchButton.IsEnabled = false;
+            if (!_launchHookCancellation.IsCancellationRequested)
+            {
+                try
+                {
+                    restoredOriginalProfile = await RestoreBatchProfileAsync(
+                        originalProfile,
+                        _launchHookCancellation.Token);
+                }
+                catch (OperationCanceledException) when (
+                    _launchHookCancellation.IsCancellationRequested)
+                {
+                    restoredOriginalProfile = false;
+                }
+            }
+            _batchCancellation.Dispose();
+            _batchCancellation = null;
+            CancelBatchButton.Visibility = Visibility.Collapsed;
             SetOperationBusy(false);
         }
+
+        if (_launchHookCancellation.IsCancellationRequested)
+            return;
+
+        ShowBatchResult(
+            result ?? BatchLaunchResult.CancelledResult(dialog.SelectedAccounts.Count),
+            restoredOriginalProfile);
     }
 
-    private async Task RunBatchLaunchAsync(
+    private void CancelBatchButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_batchCancellation is null || _batchCancellation.IsCancellationRequested)
+            return;
+
+        CancelBatchButton.IsEnabled = false;
+        SetStatus(
+            "Cancelling batch launch",
+            "Roblox One will stop before the next safe step. Clients already started remain open.",
+            "BATCH CANCELLING");
+        _batchCancellation.Cancel();
+    }
+
+    private async Task<BatchLaunchResult> RunBatchLaunchAsync(
         IReadOnlyList<AccountProfile> accounts,
         string accountDestination,
         string destination,
@@ -62,6 +107,21 @@ public partial class MainWindow
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
+        var unavailableAccounts = await PreflightBatchAccountsAsync(
+            accounts,
+            parsedTarget,
+            trackedPlaceId,
+            cancellationToken);
+        if (unavailableAccounts.Count > 0)
+        {
+            return new BatchLaunchResult(
+                0,
+                accounts.Count,
+                unavailableAccounts,
+                ClientsWereClosed: false,
+                Cancelled: false);
+        }
+
         SetStatus(
             "Preparing batch launch",
             "Closing every running, verified Roblox Player instance…",
@@ -84,7 +144,12 @@ public partial class MainWindow
                 "Batch launch stopped",
                 "Roblox One could not verify that all current clients were closed.",
                 "BATCH ERROR");
-            return;
+            return new BatchLaunchResult(
+                0,
+                accounts.Count,
+                ["Existing Roblox clients could not be verified as closed"],
+                ClientsWereClosed: false,
+                Cancelled: false);
         }
 
         if (!closeResult.Success)
@@ -96,7 +161,12 @@ public partial class MainWindow
                 "Batch launch stopped",
                 detail,
                 "BATCH ERROR");
-            return;
+            return new BatchLaunchResult(
+                0,
+                accounts.Count,
+                [detail],
+                ClientsWereClosed: false,
+                Cancelled: false);
         }
 
         if (closeResult.Closed > 0)
@@ -167,19 +237,123 @@ public partial class MainWindow
             }
         }
 
-        if (failures.Count == 0)
+        return new BatchLaunchResult(
+            started,
+            accounts.Count,
+            failures,
+            ClientsWereClosed: true,
+            Cancelled: false);
+    }
+
+    private async Task<List<string>> PreflightBatchAccountsAsync(
+        IReadOnlyList<AccountProfile> accounts,
+        LaunchTarget parsedTarget,
+        long? trackedPlaceId,
+        CancellationToken cancellationToken)
+    {
+        var unavailable = new List<string>();
+        for (var index = 0; index < accounts.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var account = accounts[index];
+            SetStatus(
+                $"Checking account {index + 1} of {accounts.Count}",
+                $"Verifying {GetAccountDisplayName(account)} before any running client is closed…",
+                "BATCH CHECK");
+            try
+            {
+                if (!await ActivateBatchAccountAsync(account, cancellationToken))
+                {
+                    unavailable.Add($"@{account.Username}: sign-in unavailable");
+                    continue;
+                }
+
+                if (parsedTarget.ShareCode is not null)
+                {
+                    var resolvedTarget = await _webSession.ResolvePrivateServerAsync(
+                        parsedTarget.ShareCode,
+                        cancellationToken);
+                    if (resolvedTarget is null ||
+                        trackedPlaceId is not null &&
+                        resolvedTarget.PlaceId != trackedPlaceId)
+                    {
+                        unavailable.Add(
+                            $"@{account.Username}: private server unavailable");
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine(
+                    $"Batch preflight failed for one account: {ex.GetType().Name}.");
+                unavailable.Add($"@{account.Username}: account check failed");
+            }
+        }
+        return unavailable;
+    }
+
+    private async Task<bool> RestoreBatchProfileAsync(
+        AccountProfile? profile,
+        CancellationToken cancellationToken)
+    {
+        if (profile is null)
+            return true;
+
+        SetStatus(
+            $"Restoring {GetAccountDisplayName(profile)}",
+            "Returning the launcher to the account that was selected before the batch…",
+            "BATCH RESTORE");
+        try
+        {
+            var restored = await ActivateBatchAccountAsync(profile, cancellationToken);
+            ShowDestinationForProfile(profile);
+            return restored;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Trace.WriteLine(
+                $"Batch account restore failed: {ex.GetType().Name}.");
+            ShowDestinationForProfile(profile);
+            return false;
+        }
+    }
+
+    private void ShowBatchResult(
+        BatchLaunchResult result,
+        bool restoredOriginalProfile)
+    {
+        var restoreDetail = restoredOriginalProfile
+            ? string.Empty
+            : " The original account needs to be signed in again.";
+        if (result.Cancelled)
         {
             SetStatus(
-                $"Batch complete: {started} clients started",
-                "Every selected account received its own launch ticket.",
+                "Batch launch cancelled",
+                $"No further accounts will start. Started clients remain open; clients already closed during cleanup cannot be restored.{restoreDetail}",
+                "BATCH CANCELLED");
+            return;
+        }
+
+        if (result.Failures.Count == 0)
+        {
+            SetStatus(
+                $"Batch complete: {result.Started} clients started",
+                $"Every selected account received its own launch ticket.{restoreDetail}",
                 "BATCH COMPLETE");
             return;
         }
 
+        var title = result.ClientsWereClosed
+            ? $"Batch complete: {result.Started} of {result.Total} started"
+            : "Batch not started";
         SetStatus(
-            $"Batch complete: {started} of {accounts.Count} started",
-            string.Join("; ", failures),
-            started > 0 ? "BATCH PARTIAL" : "BATCH ERROR");
+            title,
+            $"{string.Join("; ", result.Failures)}.{restoreDetail}".Trim(),
+            result.Started > 0 ? "BATCH PARTIAL" : "BATCH ERROR");
     }
 
     private async Task<bool> ActivateBatchAccountAsync(
@@ -258,7 +432,9 @@ public partial class MainWindow
         {
             var ticketTask = _webSession.GetAuthenticationTicketAsync(cancellationToken);
             var nameTask = TryGetExperienceNameAsync(target.PlaceId);
-            var ticket = await ticketTask;
+            var localeTask = _webSession.GetUserLocaleAsync(cancellationToken);
+            await Task.WhenAll(ticketTask, localeTask);
+            var ticket = ticketTask.Result;
             if (string.IsNullOrWhiteSpace(ticket))
                 return false;
 
@@ -279,8 +455,13 @@ public partial class MainWindow
                 "Handing this account's ticket directly to Roblox Player…",
                 "BATCH LAUNCH");
             var launchStartedAt = DateTimeOffset.UtcNow;
+            var locale = localeTask.Result;
             var result = await _robloxClient.LaunchAsync(
-                RobloxLaunchUriBuilder.Build(target, ticket, serverJobId));
+                RobloxLaunchUriBuilder.Build(
+                    target,
+                    ticket,
+                    serverJobId,
+                    locale));
             if (result is not { Success: true, ProcessId: int processId })
                 return false;
 
@@ -307,4 +488,15 @@ public partial class MainWindow
         account.Label is null
             ? $"@{account.Username}"
             : $"{account.Label} (@{account.Username})";
+
+    private sealed record BatchLaunchResult(
+        int Started,
+        int Total,
+        IReadOnlyList<string> Failures,
+        bool ClientsWereClosed,
+        bool Cancelled)
+    {
+        public static BatchLaunchResult CancelledResult(int total) =>
+            new(0, total, [], ClientsWereClosed: false, Cancelled: true);
+    }
 }

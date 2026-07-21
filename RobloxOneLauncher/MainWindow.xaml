@@ -150,14 +150,18 @@
             </Grid>
         </Border>
 
-        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Auto">
-            <Grid Margin="40,34" MinWidth="680" MinHeight="700">
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto">
+            <Grid Margin="24,24,24,12" MinWidth="500" MinHeight="520">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Grid>
@@ -222,6 +226,7 @@
                                             Background="#2A3142" Padding="14,8"
                                             Margin="0,0,8,0"
                                             AutomationProperties.Name="Launch"
+                                            AutomationProperties.ItemStatus="Selected"
                                             ToolTip="Open the launch destination workspace">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Style="{StaticResource ButtonIcon}"
@@ -235,6 +240,7 @@
                                             Background="Transparent" Foreground="#98A3B8"
                                             Padding="12,8"
                                             AutomationProperties.Name="Recent"
+                                            AutomationProperties.ItemStatus="Not selected"
                                             ToolTip="Show recently launched experiences">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Style="{StaticResource ButtonIcon}"
@@ -266,18 +272,25 @@
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
 
-                                <Border Grid.Row="1" Height="50" Margin="0,18,0,0"
-                                        Style="{StaticResource TextFieldShell}">
-                                    <TextBox x:Name="PlaceIdBox"
-                                             Style="{StaticResource EmbeddedTextBox}"
-                                             TextWrapping="NoWrap"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-                                             ScrollViewer.VerticalScrollBarVisibility="Hidden"
-                                             TextChanged="PlaceIdBox_TextChanged"
-                                             KeyDown="PlaceIdBox_KeyDown"
-                                             ToolTip="Place ID, official Roblox game URL, private-server URL, share code, or Server JobId saved from Recent"
-                                             AutomationProperties.Name="Roblox destination"/>
-                                </Border>
+                                <StackPanel Grid.Row="1" Margin="0,18,0,0">
+                                    <Border Height="50"
+                                            Style="{StaticResource TextFieldShell}">
+                                        <TextBox x:Name="PlaceIdBox"
+                                                 Style="{StaticResource EmbeddedTextBox}"
+                                                 TextWrapping="NoWrap"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                                 TextChanged="PlaceIdBox_TextChanged"
+                                                 KeyDown="PlaceIdBox_KeyDown"
+                                                 ToolTip="Place ID, official Roblox game URL, private-server URL, share code, or Server JobId saved from Recent"
+                                                 AutomationProperties.Name="Roblox destination"/>
+                                    </Border>
+                                    <TextBlock x:Name="DestinationValidationText"
+                                               Visibility="Collapsed"
+                                               Foreground="#ED93A4" FontSize="11"
+                                               Margin="4,7,4,0" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite"/>
+                                </StackPanel>
 
                                 <Border Grid.Row="2" Margin="0,20,0,20"
                                         Background="#0D1017" CornerRadius="14"
@@ -382,15 +395,18 @@
                                         <Button x:Name="AllTypeFilterButton" Content="All"
                                                 Click="AllTypeFilterButton_Click"
                                                 Padding="11,7" Background="#2A3142"
-                                                Margin="0,0,6,0"/>
+                                                Margin="0,0,6,0"
+                                                AutomationProperties.ItemStatus="Selected"/>
                                         <Button x:Name="PublicFilterButton" Content="Public"
                                                 Click="PublicFilterButton_Click"
                                                 Padding="11,7" Background="Transparent"
-                                                Foreground="#98A3B8" Margin="0,0,6,0"/>
+                                                Foreground="#98A3B8" Margin="0,0,6,0"
+                                                AutomationProperties.ItemStatus="Not selected"/>
                                         <Button x:Name="PrivateFilterButton" Content="Private"
                                                 Click="PrivateFilterButton_Click"
                                                 Padding="11,7" Background="Transparent"
-                                                Foreground="#98A3B8"/>
+                                                Foreground="#98A3B8"
+                                                AutomationProperties.ItemStatus="Not selected"/>
                                     </StackPanel>
                                     <ComboBox x:Name="AccountFilterCombo" Grid.Column="2"
                                               Width="190" Height="36"
@@ -430,17 +446,22 @@
                             ClipToBounds="True" MinHeight="400">
                         <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="58"/>
+                                <RowDefinition Height="68"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <Grid Background="#171B25">
-                                <StackPanel Orientation="Horizontal" Margin="20,0"
+                                <StackPanel Orientation="Horizontal" Margin="20,0,118,0"
                                             VerticalAlignment="Center">
                                     <Border Width="9" Height="9" CornerRadius="5"
                                             Background="#7C5CFC" Margin="0,0,10,0"/>
-                                    <TextBlock Text="Official Roblox sign-in"
-                                               Foreground="White" FontSize="14"
-                                               FontWeight="SemiBold"/>
+                                    <StackPanel>
+                                        <TextBlock Text="Official Roblox sign-in"
+                                                   Foreground="White" FontSize="14"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Text="Extensions are unavailable here; right-click Paste or press Ctrl+V."
+                                                   Foreground="#7F8BA0" FontSize="10"
+                                                   Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <Button HorizontalAlignment="Right"
                                         Margin="0,10,12,10" Padding="18,7"
@@ -459,11 +480,13 @@
                         </Grid>
                     </Border>
                 </Grid>
+            </Grid>
+            </ScrollViewer>
 
                 <!-- General status is independent from the destination workspace. -->
-                <Border Grid.Row="2" Margin="0,18,0,0" Padding="18"
+                <Border Grid.Row="1" Margin="24,8,24,0" Padding="16"
                         Background="#10141D" CornerRadius="18"
-                        BorderBrush="#242B3A" BorderThickness="1" MinHeight="108">
+                        BorderBrush="#242B3A" BorderThickness="1" MinHeight="102">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -496,24 +519,40 @@
                                        FontSize="12" Margin="0,4,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
-                        <Border x:Name="SessionBadgeBorder" Grid.Column="2"
-                                Background="#17251F" CornerRadius="9" Padding="11,6"
-                                VerticalAlignment="Center">
-                            <TextBlock x:Name="SessionBadge" Text="CHECKING SESSION"
-                                       Foreground="#57D9A3" FontSize="10"
-                                       FontWeight="Bold"/>
-                        </Border>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <Border x:Name="SessionBadgeBorder"
+                                    Background="#17251F" CornerRadius="9" Padding="11,6"
+                                    HorizontalAlignment="Right">
+                                <TextBlock x:Name="SessionBadge" Text="CHECKING SESSION"
+                                           Foreground="#57D9A3" FontSize="10"
+                                           FontWeight="Bold"/>
+                            </Border>
+                            <Button x:Name="CancelBatchButton"
+                                    Visibility="Collapsed" IsEnabled="False"
+                                    Click="CancelBatchButton_Click"
+                                    Content="Cancel batch" Margin="0,7,0,0"
+                                    Padding="10,6" FontSize="11"
+                                    HorizontalAlignment="Right"
+                                    Background="#2A171D" Foreground="#ED93A4"
+                                    AutomationProperties.Name="Cancel batch launch"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="3" Margin="0,17,0,0">
+                <Grid Grid.Row="2" Margin="24,12,24,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
                     <TextBlock Text="Roblox Player and Microsoft Edge WebView2 are required."
-                               Foreground="#586378" FontSize="11"/>
-                    <TextBlock Text="Not affiliated with Roblox Corporation."
+                               Foreground="#586378" FontSize="11"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="1"
+                               Text="Not affiliated with Roblox Corporation."
                                Foreground="#4D586C" FontSize="11"
+                               Margin="16,0,0,0"
                                HorizontalAlignment="Right"/>
                 </Grid>
             </Grid>
-        </ScrollViewer>
     </Grid>
 </Window>

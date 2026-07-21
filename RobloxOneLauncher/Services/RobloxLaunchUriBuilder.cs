@@ -1,13 +1,19 @@
+using System.Text.RegularExpressions;
 using RobloxOneLauncher.Models;
 
 namespace RobloxOneLauncher.Services;
 
 public static class RobloxLaunchUriBuilder
 {
+    private static readonly Regex LocalePattern = new(
+        "^[a-z]{2,3}_[a-z]{2}$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static string Build(
         LaunchTarget target,
         string authenticationTicket,
-        string? serverJobId = null)
+        string? serverJobId = null,
+        string? locale = null)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticationTicket);
@@ -23,6 +29,7 @@ public static class RobloxLaunchUriBuilder
         }
 
         var browserTrackerId = Random.Shared.NextInt64(1, long.MaxValue);
+        var normalizedLocale = NormalizeLocale(locale);
         var joinAttemptId = Guid.NewGuid().ToString();
         var requestType = normalizedServerJobId is not null
             ? "RequestGameJob"
@@ -50,8 +57,16 @@ public static class RobloxLaunchUriBuilder
                $"+launchtime:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}" +
                $"+placelauncherurl:{Uri.EscapeDataString(placeLauncherUrl)}" +
                $"+browsertrackerid:{browserTrackerId}" +
-               "+robloxLocale:en_us" +
-               "+gameLocale:en_us" +
+               $"+robloxLocale:{normalizedLocale}" +
+               $"+gameLocale:{normalizedLocale}" +
                "+channel:";
+    }
+
+    private static string NormalizeLocale(string? locale)
+    {
+        var normalized = locale?.Trim().Replace('-', '_').ToLowerInvariant();
+        return normalized is not null && LocalePattern.IsMatch(normalized)
+            ? normalized
+            : "en_us";
     }
 }
