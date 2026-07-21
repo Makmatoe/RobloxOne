@@ -127,7 +127,7 @@ public sealed class UiSoundService : IDisposable
     public string ImportStartupSound(string sourcePath)
     {
         using var source = OpenValidatedImportSource(sourcePath, out var extension);
-        var fileName = $"startup-custom{extension}";
+        var fileName = $"startup-custom-{Guid.NewGuid():N}{extension}";
         var destination = GetSafeSoundPath(fileName);
         var temporary = destination + $".{Guid.NewGuid():N}.tmp";
         try
@@ -161,17 +161,29 @@ public sealed class UiSoundService : IDisposable
                 File.Delete(temporary);
         }
 
-        foreach (var otherExtension in SupportedImportedExtensions)
-        {
-            var oldPath = GetSafeSoundPath($"startup-custom{otherExtension}");
-            if (!oldPath.Equals(destination, StringComparison.OrdinalIgnoreCase) &&
-                File.Exists(oldPath))
-            {
-                File.Delete(oldPath);
-            }
-        }
-
         return fileName;
+    }
+
+    public bool TryDeleteImportedStartupSound(string? fileName)
+    {
+        if (!IsManagedImportedFileName(fileName))
+            return false;
+
+        try
+        {
+            var path = GetSafeSoundPath(fileName!);
+            if (File.Exists(path))
+                File.Delete(path);
+            return !File.Exists(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+                ArgumentException)
+        {
+            Trace.WriteLine(
+                $"Imported startup sound cleanup failed: {exception.GetType().Name}.");
+            return false;
+        }
     }
 
     public void StopPreview()
@@ -311,6 +323,19 @@ public sealed class UiSoundService : IDisposable
             throw new IOException("A sound file cannot be a reparse point.");
         }
         return path;
+    }
+
+    private static bool IsManagedImportedFileName(string? fileName)
+    {
+        if (!IsValidImportedFileName(fileName))
+            return false;
+
+        var stem = Path.GetFileNameWithoutExtension(fileName!);
+        if (stem.Equals("startup-custom", StringComparison.OrdinalIgnoreCase))
+            return true;
+        const string prefix = "startup-custom-";
+        return stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParseExact(stem[prefix.Length..], "N", out _);
     }
 
     private static void ThrowIfReparsePoint(string path)

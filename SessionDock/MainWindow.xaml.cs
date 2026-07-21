@@ -17,6 +17,8 @@ public partial class MainWindow : Window
         TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PendingProfileCleanupTimeout =
         TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan SettingsSaveShutdownTimeout =
+        TimeSpan.FromSeconds(2);
     private readonly SettingsService _settingsService = new();
     private readonly RobloxClientService _robloxClient = new();
     private readonly RobloxServerTracker _serverTracker = new();
@@ -71,7 +73,7 @@ public partial class MainWindow : Window
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(MainWindowLoadedAsync);
+        await RunWindowOperationAsync(MainWindowLoadedAsync);
 
     private async Task MainWindowLoadedAsync(CancellationToken cancellationToken)
     {
@@ -137,7 +139,7 @@ public partial class MainWindow : Window
     }
 
     private async void WebSession_RobloxPageLoaded(object? sender, EventArgs e) =>
-        await _operationLifetime.RunAsync(cancellationToken =>
+        await RunWindowOperationAsync(cancellationToken =>
             CheckAuthenticatedAccountAsync(
                 skipIfBusy: true,
                 cancellationToken));
@@ -162,8 +164,23 @@ public partial class MainWindow : Window
 
         try
         {
-            _currentUser = await _webSession.GetAuthenticatedUserAsync(
-                cancellationToken);
+            try
+            {
+                _currentUser = await _webSession.GetAuthenticatedUserAsync(
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (
+                IsExpectedWebSessionFailure(exception))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Account verification failed safely: {exception.GetType().Name}.");
+                SetSignedOutState();
+                return;
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (_currentUser is null)
             {
@@ -185,13 +202,25 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                _pendingProfile.UserId = _currentUser.Id;
-                _pendingProfile.Username = _currentUser.Name;
-                _settings.Accounts.Add(_pendingProfile);
-                _settings.ActiveAccountKey = _pendingProfile.Key;
-                _activeProfile = _pendingProfile;
+                var completedProfile = _pendingProfile;
+                completedProfile.UserId = _currentUser.Id;
+                completedProfile.Username = _currentUser.Name;
+                if (!TryCommitSettingsMutation(
+                        () =>
+                        {
+                            _settings.Accounts.Add(completedProfile);
+                            _settings.ActiveAccountKey = completedProfile.Key;
+                        },
+                        "Account could not be saved",
+                        "ACCOUNT SAVE ERROR",
+                        "The Roblox sign-in succeeded, but SessionDock could not save this account slot. The temporary slot was kept so you can retry after making %LOCALAPPDATA%\\SessionDock writable."))
+                {
+                    LaunchButton.IsEnabled = false;
+                    return;
+                }
+
+                _activeProfile = completedProfile;
                 _pendingProfile = null;
-                _settingsService.Save(_settings);
                 RenderAccountList();
             }
 
@@ -212,19 +241,15 @@ public partial class MainWindow : Window
             LauncherPanel.Visibility = Visibility.Visible;
             SetReadyState();
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch when (!_operationLifetime.IsShuttingDown)
-        {
-            SetSignedOutState();
-        }
         finally
         {
             _accountCheckLock.Release();
         }
     }
+
+    private static bool IsExpectedWebSessionFailure(Exception exception) =>
+        exception is InvalidOperationException or
+            System.Runtime.InteropServices.COMException;
 
     private void SetSignedOutState()
     {
@@ -296,6 +321,51 @@ public partial class MainWindow : Window
             isError ? "IconError" : isSuccess ? "IconCheck" : "IconActivity");
         StatusIconGlyph.Stroke = accentBrush;
         StatusIconBorder.Background = surfaceBrush;
+    }
+
+    private Task RunWindowOperationAsync(
+        Func<CancellationToken, Task> operation) =>
+        _operationLifetime.RunAsync(
+            operation,
+            HandleExpectedWindowOperationFailure);
+
+    private void HandleExpectedWindowOperationFailure(Exception exception)
+    {
+        System.Diagnostics.Trace.WriteLine(
+            $"Local operation failed safely: {exception.GetType().Name}.");
+        SetStatus(
+            "Local operation could not be completed",
+            "SessionDock could not access a required local file or folder. Check that %LOCALAPPDATA%\\SessionDock is writable and not locked, then try again.",
+            "LOCAL DATA ERROR");
+    }
+
+    private bool TryCommitSettingsMutation(
+        Action mutation,
+        string failureTitle,
+        string failureBadge = "SETTINGS ERROR",
+        string? failureDetail = null,
+        bool showFailure = true)
+    {
+        if (SettingsMutation.TryCommit(
+                _settings,
+                mutation,
+                _settingsService.Save,
+                out var failure))
+        {
+            return true;
+        }
+
+        System.Diagnostics.Trace.WriteLine(
+            $"Settings update failed safely: {failure!.GetType().Name}.");
+        if (showFailure)
+        {
+            SetStatus(
+                failureTitle,
+                failureDetail ??
+                    "SessionDock could not confirm the local settings update, so the in-memory change was rolled back. Check that %LOCALAPPDATA%\\SessionDock is writable and not locked, then try again.",
+                failureBadge);
+        }
+        return false;
     }
 
     private void RenderAccountList()
@@ -401,15 +471,16 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true)
             return;
 
-        _activeProfile.Label = dialog.AccountLabel;
-        _activeProfile.ColorHex = dialog.SelectedColor;
-        try
+        var profile = _activeProfile;
+        if (!TryCommitSettingsMutation(
+                () =>
+                {
+                    profile.Label = dialog.AccountLabel;
+                    profile.ColorHex = dialog.SelectedColor;
+                },
+                "Account appearance could not be saved"))
         {
-            _settingsService.Save(_settings);
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Account appearance could not be saved", ex.Message, "SETTINGS ERROR");
+            return;
         }
         RenderAccountList();
     }
@@ -430,20 +501,42 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true)
             return;
 
+        string? stagedCustomFileName = null;
+        var settingsCommitted = false;
         try
         {
-            var customFileName = _settings.CustomStartupSoundFileName;
+            var previousCustomFileName =
+                _settings.CustomStartupSoundFileName;
+            var customFileName = previousCustomFileName;
             if (dialog.PendingCustomSourcePath is not null)
             {
                 _soundService.StopPreview();
-                customFileName = _soundService.ImportStartupSound(
+                stagedCustomFileName = _soundService.ImportStartupSound(
                     dialog.PendingCustomSourcePath);
+                customFileName = stagedCustomFileName;
             }
 
-            _settings.UiSoundsEnabled = dialog.UiSoundsEnabled;
-            _settings.StartupSound = dialog.StartupSound;
-            _settings.CustomStartupSoundFileName = customFileName;
-            _settingsService.Save(_settings);
+            if (!TryCommitSettingsMutation(
+                    () =>
+                    {
+                        _settings.UiSoundsEnabled = dialog.UiSoundsEnabled;
+                        _settings.StartupSound = dialog.StartupSound;
+                        _settings.CustomStartupSoundFileName = customFileName;
+                    },
+                    "Sound settings could not be saved"))
+            {
+                return;
+            }
+            settingsCommitted = true;
+            if (stagedCustomFileName is not null &&
+                !string.Equals(
+                    previousCustomFileName,
+                    stagedCustomFileName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _soundService.TryDeleteImportedStartupSound(
+                    previousCustomFileName);
+            }
             ((App)Application.Current).UiSoundsEnabled = dialog.UiSoundsEnabled;
             SetStatus(
                 "Sound settings saved",
@@ -457,6 +550,14 @@ public partial class MainWindow : Window
                 "Sound settings could not be saved",
                 ex.Message,
                 "SETTINGS ERROR");
+        }
+        finally
+        {
+            if (!settingsCommitted && stagedCustomFileName is not null)
+            {
+                _soundService.TryDeleteImportedStartupSound(
+                    stagedCustomFileName);
+            }
         }
     }
 
@@ -503,7 +604,7 @@ public partial class MainWindow : Window
     }
 
     private async void AccountButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(cancellationToken =>
+        await RunWindowOperationAsync(cancellationToken =>
             AccountButtonClickAsync(sender, cancellationToken));
 
     private async Task AccountButtonClickAsync(
@@ -518,11 +619,17 @@ public partial class MainWindow : Window
         if (profile is null || profile == _activeProfile)
             return;
 
+        if (!TryCommitSettingsMutation(
+                () => _settings.ActiveAccountKey = profile.Key,
+                $"Could not switch to @{profile.Username}",
+                "ACCOUNT SWITCH ERROR"))
+        {
+            return;
+        }
+
         _activeProfile = profile;
         _pendingProfile = null;
-        _settings.ActiveAccountKey = profile.Key;
         ShowDestinationForProfile(profile);
-        _settingsService.Save(_settings);
         RenderAccountList();
         SetStatus($"Switching to @{profile.Username}", "Loading its isolated Roblox session…", "SWITCHING");
         await InitializeBrowserAsync(
@@ -532,7 +639,7 @@ public partial class MainWindow : Window
     }
 
     private async void AddAccountButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(cancellationToken =>
+        await RunWindowOperationAsync(cancellationToken =>
             AddAccountButtonClickAsync(cancellationToken));
 
     private async Task AddAccountButtonClickAsync(
@@ -561,7 +668,7 @@ public partial class MainWindow : Window
     }
 
     private async void SignInButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(cancellationToken =>
+        await RunWindowOperationAsync(cancellationToken =>
             SignInButtonClickAsync(cancellationToken));
 
     private async Task SignInButtonClickAsync(
@@ -587,7 +694,7 @@ public partial class MainWindow : Window
     }
 
     private async void BrowserBackButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(BrowserBackButtonClickAsync);
+        await RunWindowOperationAsync(BrowserBackButtonClickAsync);
 
     private async Task BrowserBackButtonClickAsync(
         CancellationToken cancellationToken)
@@ -625,7 +732,7 @@ public partial class MainWindow : Window
     }
 
     private async void LaunchButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(LaunchButtonClickAsync);
+        await RunWindowOperationAsync(LaunchButtonClickAsync);
 
     private async Task LaunchButtonClickAsync(CancellationToken cancellationToken)
     {
@@ -667,8 +774,15 @@ public partial class MainWindow : Window
             currentUser.Id != activeProfile.UserId)
             return;
 
-        activeProfile.Destination = accountDestination;
-        _settingsService.Save(_settings);
+        if (!TryCommitSettingsMutation(
+                () => activeProfile.Destination = accountDestination,
+                "Launch destination could not be saved",
+                "LAUNCH SETTINGS ERROR"))
+        {
+            ShowDestinationForProfile(activeProfile);
+            RefreshLaunchAvailability();
+            return;
+        }
         _launchInProgress = true;
         SetReadyState();
 
@@ -854,8 +968,17 @@ public partial class MainWindow : Window
 
     private void BeginServerTracking(
         RecentExperience recent,
-        DateTimeOffset launchStartedAt) =>
-        _ = TrackJoinedServerAsync(recent, launchStartedAt);
+        DateTimeOffset launchStartedAt)
+    {
+        var trackingTask = TrackJoinedServerAsync(recent, launchStartedAt);
+        _ = trackingTask.ContinueWith(
+            completed => System.Diagnostics.Trace.WriteLine(
+                $"Roblox server tracking faulted: {completed.Exception?.GetBaseException().GetType().Name}."),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously |
+                TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
 
     private async Task TrackJoinedServerAsync(
         RecentExperience recent,
@@ -875,14 +998,16 @@ public partial class MainWindow : Window
                 return;
             }
 
-            recent.ServerJobId = serverJobId;
-            SaveRecentMetadata(showError: false);
+            SaveRecentMetadata(
+                () => recent.ServerJobId = serverJobId,
+                showError: false);
         }
         catch (OperationCanceledException)
         {
             // App shutdown cancels optional local server detection.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            LocalDataException.IsExpectedPersistenceFailure(ex))
         {
             System.Diagnostics.Trace.WriteLine(
                 $"Roblox server detection failed: {ex.GetType().Name}.");
@@ -890,7 +1015,7 @@ public partial class MainWindow : Window
     }
 
     private async void ResetButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(ResetButtonClickAsync);
+        await RunWindowOperationAsync(ResetButtonClickAsync);
 
     private async Task ResetButtonClickAsync(CancellationToken cancellationToken)
     {
@@ -909,21 +1034,27 @@ public partial class MainWindow : Window
         SetOperationBusy(true);
         try
         {
-            if (!await ClearCurrentBrowserProfileAsync(cancellationToken))
+            if (!TryCommitSettingsMutation(
+                    () =>
+                    {
+                        _settings.Accounts.RemoveAll(
+                            account => account.Key == profile.Key);
+                        _settings.ActiveAccountKey =
+                            _settings.Accounts.FirstOrDefault()?.Key;
+                    },
+                    "Account removal could not be saved",
+                    "ACCOUNT SAVE ERROR",
+                    "SessionDock could not save the account removal, so the account and its isolated sign-in data were left unchanged. Make %LOCALAPPDATA%\\SessionDock writable, then retry."))
             {
-                SetStatus(
-                    "Account data could not be cleared",
-                    "The account was not removed. Restart SessionDock and try again.",
-                    "CLEANUP ERROR");
                 return;
             }
-            cancellationToken.ThrowIfCancellationRequested();
 
-            _settings.Accounts.RemoveAll(account => account.Key == profile.Key);
+            var profileWasCleared = await ClearBrowserProfileAsync(
+                profile,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             _activeProfile = _settings.Accounts.FirstOrDefault();
-            _settings.ActiveAccountKey = _activeProfile?.Key;
             ShowDestinationForProfile(_activeProfile);
-            _settingsService.Save(_settings);
             _currentUser = null;
             RenderAccountList();
             if (_activeProfile is not null)
@@ -933,6 +1064,14 @@ public partial class MainWindow : Window
                     cancellationToken);
             else
                 SetSignedOutState();
+
+            if (!profileWasCleared)
+            {
+                SetStatus(
+                    "Account removed; local cleanup is pending",
+                    "The account metadata was removed safely, but some isolated browser files are still in use. SessionDock will retry orphan cleanup on a later start.",
+                    "CLEANUP WARNING");
+            }
         }
         finally
         {
@@ -948,6 +1087,13 @@ public partial class MainWindow : Window
         if (profile is null)
             return true;
 
+        return await ClearBrowserProfileAsync(profile, cancellationToken);
+    }
+
+    private async Task<bool> ClearBrowserProfileAsync(
+        AccountProfile profile,
+        CancellationToken cancellationToken)
+    {
         await _webSession.ClearProfileAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         _webSession.ReleaseBrowser();
@@ -980,11 +1126,19 @@ public partial class MainWindow : Window
         if (_operationBusy || _launchInProgress || _pendingProfile is not null)
             return;
 
-        if (!AccountDestinationService.TryApplyToAll(
-                _settings.Accounts,
-                _settings.RecentExperiences,
+        if (_settings.Accounts.Count == 0)
+        {
+            SetStatus(
+                "Destination was not changed",
+                "Add an account before setting a shared destination.",
+                "INVALID DESTINATION");
+            RefreshLaunchAvailability();
+            return;
+        }
+        if (!LaunchInputResolver.TryResolve(
                 PlaceIdBox.Text,
-                out var assignedCount,
+                _settings.RecentExperiences,
+                out var resolved,
                 out var error))
         {
             SetStatus("Destination was not changed", error, "INVALID DESTINATION");
@@ -992,7 +1146,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settingsService.Save(_settings);
+        var assignedCount = _settings.Accounts.Count;
+        if (!TryCommitSettingsMutation(
+                () =>
+                {
+                    foreach (var account in _settings.Accounts)
+                        account.Destination = resolved!.AccountDestination;
+                },
+                "Shared destination could not be saved",
+                "DESTINATION SAVE ERROR"))
+        {
+            ShowDestinationForProfile(_activeProfile);
+            RefreshLaunchAvailability();
+            return;
+        }
         ShowDestinationForProfile(_activeProfile);
         RefreshLaunchAvailability();
         SetStatus(
@@ -1168,9 +1335,11 @@ public partial class MainWindow : Window
         {
             await CompleteShutdownAsync();
         }
-        catch
+        catch (Exception exception)
         {
             // A shutdown failure must not keep the process and mutex alive.
+            System.Diagnostics.Trace.WriteLine(
+                $"Window shutdown failed safely: {exception.GetType().Name}.");
         }
         finally
         {
@@ -1189,11 +1358,16 @@ public partial class MainWindow : Window
         try
         {
             TrackDestinationForActiveProfile();
-            _settingsService.Save(_settings);
+            var shutdownSettings = AppSettingsSnapshot.Create(_settings);
+            await BoundedSettingsPersistence.TrySaveAsync(
+                () => _settingsService.Save(shutdownSettings),
+                SettingsSaveShutdownTimeout);
         }
-        catch
+        catch (Exception exception)
         {
             // Closing must continue even if local settings are unavailable.
+            System.Diagnostics.Trace.WriteLine(
+                $"Shutdown settings persistence failed: {exception.GetType().Name}.");
         }
 
         _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;

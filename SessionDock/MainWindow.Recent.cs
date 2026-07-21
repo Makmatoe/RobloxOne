@@ -246,9 +246,17 @@ public partial class MainWindow
         if (sender is not Button { Tag: RecentExperience recent })
             return;
 
+        var activeProfile = _activeProfile;
+        if (activeProfile is not null && _pendingProfile is null &&
+            !TryCommitSettingsMutation(
+                () => activeProfile.Destination = recent.Destination,
+                "Recent destination could not be saved",
+                "HISTORY SAVE ERROR"))
+        {
+            return;
+        }
+
         PlaceIdBox.Text = recent.Destination;
-        TrackDestinationForActiveProfile();
-        _settingsService.Save(_settings);
         ShowLauncherTab();
         PlaceIdBox.Focus();
         ResetDestinationViewport();
@@ -262,9 +270,18 @@ public partial class MainWindow
             return;
         }
 
-        PlaceIdBox.Text = serverJobId.ToString("D");
-        TrackDestinationForActiveProfile();
-        _settingsService.Save(_settings);
+        var destination = serverJobId.ToString("D");
+        var activeProfile = _activeProfile;
+        if (activeProfile is not null && _pendingProfile is null &&
+            !TryCommitSettingsMutation(
+                () => activeProfile.Destination = destination,
+                "Tracked server could not be saved",
+                "HISTORY SAVE ERROR"))
+        {
+            return;
+        }
+
+        PlaceIdBox.Text = destination;
         ShowLauncherTab();
         PlaceIdBox.Focus();
         ResetDestinationViewport();
@@ -287,8 +304,7 @@ public partial class MainWindow
                 "FAVORITES FULL");
             return;
         }
-        recent.IsPinned = !recent.IsPinned;
-        SaveRecentMetadata();
+        SaveRecentMetadata(() => recent.IsPinned = !recent.IsPinned);
     }
 
     private void RenameRecentButton_Click(object sender, RoutedEventArgs e)
@@ -306,12 +322,14 @@ public partial class MainWindow
         if (dialog.ShowDialog() != true)
             return;
 
-        foreach (var matchingEntry in _settings.RecentExperiences.Where(item =>
-                     RecentDestinationIdentity.Matches(item, recent)))
+        SaveRecentMetadata(() =>
         {
-            matchingEntry.CustomName = dialog.Value;
-        }
-        SaveRecentMetadata();
+            foreach (var matchingEntry in _settings.RecentExperiences.Where(item =>
+                         RecentDestinationIdentity.Matches(item, recent)))
+            {
+                matchingEntry.CustomName = dialog.Value;
+            }
+        });
     }
 
     private void RemoveRecentButton_Click(object sender, RoutedEventArgs e)
@@ -325,8 +343,7 @@ public partial class MainWindow
             MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes)
             return;
-        _settings.RecentExperiences.Remove(recent);
-        SaveRecentMetadata();
+        SaveRecentMetadata(() => _settings.RecentExperiences.Remove(recent));
     }
 
     private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
@@ -354,54 +371,54 @@ public partial class MainWindow
         if (result != MessageBoxResult.Yes)
             return;
 
-        _settings.RecentExperiences.RemoveAll(MatchesClearHistoryScope);
-        SaveRecentMetadata();
+        SaveRecentMetadata(() =>
+            _settings.RecentExperiences.RemoveAll(MatchesClearHistoryScope));
     }
 
     private void SaveRecentExperience(RecentExperience recent)
     {
-        var matchingDestinationEntries = _settings.RecentExperiences
-            .Where(item => RecentDestinationIdentity.Matches(item, recent))
-            .ToList();
-        var sharedCustomName = matchingDestinationEntries
-            .Where(item => item.CustomName is not null)
-            .OrderByDescending(item => item.LastLaunchedAt)
-            .Select(item => item.CustomName)
-            .FirstOrDefault();
-        var existing = _settings.RecentExperiences.FirstOrDefault(item =>
-            item.AccountUserId == recent.AccountUserId &&
-            RecentDestinationIdentity.Matches(item, recent));
-        if (existing is not null)
+        SaveRecentMetadata(() =>
         {
-            recent.IsPinned = existing.IsPinned;
-            _settings.RecentExperiences.Remove(existing);
-        }
-        recent.CustomName = sharedCustomName;
-
-        _settings.RecentExperiences.Insert(0, recent);
-        if (_settings.RecentExperiences.Count(item => !item.IsPinned) > 50)
-        {
-            var removable = _settings.RecentExperiences
-                .Where(item => !item.IsPinned)
-                .OrderBy(item => item.LastLaunchedAt)
+            var matchingDestinationEntries = _settings.RecentExperiences
+                .Where(item => RecentDestinationIdentity.Matches(item, recent))
+                .ToList();
+            var sharedCustomName = matchingDestinationEntries
+                .Where(item => item.CustomName is not null)
+                .OrderByDescending(item => item.LastLaunchedAt)
+                .Select(item => item.CustomName)
                 .FirstOrDefault();
-            if (removable is not null)
-                _settings.RecentExperiences.Remove(removable);
-        }
-        SaveRecentMetadata(showError: false);
+            var existing = _settings.RecentExperiences.FirstOrDefault(item =>
+                item.AccountUserId == recent.AccountUserId &&
+                RecentDestinationIdentity.Matches(item, recent));
+            if (existing is not null)
+            {
+                recent.IsPinned = existing.IsPinned;
+                _settings.RecentExperiences.Remove(existing);
+            }
+            recent.CustomName = sharedCustomName;
+
+            _settings.RecentExperiences.Insert(0, recent);
+            if (_settings.RecentExperiences.Count(item => !item.IsPinned) > 50)
+            {
+                var removable = _settings.RecentExperiences
+                    .Where(item => !item.IsPinned)
+                    .OrderBy(item => item.LastLaunchedAt)
+                    .FirstOrDefault();
+                if (removable is not null)
+                    _settings.RecentExperiences.Remove(removable);
+            }
+        }, showError: false);
     }
 
-    private void SaveRecentMetadata(bool showError = true)
+    private void SaveRecentMetadata(
+        Action mutation,
+        bool showError = true)
     {
-        try
-        {
-            _settingsService.Save(_settings);
-        }
-        catch (Exception ex)
-        {
-            if (showError)
-                SetStatus("Local metadata could not be saved", ex.Message, "HISTORY ERROR");
-        }
+        TryCommitSettingsMutation(
+            mutation,
+            "Local metadata could not be saved",
+            "HISTORY ERROR",
+            showFailure: showError);
         RenderRecentExperiences();
     }
 

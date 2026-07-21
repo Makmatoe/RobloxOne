@@ -7,7 +7,7 @@ public partial class MainWindow
     private async void CloseAllInstancesButton_Click(
         object sender,
         RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(CloseAllInstancesButtonClickAsync);
+        await RunWindowOperationAsync(CloseAllInstancesButtonClickAsync);
 
     private async Task CloseAllInstancesButtonClickAsync(
         CancellationToken cancellationToken)

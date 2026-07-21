@@ -10,7 +10,7 @@ public partial class MainWindow
     private readonly SessionDockUpdateService _updateService = new();
 
     private async void InstallUpdateButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(InstallUpdateButtonClickAsync);
+        await RunWindowOperationAsync(InstallUpdateButtonClickAsync);
 
     private async Task InstallUpdateButtonClickAsync(
         CancellationToken cancellationToken)

@@ -8,7 +8,7 @@ namespace SessionDock;
 public partial class MainWindow
 {
     private async void BatchLaunchButton_Click(object sender, RoutedEventArgs e) =>
-        await _operationLifetime.RunAsync(BatchLaunchButtonClickAsync);
+        await RunWindowOperationAsync(BatchLaunchButtonClickAsync);
 
     private async Task BatchLaunchButtonClickAsync(
         CancellationToken cancellationToken)
@@ -360,11 +360,17 @@ public partial class MainWindow
         _webSession.RobloxPageLoaded += PageLoadedHandler;
         try
         {
+            if (!TryCommitSettingsMutation(
+                    () => _settings.ActiveAccountKey = account.Key,
+                    $"Could not activate @{account.Username}",
+                    "BATCH ACCOUNT ERROR"))
+            {
+                return false;
+            }
+
             _activeProfile = account;
             _pendingProfile = null;
             _currentUser = null;
-            _settings.ActiveAccountKey = account.Key;
-            _settingsService.Save(_settings);
             RenderAccountList();
 
             await InitializeBrowserAsync(
