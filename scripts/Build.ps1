@@ -64,7 +64,7 @@ try {
 
     if (-not $SkipPublish) {
         if (Test-Path -LiteralPath $output) {
-            Remove-Item -LiteralPath $output -Recurse -Force
+            Remove-SafeOutputDirectory $output
         }
         New-Item -ItemType Directory -Path $output -Force | Out-Null
         Invoke-CheckedCommand dotnet publish $project '--configuration' $Configuration '--runtime' $Runtime `
@@ -72,6 +72,7 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $output 'RobloxOne.exe') -PathType Leaf)) {
             throw "Publish completed without the expected RobloxOne.exe in $output."
         }
+        & (Join-Path $PSScriptRoot 'Verify-Publish.ps1') -Directory $output
     }
 }
 finally {

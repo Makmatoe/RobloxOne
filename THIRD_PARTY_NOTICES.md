@@ -5,7 +5,7 @@ its own license; the Roblox One license does not replace those terms.
 
 ## Microsoft WebView2
 
-- Package: `Microsoft.Web.WebView2`
+- Package: `Microsoft.Web.WebView2` 1.0.4078.44
 - Publisher: Microsoft Corporation
 - Project/package information:
   <https://www.nuget.org/packages/Microsoft.Web.WebView2>
@@ -14,15 +14,19 @@ its own license; the Roblox One license does not replace those terms.
 
 WebView2 provides the isolated embedded browser used for official Roblox sign-in
 pages. The WebView2 Runtime is installed and serviced separately by Microsoft.
+The redistributable loader's complete package license and third-party notice are
+shipped as `licenses/Microsoft.Web.WebView2-LICENSE.txt` and
+`licenses/Microsoft.Web.WebView2-NOTICE.txt`.
 
 ## Velopack
 
-- Package and tooling: `Velopack` / `vpk`
-- Project: <https://github.com/velopack/velopack>
+- Package and tooling: `Velopack` / `vpk` 1.2.0
+- Pinned source: <https://github.com/velopack/velopack/tree/1.2.0>
 - License: MIT
-- Copyright: the Velopack contributors
+- Copyright: © 2021 Caelan Sayler; © 2024 Velopack Ltd.
 
 Velopack provides release packaging and the user-confirmed update mechanism.
+Its MIT license is shipped as `licenses/Velopack-LICENSE.txt`.
 
 ## Development and test tooling
 
@@ -34,11 +38,12 @@ projects.
 
 ## .NET and bundled runtime components
 
-Self-contained releases include Microsoft .NET runtime components and may
-include other native/runtime files selected by the .NET SDK. Their copyright
-and license notices are included in, or referenced by, the published release as
-required by their respective licenses. See <https://dotnet.microsoft.com/> and
-the notices emitted by the exact SDK/runtime used for that release.
+Self-contained releases pin and include the .NET 10.0.8 runtime selected by the
+repository's exact SDK. The .NET runtime license and its complete bundled
+third-party notice are shipped as `licenses/DotNet-LICENSE.txt` and
+`licenses/DotNet-THIRD-PARTY-NOTICES.txt`. The Windows Desktop runtime license
+is shipped as `licenses/Microsoft.WindowsDesktop-LICENSE.txt`. See
+<https://dotnet.microsoft.com/> for upstream project information.
 
 ## External optional software
 
@@ -47,5 +52,6 @@ licensed as part of Roblox One. HandleScope is optional, separately installed,
 and not bundled in Roblox One releases. Users must obtain and operate external
 software under its publisher's terms.
 
-This notice is informational and is not a substitute for the complete license
-files supplied by third-party publishers.
+These notices travel inside both the installed application and portable ZIP.
+The versioned SBOM published with each release identifies the application,
+direct runtime dependencies, and pinned framework runtime used for that build.

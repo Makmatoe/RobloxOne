@@ -851,11 +851,11 @@ public partial class MainWindow : Window
         if (profile is null)
             return true;
 
-        var browserDataCleared = await _webSession.ClearProfileAsync();
+        await _webSession.ClearProfileAsync();
         _webSession.ReleaseBrowser();
         BrowserHost.Children.Clear();
         var directoryRemoved = await _settingsService.DeleteSessionDataAsync(profile);
-        return browserDataCleared || directoryRemoved;
+        return directoryRemoved;
     }
 
     private void PlaceIdBox_TextChanged(object sender, TextChangedEventArgs e)

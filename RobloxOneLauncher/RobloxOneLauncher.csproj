@@ -25,6 +25,7 @@
   <PropertyGroup>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
+    <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
@@ -37,6 +38,30 @@
     <None Update="handlescope.example.json"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="Never" />
+    <None Include="..\LICENSE.md"
+          Link="LICENSE.md"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\THIRD_PARTY_NOTICES.md"
+          Link="THIRD_PARTY_NOTICES.md"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\licenses\Velopack-LICENSE.txt"
+          Link="licenses\Velopack-LICENSE.txt"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.8\LICENSE.TXT"
+          Link="licenses\DotNet-LICENSE.txt"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.8\THIRD-PARTY-NOTICES.TXT"
+          Link="licenses\DotNet-THIRD-PARTY-NOTICES.txt"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.runtime.win-x64\10.0.8\LICENSE"
+          Link="licenses\Microsoft.WindowsDesktop-LICENSE.txt"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.4078.44\LICENSE.txt"
+          Link="licenses\Microsoft.Web.WebView2-LICENSE.txt"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.4078.44\NOTICE.txt"
+          Link="licenses\Microsoft.Web.WebView2-NOTICE.txt"
+          CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Resources\update-public-key.pem"
                       LogicalName="RobloxOneLauncher.Embedded.ReleasePublicKey.pem" />
   </ItemGroup>

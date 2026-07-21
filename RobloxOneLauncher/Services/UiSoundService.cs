@@ -43,6 +43,7 @@ public sealed class UiSoundService : IDisposable
         try
         {
             Directory.CreateDirectory(_soundsDirectory);
+            ThrowIfReparsePoint(_soundsDirectory);
             OpenPlayer(_uiPlayer, EnsureBuiltInSound("ui-v1", [(940, 34)]));
         }
         catch (Exception ex) when (
@@ -128,14 +129,33 @@ public sealed class UiSoundService : IDisposable
 
     public string ImportStartupSound(string sourcePath)
     {
-        ValidateImportSource(sourcePath);
-        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+        using var source = OpenValidatedImportSource(sourcePath, out var extension);
         var fileName = $"startup-custom{extension}";
         var destination = GetSafeSoundPath(fileName);
         var temporary = destination + $".{Guid.NewGuid():N}.tmp";
         try
         {
-            File.Copy(sourcePath, temporary, overwrite: false);
+            using (var output = new FileStream(
+                       temporary,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None))
+            {
+                var buffer = new byte[81920];
+                long copied = 0;
+                while (true)
+                {
+                    var read = source.Read(buffer, 0, buffer.Length);
+                    if (read == 0)
+                        break;
+                    copied += read;
+                    if (copied > MaximumImportedSoundBytes)
+                        throw new InvalidDataException(
+                            "The startup sound is larger than 25 MB.");
+                    output.Write(buffer, 0, read);
+                }
+                output.Flush(flushToDisk: true);
+            }
             File.Move(temporary, destination, overwrite: true);
         }
         finally
@@ -194,33 +214,49 @@ public sealed class UiSoundService : IDisposable
 
     private void ValidateImportSource(string sourcePath)
     {
+        using var source = OpenValidatedImportSource(sourcePath, out _);
+    }
+
+    private static FileStream OpenValidatedImportSource(
+        string sourcePath,
+        out string extension)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         var fullPath = Path.GetFullPath(sourcePath);
-        var file = new FileInfo(fullPath);
-        if (!file.Exists)
-            throw new FileNotFoundException("The selected sound file no longer exists.");
-        if (!SupportedImportedExtensions.Contains(file.Extension))
+        extension = Path.GetExtension(fullPath).ToLowerInvariant();
+        if (!SupportedImportedExtensions.Contains(extension))
         {
             throw new InvalidDataException(
                 "Choose a WAV, MP3, WMA, or M4A audio file.");
         }
-        if (file.Length is <= 0 or > MaximumImportedSoundBytes)
-        {
-            throw new InvalidDataException(
-                "The startup sound must be between 1 byte and 25 MB.");
-        }
-        if (!HasExpectedAudioSignature(file.FullName, file.Extension))
-            throw new InvalidDataException("The selected file is not valid supported audio.");
-    }
 
-    private static bool HasExpectedAudioSignature(string path, string extension)
-    {
-        Span<byte> header = stackalloc byte[16];
-        using var stream = new FileStream(
-            path,
+        var stream = new FileStream(
+            fullPath,
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read);
+        if (stream.Length is <= 0 or > MaximumImportedSoundBytes)
+        {
+            stream.Dispose();
+            throw new InvalidDataException(
+                "The startup sound must be between 1 byte and 25 MB.");
+        }
+
+        if (!HasExpectedAudioSignature(stream, extension))
+        {
+            stream.Dispose();
+            throw new InvalidDataException("The selected file is not valid supported audio.");
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static bool HasExpectedAudioSignature(
+        Stream stream,
+        string extension)
+    {
+        Span<byte> header = stackalloc byte[16];
         var read = stream.Read(header);
         if (read < 12)
             return false;
@@ -267,11 +303,23 @@ public sealed class UiSoundService : IDisposable
 
     private string GetSafeSoundPath(string fileName)
     {
+        ThrowIfReparsePoint(_soundsDirectory);
         var root = Path.GetFullPath(_soundsDirectory) + Path.DirectorySeparatorChar;
         var path = Path.GetFullPath(Path.Combine(_soundsDirectory, fileName));
         if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The sound path is outside Roblox One.");
+        if (File.Exists(path) &&
+            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException("A sound file cannot be a reparse point.");
+        }
         return path;
+    }
+
+    private static void ThrowIfReparsePoint(string path)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("The sound directory cannot be a reparse point.");
     }
 
     private static void OpenPlayer(MediaPlayer player, string path) =>

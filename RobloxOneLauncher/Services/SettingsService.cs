@@ -6,6 +6,7 @@ namespace RobloxOneLauncher.Services;
 
 public sealed class SettingsService
 {
+    private const int MaximumSettingsBytes = 4 * 1024 * 1024;
     public static readonly IReadOnlyList<string> AccountColors =
         ["#7C5CFC", "#4D8DFF", "#27B58A", "#E0A33A", "#E36B8D", "#A56DE2"];
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -13,6 +14,7 @@ public sealed class SettingsService
     private readonly string _backupPath;
     private readonly string _profileCleanupGuardPath;
     private readonly string _settingsPath;
+    private readonly object _saveLock = new();
     private bool _primaryIsUnreadable;
 
     public SettingsService(string? storageDirectory = null)
@@ -21,6 +23,7 @@ public sealed class SettingsService
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "RobloxOne"));
         Directory.CreateDirectory(_rootDirectory);
+        ThrowIfReparsePoint(_rootDirectory);
         _settingsPath = Path.Combine(_rootDirectory, "settings.json");
         _backupPath = Path.Combine(_rootDirectory, "settings.backup.json");
         _profileCleanupGuardPath = Path.Combine(
@@ -41,6 +44,7 @@ public sealed class SettingsService
         {
             throw new InvalidOperationException("The account session path is outside Roblox One.");
         }
+        EnsureDirectoryPathHasNoReparsePoints(path);
         return path;
     }
 
@@ -113,39 +117,43 @@ public sealed class SettingsService
 
     public void Save(AppSettings settings)
     {
-        if (_primaryIsUnreadable)
+        ArgumentNullException.ThrowIfNull(settings);
+        lock (_saveLock)
         {
-            if (!PreserveUnreadableFile(_settingsPath))
+            if (_primaryIsUnreadable)
             {
-                throw new IOException(
-                    "The unreadable settings file is still in use and was not overwritten.");
+                if (!PreserveUnreadableFile(_settingsPath))
+                {
+                    throw new IOException(
+                        "The unreadable settings file is still in use and was not overwritten.");
+                }
+                _primaryIsUnreadable = false;
             }
-            _primaryIsUnreadable = false;
-        }
 
-        var temporaryPath = _settingsPath + ".tmp";
-        try
-        {
-            File.WriteAllText(
-                temporaryPath,
-                JsonSerializer.Serialize(settings, JsonOptions));
-            if (File.Exists(_settingsPath))
+            var temporaryPath = CreateTemporaryPath("save");
+            try
             {
-                File.Replace(
-                    temporaryPath,
-                    _settingsPath,
-                    _backupPath,
-                    ignoreMetadataErrors: true);
+                WriteSettingsFile(temporaryPath, settings);
+                ThrowIfFileIsReparsePoint(_settingsPath);
+                ThrowIfFileIsReparsePoint(_backupPath);
+                if (File.Exists(_settingsPath))
+                {
+                    File.Replace(
+                        temporaryPath,
+                        _settingsPath,
+                        _backupPath,
+                        ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(temporaryPath, _settingsPath);
+                }
             }
-            else
+            finally
             {
-                File.Move(temporaryPath, _settingsPath);
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
             }
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
         }
     }
 
@@ -158,6 +166,12 @@ public sealed class SettingsService
         var profilesDirectory = Path.Combine(_rootDirectory, "Profiles");
         if (!Directory.Exists(profilesDirectory))
             return 0;
+        if (IsReparsePoint(profilesDirectory))
+        {
+            PauseProfileCleanup();
+            AddProfileCleanupNotice();
+            return 0;
+        }
 
         var referencedKeys = settings.Accounts
             .Select(account => account.Key)
@@ -169,12 +183,13 @@ public sealed class SettingsService
                      SearchOption.TopDirectoryOnly))
         {
             var key = Path.GetFileName(directory);
-            if (!IsValidKey(key) || key == "legacy" || referencedKeys.Contains(key))
+            if (!IsValidKey(key) || key == "legacy" ||
+                referencedKeys.Contains(key) || IsReparsePoint(directory))
                 continue;
             try
             {
-                Directory.Delete(directory, recursive: true);
-                removed++;
+                if (TryDeleteDirectoryTree(directory))
+                    removed++;
             }
             catch (Exception ex) when (
                 ex is IOException or UnauthorizedAccessException)
@@ -189,7 +204,18 @@ public sealed class SettingsService
         AccountProfile profile,
         CancellationToken cancellationToken = default)
     {
-        var path = GetSessionDataDirectory(profile);
+        string path;
+        try
+        {
+            path = GetSessionDataDirectory(profile);
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or
+                InvalidOperationException)
+        {
+            return false;
+        }
+
         for (var attempt = 0; attempt < 10; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -197,8 +223,7 @@ public sealed class SettingsService
             {
                 if (!Directory.Exists(path))
                     return true;
-                Directory.Delete(path, recursive: true);
-                return true;
+                return TryDeleteDirectoryTree(path);
             }
             catch (Exception ex) when (
                 ex is IOException or UnauthorizedAccessException)
@@ -223,7 +248,7 @@ public sealed class SettingsService
             if (!File.Exists(path))
                 return false;
             settings = JsonSerializer.Deserialize<AppSettings>(
-                File.ReadAllText(path)) ?? new();
+                ReadBoundedFile(path, MaximumSettingsBytes)) ?? new();
             migrated = MigrateLegacyAccount(settings);
             Normalize(settings);
             migrated |= MigrateLegacyDestinations(settings);
@@ -231,7 +256,7 @@ public sealed class SettingsService
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException or JsonException or
-                NotSupportedException or ArgumentException)
+                NotSupportedException or ArgumentException or InvalidDataException)
         {
             settings = new();
             migrated = false;
@@ -241,12 +266,11 @@ public sealed class SettingsService
 
     private void WriteFresh(AppSettings settings)
     {
-        var temporaryPath = _settingsPath + ".restore.tmp";
+        var temporaryPath = CreateTemporaryPath("restore");
         try
         {
-            File.WriteAllText(
-                temporaryPath,
-                JsonSerializer.Serialize(settings, JsonOptions));
+            WriteSettingsFile(temporaryPath, settings);
+            ThrowIfFileIsReparsePoint(_settingsPath);
             File.Move(temporaryPath, _settingsPath, overwrite: true);
         }
         finally
@@ -304,8 +328,13 @@ public sealed class SettingsService
         CanReconcileProfiles = false;
         try
         {
-            File.WriteAllText(
+            using var stream = new FileStream(
                 _profileCleanupGuardPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read);
+            using var writer = new StreamWriter(stream);
+            writer.Write(
                 "Automatic browser-profile cleanup is paused because settings could not be recovered. Keep this file until account metadata has been recovered or all old profiles may be deleted.");
         }
         catch (Exception ex) when (
@@ -523,4 +552,121 @@ public sealed class SettingsService
     private static bool IsValidKey(string key) =>
         key == "legacy" ||
         key is { Length: 32 } && key.All(Uri.IsHexDigit);
+
+    private string CreateTemporaryPath(string purpose) => Path.Combine(
+        _rootDirectory,
+        $"settings.{purpose}.{Guid.NewGuid():N}.tmp");
+
+    private static void WriteSettingsFile(string path, AppSettings settings)
+    {
+        var contents = JsonSerializer.SerializeToUtf8Bytes(settings, JsonOptions);
+        if (contents.Length > MaximumSettingsBytes)
+            throw new InvalidDataException("The settings data is too large.");
+        using var stream = new FileStream(
+            path,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None);
+        stream.Write(contents, 0, contents.Length);
+        stream.Flush(flushToDisk: true);
+    }
+
+    private static byte[] ReadBoundedFile(string path, int maximumBytes)
+    {
+        ThrowIfFileIsReparsePoint(path);
+        using var input = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        using var output = new MemoryStream();
+        var chunk = new byte[8192];
+        while (true)
+        {
+            var read = input.Read(chunk, 0, chunk.Length);
+            if (read == 0)
+                return output.ToArray();
+            if (output.Length + read > maximumBytes)
+                throw new InvalidDataException("The settings file is too large.");
+            output.Write(chunk, 0, read);
+        }
+    }
+
+    private void EnsureDirectoryPathHasNoReparsePoints(string path)
+    {
+        ThrowIfReparsePoint(_rootDirectory);
+        var relative = Path.GetRelativePath(_rootDirectory, path);
+        var current = _rootDirectory;
+        foreach (var component in relative.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, component);
+            if (Directory.Exists(current))
+            {
+                ThrowIfReparsePoint(current);
+                continue;
+            }
+
+            Directory.CreateDirectory(current);
+            ThrowIfReparsePoint(current);
+        }
+    }
+
+    private static bool TryDeleteDirectoryTree(string root)
+    {
+        if (!Directory.Exists(root) || IsReparsePoint(root))
+            return false;
+
+        var pending = new Stack<(string Path, bool ChildrenVisited)>();
+        pending.Push((root, false));
+        while (pending.TryPop(out var item))
+        {
+            if (item.ChildrenVisited)
+            {
+                if (IsReparsePoint(item.Path))
+                    return false;
+                Directory.Delete(item.Path, recursive: false);
+                continue;
+            }
+
+            if (IsReparsePoint(item.Path))
+                return false;
+            pending.Push((item.Path, true));
+            foreach (var entry in Directory.EnumerateFileSystemEntries(
+                         item.Path,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        return false;
+                    pending.Push((entry, false));
+                }
+                else
+                {
+                    File.Delete(entry);
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static void ThrowIfFileIsReparsePoint(string path)
+    {
+        if (File.Exists(path) && IsReparsePoint(path))
+            throw new IOException("An app data file cannot be a reparse point.");
+    }
+
+    private static void ThrowIfReparsePoint(string path)
+    {
+        if (IsReparsePoint(path))
+            throw new IOException("An app data directory cannot be a reparse point.");
+    }
+
+    private static bool IsReparsePoint(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 }

@@ -1,11 +1,15 @@
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace RobloxOneLauncher.Services;
 
 public sealed class RobloxServerTracker
 {
+    private const int MaximumCandidateLogs = 8;
+    private const int MaximumLogTailBytes = 512 * 1024;
+    private const int MaximumLogLineCharacters = 16 * 1024;
     private static readonly TimeSpan TrackingTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LogTimestampTolerance = TimeSpan.FromSeconds(5);
     private static readonly Regex JoinPattern = new(
@@ -53,7 +57,7 @@ public sealed class RobloxServerTracker
         long expectedPlaceId,
         DateTimeOffset launchStartedAt)
     {
-        if (!Directory.Exists(_logDirectory))
+        if (!Directory.Exists(_logDirectory) || IsReparsePoint(_logDirectory))
             return null;
 
         IEnumerable<FileInfo> candidates;
@@ -61,11 +65,12 @@ public sealed class RobloxServerTracker
         {
             candidates = new DirectoryInfo(_logDirectory)
                 .EnumerateFiles("*_Player_*.log", SearchOption.TopDirectoryOnly)
+                .Where(file => !IsReparsePoint(file.FullName))
                 .Where(file =>
                     file.LastWriteTimeUtc >=
                     launchStartedAt.UtcDateTime - LogTimestampTolerance)
                 .OrderByDescending(file => file.LastWriteTimeUtc)
-                .Take(16)
+                .Take(MaximumCandidateLogs)
                 .ToArray();
         }
         catch (Exception ex) when (
@@ -101,12 +106,44 @@ public sealed class RobloxServerTracker
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream);
+            var available = stream.Length;
+            var offset = Math.Max(0, available - MaximumLogTailBytes);
+            stream.Position = offset;
+            var length = checked((int)Math.Min(
+                MaximumLogTailBytes,
+                available - offset));
+            var bytes = new byte[length];
+            var total = 0;
+            while (total < length)
+            {
+                var read = stream.Read(bytes, total, length - total);
+                if (read == 0)
+                    break;
+                total += read;
+            }
+
+            var text = Encoding.UTF8.GetString(bytes, 0, total);
+            if (offset > 0)
+            {
+                var firstLineEnd = text.IndexOf('\n');
+                if (firstLineEnd < 0)
+                    return null;
+                text = text[(firstLineEnd + 1)..];
+            }
+
+            using var reader = new StringReader(text);
             string? pendingServerJobId = null;
             long pendingPlaceId = 0;
 
             while (reader.ReadLine() is { } line)
             {
+                if (line.Length > MaximumLogLineCharacters)
+                {
+                    pendingServerJobId = null;
+                    pendingPlaceId = 0;
+                    continue;
+                }
+
                 var joinMatch = JoinPattern.Match(line);
                 if (joinMatch.Success &&
                     TryReadTimestamp(line, out var timestamp) &&
@@ -161,4 +198,7 @@ public sealed class RobloxServerTracker
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
             out timestamp);
     }
+
+    private static bool IsReparsePoint(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 }

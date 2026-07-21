@@ -36,13 +36,21 @@ signature check.
 
 Immediately before scheduling installation, Roblox One rechecks the downloaded
 full package against the signed size and SHA-256, extracts only its application
-executable into a locked temporary file, validates the Windows trust chain and
-version, and requires its signer subject to match the currently installed,
-trusted Roblox One executable. A deliberate publisher-identity change therefore
-requires a fresh Setup installation instead of silently crossing that boundary.
+executables into a locked temporary directory, rejects missing, duplicate,
+path-like, oversized, or unexpected archive entries, validates the package
+identity/version metadata, and validates the Windows trust chain for the app,
+update stub, and updater. Every executable signer subject must match the
+currently installed, trusted Roblox One executable. A deliberate
+publisher-identity change therefore requires a fresh Setup installation instead
+of silently crossing that boundary.
 
 Release notes are displayed as bounded, inert text. Web content from a release
 is not executed in the application.
+
+Each release also publishes an SPDX SBOM, complete bundled dependency notices,
+SHA-256 checksums for every other asset, and GitHub attestations. These aid
+independent inspection; the in-app trust decision still relies on the signed
+descriptor and Windows executable signatures.
 
 ## User data
 

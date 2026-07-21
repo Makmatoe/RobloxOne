@@ -6,7 +6,11 @@ param(
 
     [switch] $RequireTagAtHead,
 
-    [switch] $RequireMainAtHead
+    [switch] $RequireMainAtHead,
+
+    [switch] $RequireAnnotatedTag,
+
+    [switch] $RequireCleanWorkingTree
 )
 
 . (Join-Path $PSScriptRoot 'Common.ps1')
@@ -46,10 +50,27 @@ try {
         }
     }
 
+    if ($RequireAnnotatedTag) {
+        $tagType = (& git cat-file -t "refs/tags/$Tag").Trim()
+        if ($LASTEXITCODE -ne 0 -or $tagType -cne 'tag') {
+            throw "Release tag '$Tag' must be an annotated tag object."
+        }
+    }
+
     if ($RequireMainAtHead) {
         $mainCommit = (& git rev-parse 'refs/remotes/origin/main').Trim()
         if ($LASTEXITCODE -ne 0 -or $mainCommit -ne $head) {
             throw "Release tags must point at the current origin/main commit. HEAD=$head origin/main=$mainCommit"
+        }
+    }
+
+    if ($RequireCleanWorkingTree) {
+        $changes = @(& git status --porcelain=v1 --untracked-files=all)
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect the release working tree.'
+        }
+        if ($changes.Count -ne 0) {
+            throw "Release working tree must be clean:`n$($changes -join [Environment]::NewLine)"
         }
     }
 

@@ -27,10 +27,18 @@ Configure these controls before the first public release:
    `DEPENDENCY_REVIEW_ENABLED=true`. Until then, the CI build still fails on
    vulnerable or deprecated NuGet dependencies through the repository-owned
    audit script.
-6. Create a protected `release` environment with a required human reviewer and
-   prevention of self-review. Only the final signing/publishing job may use it.
+6. Create a protected `release` environment with a required human reviewer.
+   Only the final signing/publishing job may use it. For a single-owner
+   repository, allow self-review so releases do not deadlock; this remains an
+   explicit publication confirmation, not independent review. As soon as a
+   second trusted maintainer is available, require that maintainer and prevent
+   self-review.
 7. Configure Azure workload identity federation for GitHub Actions. Do not
    store a long-lived Azure client secret.
+
+The repository is not release-ready while any of those controls is absent.
+In particular, a private repository cannot serve the tokenless updater, and a
+tag must not be pushed until the protected `release` environment is complete.
 
 The production workflow expects these protected environment variables:
 
@@ -41,6 +49,7 @@ The production workflow expects these protected environment variables:
 - `AZURE_SIGNING_ACCOUNT`
 - `AZURE_SIGNING_PROFILE`
 - `EXPECTED_PUBLISHER_SUBJECT`
+- `APPROVED_RELEASE_LICENSE_SHA256`
 
 It also expects `UPDATE_SIGNING_PRIVATE_KEY_PEM` as a protected environment
 secret. This key signs only the bounded release descriptor. Limit environment
@@ -48,6 +57,14 @@ access, rotate the key deliberately with a new embedded key identifier, and
 never print, upload, cache, or persist it. A managed signing service should
 replace the repository secret if one becomes available for this descriptor
 format.
+
+`APPROVED_RELEASE_LICENSE_SHA256` is the uppercase SHA-256 of an independently
+reviewed license that permits binary distribution. The release job also rejects
+terms that explicitly prohibit publishing or distribution, even if their hash
+is configured. The current repository-only, no-distribution `LICENSE.md` is an
+intentional release blocker; do not work around it. Adopt appropriate release
+terms with the copyright holder's approval, review them, then update the
+protected hash.
 
 ## Prepare a release
 
@@ -57,8 +74,13 @@ format.
 4. Add `ReleaseNotes/2.1.0.md`. Keep notes user-focused, displayable, and free
    of secrets or untrusted HTML.
 5. Restore, build, test, and run the repository validation scripts locally.
-6. Review dependency vulnerability output and the complete release diff.
-7. Merge through the protected branch after required checks pass.
+6. Confirm the publish inventory contains only `RobloxOne.exe`, the approved
+   license, `THIRD_PARTY_NOTICES.md`, and the pinned upstream license/notice
+   files under `licenses/`.
+7. Review dependency vulnerability output, the generated SPDX SBOM, and the
+   complete release diff.
+8. Confirm no release or draft already exists for the version.
+9. Merge through the protected branch after required checks pass.
 
 The project version, notes filename, tag, assembly/package version, descriptor
 version, and Velopack version must agree. The release workflow must fail closed
@@ -88,13 +110,22 @@ The tag workflow should then:
    package filename, size, SHA-256 digest, channel, key identifier, version, and
    release notes;
 7. assemble a draft GitHub Release and verify every staged asset;
-8. create GitHub artifact attestations for final downloadable assets; and
-9. publish the immutable release only after all verification succeeds.
+8. publish an SPDX 2.3 SBOM and a `SHA256SUMS.txt` that covers every other
+   downloadable asset;
+9. verify the exact release inventory, Velopack feeds, package/portable entry
+   allowlists, approved license, and every executable payload's publisher;
+10. create GitHub artifact attestations for final downloadable assets; and
+11. publish the immutable release only after all verification succeeds.
 
 Actions must be pinned to full commit SHAs. Release jobs must not execute code
 from an untrusted pull request, use `pull_request_target`, or expose the signing
 environment to arbitrary workflow inputs. Never rerun a release for an existing
 version by moving its tag; issue a new version instead.
+
+The workflow refuses to reuse or overwrite an existing draft. If a run fails
+after creating a draft, inspect it, delete only that unpublished draft, and
+rerun the unchanged tag. Never use asset clobbering, replace a published asset,
+or move the tag. If anything was published, fix forward with a new version.
 
 ## Verify after publication
 
@@ -109,6 +140,22 @@ Before announcing the release:
 - from the preceding production version, confirm update discovery, signed notes,
   download, restart, retained local data, and final version; and
 - verify the GitHub attestation for each published downloadable artifact.
+
+Download into a clean directory and verify provenance plus checksums before
+manual testing:
+
+```powershell
+gh release download v2.1.0 --repo Makmatoe/RobloxOne --dir verified-release
+gh attestation verify verified-release/* --repo Makmatoe/RobloxOne
+$lines = Get-Content verified-release/SHA256SUMS.txt
+foreach ($line in $lines) {
+    if ($line -notmatch '^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)$') { throw 'Malformed checksum file.' }
+    $actual = (Get-FileHash (Join-Path verified-release $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -cne $Matches[1]) { throw "Checksum mismatch: $($Matches[2])" }
+}
+Get-AuthenticodeSignature verified-release/RobloxOne-win-x64-stable-Setup.exe |
+    Format-List Status,StatusMessage,SignerCertificate
+```
 
 If any verification fails, do not replace assets in place. Keep or withdraw the
 affected release as appropriate, investigate privately if security-sensitive,

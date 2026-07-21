@@ -88,7 +88,8 @@ public static class ReleaseDescriptorPolicy
                     "The update was not signed by the trusted Roblox One release key.");
             }
         }
-        catch (CryptographicException exception)
+        catch (Exception exception) when (
+            exception is ArgumentException or CryptographicException)
         {
             throw new ReleaseTrustException(
                 "The trusted Roblox One release key could not verify this update.",
@@ -227,11 +228,12 @@ public static class ReleaseDescriptorPolicy
     }
 
     private static byte[] ParseSha256(
-        string value,
+        string? value,
         string source,
         bool requireUppercase)
     {
-        if (value.Length != 64 ||
+        if (value is null ||
+            value.Length != 64 ||
             !value.All(Uri.IsHexDigit) ||
             (requireUppercase &&
              !value.Equals(value.ToUpperInvariant(), StringComparison.Ordinal)))

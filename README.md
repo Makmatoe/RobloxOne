@@ -51,8 +51,10 @@ Roblox One has no cloud backend, advertising, or telemetry. It does not ask
 for, read, or store Roblox passwords. Account browser profiles, settings,
 favorites, and recent-launch metadata remain under `%LOCALAPPDATA%\RobloxOne`.
 
-Roblox web traffic is limited to official Roblox HTTPS endpoints. The Player
-executable is location-checked and Windows-signature-checked before launch.
+Roblox One's direct Roblox API requests and top-level sign-in navigation are
+limited to official Roblox HTTPS endpoints. Embedded Roblox pages may still
+load subresources chosen by Roblox. The Player executable is location-checked
+and Windows-signature-checked before launch.
 Optional post-launch integrations accept loopback addresses only and are off
 until the user configures them. HandleScope is never bundled, installed,
 elevated, or started by Roblox One.
@@ -93,6 +95,9 @@ dotnet run --project ./RobloxOneLauncher/RobloxOneLauncher.csproj
 ```
 
 Local builds are development artifacts, not official Roblox One releases.
+Release packages include the project license, pinned upstream licenses and
+notices, an SPDX SBOM, and checksums. Publication remains disabled until the
+copyright holder adopts and hash-approves terms that permit binary distribution.
 Maintainer setup and the tag-driven release checklist are in
 [Releasing](docs/RELEASING.md). Optional local hook configuration is documented
 under [SystemProcesses](RobloxOneLauncher/SystemProcesses/README.md).

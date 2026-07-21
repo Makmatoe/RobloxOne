@@ -7,6 +7,7 @@ namespace RobloxOneLauncher.SystemProcesses;
 
 internal sealed class HandleScopeApiBootstrapper
 {
+    internal const string RequiredPolicy = "roblox-singleton-event-v1";
     private const int MaximumHealthResponseBytes = 64 * 1024;
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HttpClient _client;
@@ -26,6 +27,7 @@ internal sealed class HandleScopeApiBootstrapper
     {
         var existing = _connectionLoader.Load();
         if (existing is not null &&
+            IsExpectedApiProcess(existing.ApiProcessId) &&
             await IsReadyAsync(existing, cancellationToken))
         {
             return existing;
@@ -43,9 +45,7 @@ internal sealed class HandleScopeApiBootstrapper
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                new Uri(
-                    connection.BaseUrl.AbsoluteUri.TrimEnd('/') +
-                    "/v1/health"));
+                new Uri(connection.BaseUrl, "/v1/health"));
             using var response = await _client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -74,11 +74,7 @@ internal sealed class HandleScopeApiBootstrapper
             using var document = await JsonDocument.ParseAsync(
                 buffer,
                 cancellationToken: cancellationToken);
-            return document.RootElement.TryGetProperty("status", out var status) &&
-                   status.ValueKind == JsonValueKind.String &&
-                   status.GetString()?.Equals(
-                       "ready",
-                       StringComparison.OrdinalIgnoreCase) == true;
+            return IsValidHealthDocument(document.RootElement);
         }
         catch (Exception ex) when (
             ex is HttpRequestException or JsonException or IOException or
@@ -90,6 +86,45 @@ internal sealed class HandleScopeApiBootstrapper
                 throw;
             }
 
+            return false;
+        }
+    }
+
+    internal static bool IsValidHealthDocument(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object &&
+        HasUniqueProperties(root) &&
+        root.TryGetProperty("status", out var status) &&
+        status.ValueKind == JsonValueKind.String &&
+        status.GetString()?.Equals("ready", StringComparison.Ordinal) == true &&
+        root.TryGetProperty("apiVersion", out var apiVersion) &&
+        apiVersion.ValueKind == JsonValueKind.String &&
+        apiVersion.GetString()?.Equals("v1", StringComparison.Ordinal) == true &&
+        root.TryGetProperty("policy", out var policy) &&
+        policy.ValueKind == JsonValueKind.String &&
+        policy.GetString()?.Equals(RequiredPolicy, StringComparison.Ordinal) == true;
+
+    private static bool HasUniqueProperties(JsonElement root)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        return root.EnumerateObject().All(property => names.Add(property.Name));
+    }
+
+    private static bool IsExpectedApiProcess(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            using var current = Process.GetCurrentProcess();
+            return !process.HasExited &&
+                   process.ProcessName.Equals(
+                       "HandleScope.Api",
+                       StringComparison.OrdinalIgnoreCase) &&
+                   process.SessionId == current.SessionId;
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or InvalidOperationException or
+                System.ComponentModel.Win32Exception or NotSupportedException)
+        {
             return false;
         }
     }

@@ -20,8 +20,8 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HttpClient _client;
     private readonly HandleScopeApiBootstrapper _apiBootstrapper;
-    private readonly object _queueLock = new();
-    private Task _operationTail = Task.CompletedTask;
+    private readonly object _lifetimeLock = new();
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private bool _disposed;
 
     public bool IsConfigured => _configurationLoader.LoadEnabled() is not null;
@@ -53,6 +53,10 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
         {
             AllowAutoRedirect = false,
             ConnectTimeout = RequestTimeout,
+            Credentials = null,
+            MaxConnectionsPerServer = 1,
+            PreAuthenticate = false,
+            UseCookies = false,
             UseProxy = false
         };
         _client = new HttpClient(handler)
@@ -65,46 +69,39 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
             _client);
     }
 
-    public Task NotifyLaunchAsync(
+    public async Task NotifyLaunchAsync(
         LaunchHookEvent launchEvent,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(launchEvent);
-        lock (_queueLock)
+        lock (_lifetimeLock)
         {
             if (_disposed)
-                return Task.CompletedTask;
-            _operationTail = RunQueuedAsync(
-                _operationTail,
-                launchEvent,
-                cancellationToken);
-            return _operationTail;
+                return;
+        }
+
+        if (!await _operationGate.WaitAsync(0, cancellationToken))
+        {
+            Trace.WriteLine(
+                "HandleScope operation skipped: another operation is already active.");
+            return;
+        }
+
+        try
+        {
+            await NotifyCoreAsync(launchEvent, cancellationToken);
+        }
+        finally
+        {
+            _operationGate.Release();
         }
     }
 
     public void Dispose()
     {
-        lock (_queueLock)
+        lock (_lifetimeLock)
             _disposed = true;
         _client.Dispose();
-    }
-
-    private async Task RunQueuedAsync(
-        Task previousOperation,
-        LaunchHookEvent launchEvent,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await previousOperation.ConfigureAwait(false);
-        }
-        catch
-        {
-            // A prior optional operation cannot poison the serialized queue.
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        await NotifyCoreAsync(launchEvent, cancellationToken);
     }
 
     private async Task NotifyCoreAsync(
@@ -144,9 +141,17 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
                 timeout.Token);
             if (closed && configuration.AllProcesses)
             {
+                // The discovery token is intentionally short-lived. Treat the
+                // all-process sweep as a separate operation and reload its
+                // connection instead of carrying credentials across the two.
+                var sweepConnection = await _apiBootstrapper.GetExistingAsync(
+                    timeout.Token);
+                if (sweepConnection is null)
+                    return;
+
                 await SweepAllProcessesAsync(
                     configuration,
-                    connection,
+                    sweepConnection,
                     timeout.Token);
             }
         }
@@ -179,6 +184,18 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
         try
         {
             using var process = Process.GetProcessById(processId);
+            using var current = Process.GetCurrentProcess();
+            if (process.HasExited ||
+                process.SessionId != current.SessionId ||
+                !process.ProcessName.Equals(
+                    HandleScopeConfigurationLoader.RequiredProcessName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Trace.WriteLine(
+                    "HandleScope session selector was rejected for an unexpected process.");
+                return null;
+            }
+
             return new HandleScopeConfiguration
             {
                 Enabled = configuration.Enabled,
@@ -276,7 +293,7 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
         try
         {
             var endpoint = new Uri(
-                connection.BaseUrl.AbsoluteUri.TrimEnd('/') +
+                connection.BaseUrl,
                 "/v1/handles/close");
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
@@ -293,8 +310,7 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
                 cancellationToken);
             if (response.StatusCode == HttpStatusCode.NotFound)
                 return CloseOutcome.NoMatch;
-            if (response.StatusCode is not HttpStatusCode.OK and
-                not HttpStatusCode.MultiStatus)
+            if (response.StatusCode != HttpStatusCode.OK)
             {
                 Trace.WriteLine(
                     $"HandleScope returned HTTP {(int)response.StatusCode}.");
@@ -304,6 +320,7 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
             return await ParseResponseAsync(
                 response,
                 expectedProcessId,
+                payload.DryRun,
                 cancellationToken);
         }
         catch (Exception ex) when (
@@ -318,8 +335,12 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
     private static async Task<CloseOutcome> ParseResponseAsync(
         HttpResponseMessage response,
         int? expectedProcessId,
+        bool expectedDryRun,
         CancellationToken cancellationToken)
     {
+        if (response.Content.Headers.ContentLength > MaximumResponseBytes)
+            throw new InvalidDataException("HandleScope response was too large.");
+
         await using var stream = await response.Content.ReadAsStreamAsync(
             cancellationToken);
         using var buffer = new MemoryStream();
@@ -337,21 +358,73 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
         buffer.Position = 0;
         using var document = await JsonDocument.ParseAsync(
             buffer,
+            new JsonDocumentOptions { MaxDepth = 16 },
             cancellationToken: cancellationToken);
-        var root = document.RootElement;
-        if (root.ValueKind != JsonValueKind.Object ||
-            !HasOperationShape(root))
+        if (!TryValidateOperationDocument(
+                document.RootElement,
+                expectedProcessId,
+                expectedDryRun,
+                out var closedExpectedProcess))
         {
-            Trace.WriteLine("HandleScope returned a malformed operation response.");
+            Trace.WriteLine("HandleScope returned an invalid operation response.");
             return CloseOutcome.Failure;
         }
 
-        var closedExpectedProcess =
-            FindPositiveNumber(root, "closedCount") ||
-            expectedProcessId is int pid && ClosedCollectionContainsPid(root, pid);
         return new CloseOutcome(
             CloseOutcomeKind.Completed,
             closedExpectedProcess);
+    }
+
+    internal static bool TryValidateOperationDocument(
+        JsonElement root,
+        int? expectedProcessId,
+        bool expectedDryRun,
+        out bool closedExpectedProcess)
+    {
+        closedExpectedProcess = false;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !HasUniqueRootProperties(root) ||
+            !TryGetRequiredString(root, "policy", out var policy) ||
+            !policy.Equals(
+                HandleScopeApiBootstrapper.RequiredPolicy,
+                StringComparison.Ordinal) ||
+            !TryGetRequiredBoolean(root, "dryRun", out var dryRun) ||
+            dryRun != expectedDryRun ||
+            !TryGetRequiredNonNegativeInteger(root, "processCount", out _) ||
+            !TryGetRequiredNonNegativeInteger(
+                root,
+                "matchedProcessCount",
+                out _) ||
+            !TryGetRequiredNonNegativeInteger(root, "matchCount", out var matchCount) ||
+            !TryGetRequiredNonNegativeInteger(root, "closedCount", out var closedCount) ||
+            !TryGetRequiredNonNegativeInteger(root, "failedCount", out var failedCount) ||
+            !TryGetRequiredArray(root, "matches", out var matches) ||
+            !TryGetRequiredArray(root, "closed", out var closed) ||
+            !TryGetRequiredArray(root, "failures", out var failures) ||
+            matchCount != matches.GetArrayLength() ||
+            closedCount != closed.GetArrayLength() ||
+            failedCount != failures.GetArrayLength() ||
+            failedCount != 0)
+        {
+            return false;
+        }
+
+        if (expectedDryRun)
+        {
+            if (matchCount <= 0 ||
+                closedCount != 0 ||
+                expectedProcessId is int expectedPid &&
+                !CollectionContainsPid(matches, expectedPid))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        closedExpectedProcess = closedCount > 0 &&
+            (expectedProcessId is not int pid || CollectionContainsPid(closed, pid));
+        return closedExpectedProcess;
     }
 
     private static CloseRequest CreatePidRequest(
@@ -400,99 +473,68 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
         }
     }
 
-    private static bool HasOperationShape(JsonElement element) =>
-        EnumerateProperties(element).Any(property =>
-            property.Name.Equals("closedCount", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("closed", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("matchedCount", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("matches", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("results", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("processCount", StringComparison.OrdinalIgnoreCase) ||
-            property.Name.Equals("skipped", StringComparison.OrdinalIgnoreCase));
-
-    private static bool FindPositiveNumber(JsonElement element, string propertyName)
+    private static bool HasUniqueRootProperties(JsonElement root)
     {
-        foreach (var property in EnumerateProperties(element))
-        {
-            if (property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase) &&
-                property.Value.ValueKind == JsonValueKind.Number &&
-                property.Value.TryGetInt64(out var value) &&
-                value > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        return root.EnumerateObject().All(property => names.Add(property.Name));
     }
 
-    private static bool ClosedCollectionContainsPid(JsonElement element, int processId)
+    private static bool TryGetRequiredString(
+        JsonElement root,
+        string name,
+        out string value)
     {
-        foreach (var property in EnumerateProperties(element))
-        {
-            if (!property.Name.Equals("closed", StringComparison.OrdinalIgnoreCase) ||
-                property.Value.ValueKind != JsonValueKind.Array)
-            {
-                continue;
-            }
-
-            foreach (var item in property.Value.EnumerateArray())
-            {
-                if (ContainsPid(item, processId))
-                    return true;
-            }
-        }
-
-        return false;
+        value = string.Empty;
+        return root.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.String &&
+               property.GetString() is { } stringValue &&
+               (value = stringValue) is not null;
     }
 
-    private static bool ContainsPid(JsonElement element, int processId)
+    private static bool TryGetRequiredBoolean(
+        JsonElement root,
+        string name,
+        out bool value)
     {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                if (property.Name.Equals("pid", StringComparison.OrdinalIgnoreCase) &&
-                    property.Value.ValueKind == JsonValueKind.Number &&
-                    property.Value.TryGetInt32(out var pid) &&
-                    pid == processId)
-                {
-                    return true;
-                }
-
-                if (ContainsPid(property.Value, processId))
-                    return true;
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            return element.EnumerateArray().Any(
-                item => ContainsPid(item, processId));
-        }
-
-        return false;
+        value = false;
+        if (!root.TryGetProperty(name, out var property) ||
+            property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return false;
+        value = property.GetBoolean();
+        return true;
     }
 
-    private static IEnumerable<JsonProperty> EnumerateProperties(JsonElement element)
+    private static bool TryGetRequiredNonNegativeInteger(
+        JsonElement root,
+        string name,
+        out int value)
     {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                yield return property;
-                foreach (var nested in EnumerateProperties(property.Value))
-                    yield return nested;
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-            {
-                foreach (var nested in EnumerateProperties(item))
-                    yield return nested;
-            }
-        }
+        value = 0;
+        return root.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.Number &&
+               property.TryGetInt32(out value) &&
+               value >= 0;
     }
+
+    private static bool TryGetRequiredArray(
+        JsonElement root,
+        string name,
+        out JsonElement value)
+    {
+        value = default;
+        return root.TryGetProperty(name, out value) &&
+               value.ValueKind == JsonValueKind.Array;
+    }
+
+    private static bool CollectionContainsPid(
+        JsonElement collection,
+        int processId) =>
+        collection.EnumerateArray().Any(item =>
+            item.ValueKind == JsonValueKind.Object &&
+            item.TryGetProperty("pid", out var pid) &&
+            pid.ValueKind == JsonValueKind.Number &&
+            pid.TryGetInt32(out var value) &&
+            value == processId);
 
     private sealed record CloseRequest(
         ProcessSelector Process,

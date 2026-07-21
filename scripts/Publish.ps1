@@ -10,12 +10,17 @@ param(
     [Parameter(Mandatory)]
     [string] $ExpectedPublisherSubject,
 
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[0-9A-F]{64}$')]
+    [string] $ApprovedReleaseLicenseSha256,
+
     [string] $OutputDirectory = 'artifacts/release'
 )
 
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
 $root = Get-RepositoryRoot
+$project = Get-ApplicationProject
 $output = Assert-SafeOutputDirectory (Join-Path $root $OutputDirectory)
 $appOutput = Assert-SafeOutputDirectory (Join-Path $root 'artifacts/publish')
 if ($output.Equals($appOutput, [StringComparison]::OrdinalIgnoreCase)) {
@@ -34,13 +39,18 @@ if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM)) {
 
 Push-Location $root
 try {
-    & (Join-Path $PSScriptRoot 'Verify-Release.ps1') -Tag $Tag
+    & (Join-Path $PSScriptRoot 'Verify-Release.ps1') `
+        -Tag $Tag `
+        -RequireTagAtHead `
+        -RequireMainAtHead `
+        -RequireAnnotatedTag `
+        -RequireCleanWorkingTree
     & (Join-Path $PSScriptRoot 'Build.ps1') -Configuration Release -Runtime win-x64 -OutputDirectory 'artifacts/publish' -CI
     Invoke-CheckedCommand dotnet tool restore
 
     $version = Get-ProjectVersion
     if (Test-Path -LiteralPath $output) {
-        Remove-Item -LiteralPath $output -Recurse -Force
+        Remove-SafeOutputDirectory $output
     }
     New-Item -ItemType Directory -Path $output -Force | Out-Null
     Invoke-CheckedCommand dotnet tool run vpk -- pack `
@@ -75,8 +85,20 @@ try {
         '--no-restore' '--' `
         'verify' '--manifest' $descriptorPath '--package' $fullPackages[0].FullName '--public-key' $publicKeyPath
 
+    $sbomPath = Join-Path $output "RobloxOne-$version-sbom.spdx.json"
+    & (Join-Path $PSScriptRoot 'New-ReleaseSbom.ps1') `
+        -Descriptor $descriptorPath `
+        -Project $project `
+        -LockFile (Join-Path $root 'RobloxOneLauncher/packages.lock.json') `
+        -License (Join-Path $appOutput 'LICENSE.md') `
+        -Output $sbomPath
+    & (Join-Path $PSScriptRoot 'New-ReleaseChecksums.ps1') -Directory $output
+
     & (Join-Path $PSScriptRoot 'Verify-Assets.ps1') -Directory $output -Manifest $descriptorPath `
-        -ExpectedPublisherSubject $ExpectedPublisherSubject -ExpectedTag $Tag
+        -PublishedApplicationDirectory $appOutput `
+        -ExpectedPublisherSubject $ExpectedPublisherSubject `
+        -ApprovedReleaseLicenseSha256 $ApprovedReleaseLicenseSha256 `
+        -ExpectedTag $Tag
 }
 finally {
     Pop-Location

@@ -46,6 +46,23 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Test-PathEntryIsLink {
+    param(
+        [Parameter(Mandatory)]
+        [IO.FileSystemInfo] $Item
+    )
+
+    foreach ($propertyName in @('LinkType', 'LinkTarget', 'Target')) {
+        $property = $Item.PSObject.Properties[$propertyName]
+        if ($null -ne $property -and
+            -not [string]::IsNullOrEmpty([string] $property.Value)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Assert-SafeOutputDirectory {
     param(
         [Parameter(Mandatory)]
@@ -55,9 +72,62 @@ function Assert-SafeOutputDirectory {
     $root = [IO.Path]::GetFullPath((Get-RepositoryRoot)).TrimEnd('\', '/')
     $fullPath = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
     $artifactsRoot = [IO.Path]::GetFullPath((Join-Path $root 'artifacts')).TrimEnd('\', '/')
-    if (-not $fullPath.StartsWith("$artifactsRoot$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
+    $artifactsPrefix = "$artifactsRoot$([IO.Path]::DirectorySeparatorChar)"
+    if (-not $fullPath.StartsWith(
+            $artifactsPrefix,
+            [StringComparison]::OrdinalIgnoreCase)) {
         throw "Output directory must be a child directory of $artifactsRoot. Received: $fullPath"
+    }
+    $relativePath = $fullPath.Substring($artifactsPrefix.Length)
+
+    $current = $artifactsRoot
+    $separators = [char[]] @(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar)
+    foreach ($component in $relativePath.Split(
+            $separators,
+            [StringSplitOptions]::RemoveEmptyEntries)) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if (Test-PathEntryIsLink $item) {
+                throw "Output directory crosses a symbolic link or junction: $($item.FullName)"
+            }
+        }
+        $current = Join-Path $current $component
+    }
+
+    if (Test-Path -LiteralPath $current) {
+        $item = Get-Item -LiteralPath $current -Force
+        if (Test-PathEntryIsLink $item) {
+            throw "Output directory is a symbolic link or junction: $($item.FullName)"
+        }
     }
 
     return $fullPath
+}
+
+function Remove-SafeOutputDirectory {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    $fullPath = Assert-SafeOutputDirectory $Path
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        return
+    }
+
+    $item = Get-Item -LiteralPath $fullPath -Force
+    if (-not $item.PSIsContainer) {
+        throw "Output path is not a directory: $fullPath"
+    }
+
+    $linkedEntry = Get-ChildItem -LiteralPath $fullPath -Force -Recurse |
+        Where-Object { Test-PathEntryIsLink $_ } |
+        Select-Object -First 1
+    if ($null -ne $linkedEntry) {
+        throw "Refusing to recursively remove an output tree containing a symbolic link or junction: $($linkedEntry.FullName)"
+    }
+
+    Remove-Item -LiteralPath $fullPath -Recurse -Force
 }

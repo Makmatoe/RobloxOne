@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using RobloxOneLauncher.Models;
@@ -10,6 +11,11 @@ public sealed class RobloxWebSessionService : IDisposable
     private static readonly TimeSpan AccountTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan ApiTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan LocaleTimeout = TimeSpan.FromSeconds(2);
+    private const int MaximumWebMessageCharacters = 64 * 1024;
+    private const int MaximumAuthenticationTicketCharacters = 8 * 1024;
+    private static readonly Regex PrivateServerCodePattern = new(
+        "^[A-Za-z0-9_-]{6,200}$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private WebView2? _browser;
     private int _generation;
     private bool _isReady;
@@ -21,7 +27,7 @@ public sealed class RobloxWebSessionService : IDisposable
     public WebView2 BeginBrowserReplacement()
     {
         ReleaseBrowser();
-        _browser = new WebView2();
+        _browser = new WebView2 { AllowExternalDrop = false };
         return _browser;
     }
 
@@ -87,12 +93,15 @@ public sealed class RobloxWebSessionService : IDisposable
         }
 
         var name = nameElement.GetString();
-        if (string.IsNullOrWhiteSpace(name))
+        if (!IsBoundedDisplayText(name, 50))
             return null;
+        var safeName = name!;
         var displayName = user.TryGetProperty("displayName", out var displayNameElement)
-            ? displayNameElement.GetString() ?? name
-            : name;
-        return new RobloxUser(id, name, displayName);
+            ? displayNameElement.GetString() ?? safeName
+            : safeName;
+        if (!IsBoundedDisplayText(displayName, 200))
+            displayName = safeName;
+        return new RobloxUser(id, safeName, displayName!);
     }
 
     public async Task<LaunchTarget?> ResolvePrivateServerAsync(
@@ -116,7 +125,7 @@ public sealed class RobloxWebSessionService : IDisposable
         }
 
         var linkCode = linkCodeElement.GetString();
-        return string.IsNullOrWhiteSpace(linkCode)
+        return linkCode is null || !PrivateServerCodePattern.IsMatch(linkCode)
             ? null
             : new LaunchTarget(placeId, linkCode, null);
     }
@@ -136,7 +145,11 @@ public sealed class RobloxWebSessionService : IDisposable
             return null;
         }
 
-        return ticketElement.GetString();
+        var ticket = ticketElement.GetString();
+        return ticket is { Length: > 0 and <= MaximumAuthenticationTicketCharacters } &&
+               !ticket.Any(char.IsControl)
+            ? ticket
+            : null;
     }
 
     public async Task<string?> GetUserLocaleAsync(
@@ -154,7 +167,11 @@ public sealed class RobloxWebSessionService : IDisposable
             return null;
         }
 
-        return localeElement.GetString();
+        var locale = localeElement.GetString();
+        return locale is { Length: > 0 and <= 32 } &&
+               !locale.Any(char.IsControl)
+            ? locale
+            : null;
     }
 
     public async Task<string?> GetExperienceNameAsync(
@@ -203,6 +220,7 @@ public sealed class RobloxWebSessionService : IDisposable
     private void Configure(CoreWebView2 core)
     {
         core.Settings.AreDevToolsEnabled = false;
+        core.Settings.AreHostObjectsAllowed = false;
         core.Settings.AreDefaultContextMenusEnabled = true;
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.IsZoomControlEnabled = false;
@@ -215,6 +233,7 @@ public sealed class RobloxWebSessionService : IDisposable
         core.NewWindowRequested += Core_NewWindowRequested;
         core.NavigationStarting += Core_NavigationStarting;
         core.NavigationCompleted += Core_NavigationCompleted;
+        core.LaunchingExternalUriScheme += (_, args) => args.Cancel = true;
         core.DownloadStarting += (_, args) =>
         {
             args.Cancel = true;
@@ -242,7 +261,14 @@ public sealed class RobloxWebSessionService : IDisposable
         {
             try
             {
-                using var document = JsonDocument.Parse(args.WebMessageAsJson);
+                if (!IsTrustedScriptOrigin(args.Source))
+                    return;
+                var message = args.WebMessageAsJson;
+                if (message.Length > MaximumWebMessageCharacters)
+                    return;
+                using var document = JsonDocument.Parse(
+                    message,
+                    new JsonDocumentOptions { MaxDepth = 8 });
                 var root = document.RootElement;
                 if (!root.TryGetProperty("requestId", out var idElement) ||
                     idElement.GetString() != requestId)
@@ -301,7 +327,7 @@ public sealed class RobloxWebSessionService : IDisposable
             browser is null ||
             sender != browser.CoreWebView2 ||
             browser.Source is not { } source ||
-            !IsRobloxHost(source.Host))
+            !IsTrustedScriptHost(source.Host))
         {
             return;
         }
@@ -325,10 +351,25 @@ public sealed class RobloxWebSessionService : IDisposable
             return true;
         return Uri.TryCreate(location, UriKind.Absolute, out var uri) &&
                uri.Scheme == Uri.UriSchemeHttps &&
-               IsRobloxHost(uri.Host);
+               uri.IsDefaultPort &&
+               string.IsNullOrEmpty(uri.UserInfo) &&
+               IsTrustedScriptHost(uri.Host);
     }
 
-    private static bool IsRobloxHost(string host) =>
+    private static bool IsTrustedScriptOrigin(string location) =>
+        Uri.TryCreate(location, UriKind.Absolute, out var uri) &&
+        uri.Scheme == Uri.UriSchemeHttps &&
+        uri.IsDefaultPort &&
+        string.IsNullOrEmpty(uri.UserInfo) &&
+        IsTrustedScriptHost(uri.Host);
+
+    private static bool IsTrustedScriptHost(string host) =>
         host.Equals("roblox.com", StringComparison.OrdinalIgnoreCase) ||
-        host.EndsWith(".roblox.com", StringComparison.OrdinalIgnoreCase);
+        host.Equals("www.roblox.com", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBoundedDisplayText(string? value, int maximumLength) =>
+        value is { Length: > 0 } &&
+        value.Length <= maximumLength &&
+        !string.IsNullOrWhiteSpace(value) &&
+        !value.Any(char.IsControl);
 }

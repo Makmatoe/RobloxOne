@@ -6,8 +6,10 @@
 /scripts/ @Makmatoe
 /RobloxOne.ReleaseTrust/ @Makmatoe
 /RobloxOneLauncher/Resources/ @Makmatoe
+/RobloxOneLauncher/RobloxOneLauncher.csproj @Makmatoe
 /RobloxOneLauncher/Services/ @Makmatoe
 /RobloxOneLauncher/tools/ReleaseSigner/ @Makmatoe
+/licenses/ @Makmatoe
 /.config/dotnet-tools.json @Makmatoe
 /NuGet.Config @Makmatoe
 /SECURITY.md @Makmatoe
