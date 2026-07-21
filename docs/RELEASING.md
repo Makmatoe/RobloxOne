@@ -22,9 +22,9 @@ Keep these controls enabled before publishing:
    push protection, CodeQL, and immutable releases enabled where available.
 6. Keep the `release` environment approval-protected and limited to tags
    matching `v*`.
-7. Store the P-256 private key matching
+7. Store the single-line base64 of the P-256 PKCS#8 private key matching
    `RobloxOneLauncher/Resources/update-public-key.pem` only in the protected
-   environment secret `UPDATE_SIGNING_PRIVATE_KEY_PEM`. Never commit, print,
+   environment secret `UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64`. Never commit, print,
    upload as an artifact, or copy that private key into application data.
 
 There are no Azure, certificate-authority, or paid-signing requirements. The

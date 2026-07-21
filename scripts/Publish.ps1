@@ -16,8 +16,8 @@ $appOutput = Assert-SafeOutputDirectory (Join-Path $root 'artifacts/publish')
 if ($output.Equals($appOutput, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Release output must be different from the application publish directory.'
 }
-if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM)) {
-    throw 'UPDATE_SIGNING_PRIVATE_KEY_PEM is required to sign the release descriptor.'
+if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64)) {
+    throw 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 is required to sign the release descriptor.'
 }
 
 Push-Location $root
@@ -62,7 +62,7 @@ try {
         '--no-restore' '--' `
         'sign' '--package' $fullPackages[0].FullName '--notes' $notesPath '--output' $descriptorPath `
         '--repository' 'Makmatoe/RobloxOne' '--channel' 'win-x64-stable' '--version' $version `
-        '--tag' $Tag '--private-key-env' 'UPDATE_SIGNING_PRIVATE_KEY_PEM'
+        '--tag' $Tag '--private-key-base64-env' 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64'
 
     $publicKeyPath = Join-Path $root 'RobloxOneLauncher/Resources/update-public-key.pem'
     Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `

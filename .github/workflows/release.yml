@@ -156,13 +156,13 @@ jobs:
       - name: Sign the release descriptor
         shell: pwsh
         env:
-          UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PEM }}
+          UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 }}
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ""
           ACTIONS_ID_TOKEN_REQUEST_URL: ""
           RELEASE_VERSION: ${{ needs.validate-and-build.outputs.version }}
           RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM)) {
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64)) {
             throw 'The protected release descriptor signing key is not configured.'
           }
           $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
@@ -175,7 +175,7 @@ jobs:
             --channel win-x64-stable `
             --version $env:RELEASE_VERSION `
             --tag $env:RELEASE_TAG `
-            --private-key-env UPDATE_SIGNING_PRIVATE_KEY_PEM
+            --private-key-base64-env UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64
           if ($LASTEXITCODE -ne 0) { throw "Descriptor signing failed with exit code $LASTEXITCODE." }
 
       - name: Verify the signed descriptor and assemble release metadata
