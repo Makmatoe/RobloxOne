@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>RobloxOne</AssemblyName>
+    <RootNamespace>RobloxOneLauncher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StartupObject>RobloxOneLauncher.Program</StartupObject>
+    <Version>2.1.0</Version>
+    <Product>Roblox One</Product>
+    <Authors>Makmatoe</Authors>
+    <Copyright>Copyright (c) 2026 Makmatoe</Copyright>
+    <RepositoryUrl>https://github.com/Makmatoe/RobloxOne</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <NoWarn>$(NoWarn);CA1001;CA1305;CA1822;CA1859</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tools\**\*.cs" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
+    <ProjectReference Include="..\RobloxOne.ReleaseTrust\RobloxOne.ReleaseTrust.csproj" />
+    <None Update="handlescope.example.json"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="Never" />
+    <EmbeddedResource Include="Resources\update-public-key.pem"
+                      LogicalName="RobloxOneLauncher.Embedded.ReleasePublicKey.pem" />
+  </ItemGroup>
+
+  <Target Name="RemovePublishDocumentation" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishDocumentation Include="$(PublishDir)*.xml" />
+    </ItemGroup>
+    <Delete Files="@(PublishDocumentation)" />
+  </Target>
+</Project>

@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "processName": "RobloxPlayerBeta",
+  "handleName": "REPLACE_WITH_HANDLE_NAME",
+  "handleType": null,
+  "access": null,
+  "match": "exact",
+  "closeAll": false,
+  "allProcesses": true,
+  "retryTimeoutSeconds": 10,
+  "retryIntervalMilliseconds": 500
+}

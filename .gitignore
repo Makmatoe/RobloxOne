@@ -1,0 +1,53 @@
+# .NET / IDE output
+**/[Bb]in/
+**/[Oo]bj/
+**/[Tt]est[Rr]esults/
+.vs/
+.vscode/
+.idea/
+AGENTS.md
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build, package, and coverage output
+/artifacts/
+/publish/
+/Releases/
+/.velopack/
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.nupkg
+*.snupkg
+*.robloxone-update
+
+# Local application state and machine-specific configuration
+RobloxOneLauncher/handlescope.json
+RobloxOneLauncher/*.local.json
+RobloxOneLauncher/LocalData/
+
+# Credentials and signing material. Public verification keys may be committed
+# deliberately under RobloxOneLauncher/Resources.
+.env
+.env.*
+!.env.example
+**/*private*.pem
+**/*private*.key
+**/update-private-key.pem
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.snk
+signing-metadata.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.tmp
+*.bak

@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Amsterdam
+    open-pull-requests-limit: 5
+    groups:
+      dotnet-tooling:
+        patterns:
+          - "*"
+
+  - package-ecosystem: nuget
+    directory: /RobloxOneLauncher
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:15"
+      timezone: Europe/Amsterdam
+    open-pull-requests-limit: 5
+    groups:
+      application-packages:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Amsterdam
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: nuget
+    directory: /RobloxOneLauncher.Tests
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: Europe/Amsterdam
+    open-pull-requests-limit: 5
+    groups:
+      test-packages:
+        patterns:
+          - "*"

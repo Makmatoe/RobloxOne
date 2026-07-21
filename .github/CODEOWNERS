@@ -1,0 +1,14 @@
+# Default ownership
+* @Makmatoe
+
+# Security-sensitive release and trust boundaries
+/.github/workflows/ @Makmatoe
+/scripts/ @Makmatoe
+/RobloxOne.ReleaseTrust/ @Makmatoe
+/RobloxOneLauncher/Resources/ @Makmatoe
+/RobloxOneLauncher/Services/ @Makmatoe
+/RobloxOneLauncher/tools/ReleaseSigner/ @Makmatoe
+/.config/dotnet-tools.json @Makmatoe
+/NuGet.Config @Makmatoe
+/SECURITY.md @Makmatoe
+/docs/RELEASING.md @Makmatoe
