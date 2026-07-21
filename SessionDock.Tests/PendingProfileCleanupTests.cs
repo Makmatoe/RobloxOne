@@ -60,6 +60,36 @@ public sealed class PendingProfileCleanupTests : IDisposable
             TimeSpan.FromSeconds(1));
     }
 
+    [Fact]
+    public async Task TryDeleteAsync_UnresponsiveCleanupIsCanceledAtDeadline()
+    {
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var deleted = await PendingProfileCleanup.TryDeleteAsync(
+            async cancellationToken =>
+            {
+                try
+                {
+                    await Task.Delay(
+                        Timeout.InfiniteTimeSpan,
+                        cancellationToken);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationObserved.TrySetResult();
+                    throw;
+                }
+            },
+            TimeSpan.FromMilliseconds(75));
+
+        Assert.False(deleted);
+        await cancellationObserved.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_storageDirectory))

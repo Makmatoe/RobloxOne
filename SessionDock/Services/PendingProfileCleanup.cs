@@ -15,7 +15,7 @@ internal static class PendingProfileCleanup
         try
         {
             return await Task.Run(() => deleteAsync(timeoutCancellation.Token))
-                .WaitAsync(timeout);
+                .WaitAsync(timeoutCancellation.Token);
         }
         catch
         {

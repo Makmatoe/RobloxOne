@@ -1161,6 +1161,9 @@ public partial class MainWindow : Window
         if (!_operationLifetime.BeginShutdown())
             return;
 
+        // Always leave the original Closing event before Close is requested
+        // again, even when there are no active operations to await.
+        await Task.Yield();
         try
         {
             await CompleteShutdownAsync();
