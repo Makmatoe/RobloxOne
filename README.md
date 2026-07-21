@@ -66,24 +66,21 @@ limited to official Roblox HTTPS endpoints. Embedded Roblox pages may still
 load subresources chosen by Roblox. The Player executable is location-checked
 and Windows-signature-checked before launch.
 Optional post-launch integrations accept loopback addresses only and are off
-until the user configures them. HandleScope is never bundled, installed,
-elevated, or started by SessionDock.
+until the user configures them. HandleScope is never bundled, downloaded,
+installed, or elevated by SessionDock. SessionDock starts only the separately
+installed HandleScope API at its expected per-user path, after local safety
+checks and only when the user explicitly selects **Start API**.
 
-To use the optional connector, install
-[HandleScope from its canonical repository](https://github.com/Makmatoe/HandleScope),
-then run its installed helper from a normal, non-administrator PowerShell:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
-```
-
-Start HandleScope's documented v1 local API separately; SessionDock never
-starts it. The installed path above is the canonical route for release users.
-Developers working from a SessionDock source checkout may instead run
-`./scripts/Enable-HandleScope.ps1` from the repository root to write the same
-per-user opt-in; that source-only fallback does not install or start
-HandleScope. SessionDock stores only `{"enabled":true}`; its narrow Roblox
-handle policy remains compiled into the app.
+To use the optional connector, install HandleScope from its
+[canonical release page](https://github.com/Makmatoe/HandleScope/releases),
+then select **Integrations** in the SessionDock sidebar. The HandleScope panel
+can enable the fixed per-user Roblox policy, explicitly start the API at its
+expected local path, and test its loopback health endpoint. Testing never
+enumerates or closes a handle. SessionDock stores only the minimal
+enabled/disabled opt-in; its
+narrow Roblox handle policy remains compiled into the app. Command-line setup
+remains documented for source developers under
+[SystemProcesses](SessionDock/SystemProcesses/README.md).
 
 The embedded sign-in view intentionally does not load extensions or password
 manager integrations. It supports normal clipboard paste and its context menu,

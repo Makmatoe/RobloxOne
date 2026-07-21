@@ -47,10 +47,17 @@ and experience, public/private classification, and selected account ID,
 username, and label. It excludes passwords, cookies, launch tickets, raw
 destinations, private-server codes, and server job IDs.
 
-The optional HandleScope integration connects only to an already-running,
-separately installed local API after the user enables and configures it.
-SessionDock does not download, bundle, install, elevate, or remotely contact
-HandleScope.
+The optional HandleScope integration inspects only the expected local install
+and SessionDock opt-in files when its panel opens or the user selects Refresh.
+It contacts the loopback health endpoint only when the user selects **Test
+connection** and only after local connection-file and same-session process
+checks. The user can explicitly ask SessionDock to start the separately
+installed API at its expected per-user path; SessionDock never starts it
+silently. These checks do not cryptographically authenticate the publisher of
+the unsigned, user-installed executable.
+SessionDock does not download, bundle, install, elevate, remotely contact, or
+store the bearer token for HandleScope. The connection test does not enumerate
+or close handles.
 
 ## Browser permissions
 

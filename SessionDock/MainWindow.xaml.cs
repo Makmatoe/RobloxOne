@@ -1041,6 +1041,7 @@ public partial class MainWindow : Window
         UpdateClearHistoryButton();
         BatchLaunchButton.IsEnabled = !busy;
         SoundSettingsButton.IsEnabled = !busy;
+        IntegrationsButton.IsEnabled = !busy;
         InstallUpdateButton.IsEnabled = !busy;
         RefreshLaunchAvailability();
     }

@@ -28,12 +28,12 @@
                     </Grid.ColumnDefinitions>
                     <Border Width="44" Height="44" CornerRadius="14"
                             Background="{StaticResource AccentBrush}">
-                        <TextBlock Text="R1" Foreground="White" FontSize="16"
+                        <TextBlock Text="SD" Foreground="White" FontSize="16"
                                    FontWeight="Bold" HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" Margin="12,1,0,0">
-                        <TextBlock Text="ROBLOX ONE" Foreground="White"
+                        <TextBlock Text="SESSIONDOCK" Foreground="White"
                                    FontWeight="Bold" FontSize="16"/>
                         <TextBlock Text="Local launch workspace"
                                    Foreground="{StaticResource MutedBrush}" FontSize="12"
@@ -105,8 +105,20 @@
                 </Grid>
 
                 <StackPanel Grid.Row="2">
-                    <TextBlock Text="CLIENT TOOLS" Foreground="#68748A"
+                    <TextBlock Text="LOCAL TOOLS" Foreground="#68748A"
                                FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <Button x:Name="IntegrationsButton"
+                            Click="IntegrationsButton_Click"
+                            Background="#191E2A" Foreground="#A99BFF" Padding="12,10"
+                            Margin="0,0,0,7" HorizontalContentAlignment="Left"
+                            AutomationProperties.Name="Manage integrations"
+                            ToolTip="Set up the optional HandleScope integration">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource ButtonIcon}"
+                                  Data="{StaticResource IconIntegration}" Margin="0,0,9,0"/>
+                            <TextBlock Text="Integrations" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Button x:Name="CloseAllInstancesButton"
                             Click="CloseAllInstancesButton_Click"
                             Background="#21171D" Foreground="#ED93A4" Padding="12,10"
