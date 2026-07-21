@@ -53,7 +53,8 @@ internal static class AppDataPaths
 
     internal static string ResolveForDirectories(
         string preferredDirectory,
-        string legacyDirectory)
+        string legacyDirectory,
+        Func<string, FileAttributes>? migrationCompletionProbe = null)
     {
         var preferred = Path.GetFullPath(preferredDirectory);
         var legacy = Path.GetFullPath(legacyDirectory);
@@ -85,7 +86,10 @@ internal static class AppDataPaths
                     else if (TryBeginMigration(preferred))
                     {
                         MergeWithoutOverwrite(legacy, preferred);
-                        CompleteMigration(preferred, legacy);
+                        CompleteMigration(
+                            preferred,
+                            legacy,
+                            migrationCompletionProbe ?? File.GetAttributes);
                     }
                 }
                 catch (Exception exception) when (
@@ -155,9 +159,10 @@ internal static class AppDataPaths
 
     private static void CompleteMigration(
         string preferredDirectory,
-        string legacyDirectory)
+        string legacyDirectory,
+        Func<string, FileAttributes> getAttributes)
     {
-        if (Directory.Exists(legacyDirectory))
+        if (!IsDefinitelyMissing(legacyDirectory, getAttributes))
             return;
 
         var markerPath = Path.Combine(
@@ -176,6 +181,22 @@ internal static class AppDataPaths
             exception is IOException or UnauthorizedAccessException)
         {
             // A stale guard pauses cleanup safely until explicit recovery.
+        }
+    }
+
+    private static bool IsDefinitelyMissing(
+        string path,
+        Func<string, FileAttributes> getAttributes)
+    {
+        try
+        {
+            _ = getAttributes(path);
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return true;
         }
     }
 

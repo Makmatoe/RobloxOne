@@ -186,6 +186,41 @@ public sealed class AppDataPathsTests : IDisposable
     }
 
     [Fact]
+    public void ResolveForDirectories_UnverifiableMigrationCompletion_KeepsGuard()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(preferred);
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(preferred, "handlescope.json"), "current");
+        WriteSettings(legacy, legacyKey, 202, "legacy-user");
+        var legacyProfile = Path.Combine(legacy, "Profiles", legacyKey);
+        Directory.CreateDirectory(legacyProfile);
+        File.WriteAllText(Path.Combine(legacyProfile, "Cookies"), "legacy-session");
+
+        var resolved = AppDataPaths.ResolveForDirectories(
+            preferred,
+            legacy,
+            _ => throw new UnauthorizedAccessException(
+                "The legacy root could not be positively inspected."));
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(0, removed);
+        Assert.False(settingsService.CanReconcileProfiles);
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationInProgressFileName)));
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            "Profiles",
+            legacyKey,
+            "Cookies")));
+    }
+
+    [Fact]
     public void ResolveForDirectories_OneSettingsRoot_MigratesReferencedLegacyProfile()
     {
         var preferred = Path.Combine(_root, "SessionDock");
