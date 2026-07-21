@@ -1,3 +1,5 @@
+using System.Text.Json;
+using SessionDock.Models;
 using SessionDock.Services;
 
 namespace SessionDock.Tests;
@@ -77,6 +79,144 @@ public sealed class AppDataPathsTests : IDisposable
     }
 
     [Fact]
+    public void ResolveForDirectories_DualSettingsRoots_PreservesLegacyProfileDuringCleanup()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var currentKey = Guid.NewGuid().ToString("N");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        var currentProfile = Path.Combine(preferred, "Profiles", currentKey);
+        var legacyProfile = Path.Combine(legacy, "Profiles", legacyKey);
+        Directory.CreateDirectory(currentProfile);
+        Directory.CreateDirectory(legacyProfile);
+        WriteSettings(preferred, currentKey, 101, "current-user");
+        WriteSettings(legacy, legacyKey, 202, "legacy-user");
+        var sentinel = Path.Combine(legacyProfile, "Cookies");
+        File.WriteAllText(sentinel, "legacy-session");
+
+        var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(preferred, resolved);
+        Assert.Equal(currentKey, Assert.Single(loaded.Accounts).Key);
+        Assert.Equal(0, removed);
+        Assert.False(settingsService.CanReconcileProfiles);
+        var loadNotice = Assert.IsType<string>(settingsService.LoadNotice);
+        Assert.Contains(
+            "RobloxOne",
+            loadNotice,
+            StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationConflictFileName)));
+        Assert.True(File.Exists(sentinel));
+        Assert.True(File.Exists(Path.Combine(legacy, "settings.json")));
+        Assert.False(Directory.Exists(Path.Combine(preferred, "Profiles", legacyKey)));
+    }
+
+    [Fact]
+    public void ResolveForDirectories_PreexistingPartialMigration_PreservesMovedLegacyProfile()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var currentKey = Guid.NewGuid().ToString("N");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        var movedLegacyProfile = Path.Combine(preferred, "Profiles", legacyKey);
+        Directory.CreateDirectory(movedLegacyProfile);
+        Directory.CreateDirectory(legacy);
+        WriteSettings(preferred, currentKey, 101, "current-user");
+        WriteSettings(legacy, legacyKey, 202, "legacy-user");
+        var sentinel = Path.Combine(movedLegacyProfile, "Cookies");
+        File.WriteAllText(sentinel, "legacy-session");
+
+        var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(0, removed);
+        Assert.False(settingsService.CanReconcileProfiles);
+        Assert.True(File.Exists(sentinel));
+        Assert.True(File.Exists(Path.Combine(legacy, "settings.json")));
+    }
+
+    [Fact]
+    public void ResolveForDirectories_OneSettingsRoot_MigratesReferencedLegacyProfile()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(preferred);
+        var legacyProfile = Path.Combine(legacy, "Profiles", legacyKey);
+        Directory.CreateDirectory(legacyProfile);
+        File.WriteAllText(Path.Combine(preferred, "handlescope.json"), "current");
+        WriteSettings(legacy, legacyKey, 202, "legacy-user");
+        var sentinel = Path.Combine(legacyProfile, "Cookies");
+        File.WriteAllText(sentinel, "legacy-session");
+
+        var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(0, removed);
+        Assert.True(settingsService.CanReconcileProfiles);
+        Assert.Equal(legacyKey, Assert.Single(loaded.Accounts).Key);
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            "Profiles",
+            legacyKey,
+            "Cookies")));
+        Assert.False(Directory.Exists(legacy));
+        Assert.False(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationConflictFileName)));
+    }
+
+    [Theory]
+    [InlineData("settings.json", "settings.backup.json")]
+    [InlineData("settings.backup.json", "settings.json")]
+    public void ResolveForDirectories_PrimaryOrBackupInBothRoots_PreservesLegacyData(
+        string preferredSettingsFile,
+        string legacySettingsFile)
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var currentKey = Guid.NewGuid().ToString("N");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(Path.Combine(preferred, "Profiles", currentKey));
+        var legacyProfile = Path.Combine(legacy, "Profiles", legacyKey);
+        Directory.CreateDirectory(legacyProfile);
+        WriteSettings(
+            preferred,
+            currentKey,
+            101,
+            "current-user",
+            preferredSettingsFile);
+        WriteSettings(
+            legacy,
+            legacyKey,
+            202,
+            "legacy-user",
+            legacySettingsFile);
+        var sentinel = Path.Combine(legacyProfile, "Cookies");
+        File.WriteAllText(sentinel, "legacy-session");
+
+        var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(currentKey, Assert.Single(loaded.Accounts).Key);
+        Assert.Equal(0, removed);
+        Assert.False(settingsService.CanReconcileProfiles);
+        Assert.True(File.Exists(sentinel));
+        Assert.True(File.Exists(Path.Combine(legacy, legacySettingsFile)));
+    }
+
+    [Fact]
     public void ResolveForDirectories_RejectsTheSamePathForBothIdentities()
     {
         var path = Path.Combine(_root, "SessionDock");
@@ -89,5 +229,31 @@ public sealed class AppDataPathsTests : IDisposable
     {
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
+    }
+
+    private static void WriteSettings(
+        string root,
+        string key,
+        long userId,
+        string username,
+        string fileName = "settings.json")
+    {
+        var settings = new AppSettings
+        {
+            Accounts =
+            [
+                new AccountProfile
+                {
+                    Key = key,
+                    UserId = userId,
+                    Username = username,
+                    SessionFolder = $@"Profiles\{key}"
+                }
+            ],
+            ActiveAccountKey = key
+        };
+        File.WriteAllText(
+            Path.Combine(root, fileName),
+            JsonSerializer.Serialize(settings));
     }
 }

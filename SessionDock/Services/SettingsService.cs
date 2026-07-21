@@ -28,7 +28,7 @@ public sealed class SettingsService
         _profileCleanupGuardPath = Path.Combine(
             _rootDirectory,
             "profile-cleanup-paused.txt");
-        CanReconcileProfiles = !File.Exists(_profileCleanupGuardPath);
+        CanReconcileProfiles = !HasProfileCleanupBlocker();
     }
 
     public string? LoadNotice { get; private set; }
@@ -50,7 +50,7 @@ public sealed class SettingsService
     public AppSettings Load()
     {
         LoadNotice = null;
-        CanReconcileProfiles = !File.Exists(_profileCleanupGuardPath);
+        CanReconcileProfiles = !HasProfileCleanupBlocker();
         _primaryIsUnreadable = false;
         var primaryExists = File.Exists(_settingsPath);
         if (!primaryExists && !File.Exists(_backupPath))
@@ -343,13 +343,18 @@ public sealed class SettingsService
         }
     }
 
+    private bool HasProfileCleanupBlocker() =>
+        File.Exists(_profileCleanupGuardPath) ||
+        AppDataPaths.HasMigrationConflict(_rootDirectory);
+
     private void AddProfileCleanupNotice()
     {
         if (CanReconcileProfiles)
             return;
 
-        const string notice =
-            "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
+        var notice = AppDataPaths.HasMigrationConflict(_rootDirectory)
+            ? "SessionDock found separate current and legacy RobloxOne account settings. The legacy data was left untouched, and automatic browser-profile cleanup is paused. Recover or intentionally remove the legacy RobloxOne data before deleting migration-conflict.txt."
+            : "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
         LoadNotice = string.IsNullOrWhiteSpace(LoadNotice)
             ? notice
             : $"{LoadNotice}{Environment.NewLine}{Environment.NewLine}{notice}";

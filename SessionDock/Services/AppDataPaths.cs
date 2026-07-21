@@ -6,6 +6,10 @@ internal static class AppDataPaths
 {
     internal const string CurrentDirectoryName = "SessionDock";
     internal const string LegacyDirectoryName = "RobloxOne";
+    internal const string MigrationConflictFileName = "migration-conflict.txt";
+    private static readonly HashSet<string> ActiveMigrationConflicts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object MigrationConflictLock = new();
 
     private static readonly Lazy<string> DefaultRoot = new(() =>
     {
@@ -17,6 +21,19 @@ internal static class AppDataPaths
     });
 
     public static string RootDirectory => DefaultRoot.Value;
+
+    internal static bool HasMigrationConflict(string directory)
+    {
+        var root = Path.GetFullPath(directory);
+        lock (MigrationConflictLock)
+        {
+            if (ActiveMigrationConflicts.Contains(root))
+                return true;
+        }
+
+        var conflictPath = Path.Combine(root, MigrationConflictFileName);
+        return File.Exists(conflictPath) || Directory.Exists(conflictPath);
+    }
 
     internal static string ResolveForDirectories(
         string preferredDirectory,
@@ -38,6 +55,11 @@ internal static class AppDataPaths
                     {
                         Directory.Delete(preferred, recursive: false);
                         Directory.Move(legacy, preferred);
+                    }
+                    else if (HasSettingsState(preferred) &&
+                             HasSettingsState(legacy))
+                    {
+                        PreserveMigrationConflict(preferred);
                     }
                     else
                     {
@@ -73,6 +95,40 @@ internal static class AppDataPaths
         Directory.CreateDirectory(preferred);
         ThrowIfReparsePoint(preferred);
         return preferred;
+    }
+
+    private static bool HasSettingsState(string directory) =>
+        File.Exists(Path.Combine(directory, "settings.json")) ||
+        File.Exists(Path.Combine(directory, "settings.backup.json"));
+
+    private static void PreserveMigrationConflict(string preferredDirectory)
+    {
+        lock (MigrationConflictLock)
+        {
+            ActiveMigrationConflicts.Add(preferredDirectory);
+        }
+
+        var conflictPath = Path.Combine(
+            preferredDirectory,
+            MigrationConflictFileName);
+        try
+        {
+            using var stream = new FileStream(
+                conflictPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read);
+            using var writer = new StreamWriter(stream);
+            writer.Write(
+                "SessionDock found independent settings in both the current SessionDock data directory and the legacy RobloxOne data directory. No legacy files were moved. Automatic browser-profile cleanup is paused until the legacy data has been recovered or intentionally removed. Remove this file only after resolving the legacy data directory.");
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // The untouched legacy directory remains the authoritative fallback.
+        }
     }
 
     private static void MergeWithoutOverwrite(string source, string destination)
