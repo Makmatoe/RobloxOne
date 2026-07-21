@@ -45,6 +45,12 @@ public partial class BatchLaunchDialog : Window
             ValidationText.Text = "Select at least two accounts for a batch launch.";
             return;
         }
+        if (string.IsNullOrWhiteSpace(selected[0].Destination))
+        {
+            ValidationText.Text =
+                "The first selected account needs a destination. Blank accounts after it will use that destination.";
+            return;
+        }
 
         if (DelayComboBox.SelectedItem is not ComboBoxItem { Tag: string secondsText } ||
             !int.TryParse(secondsText, out var seconds))
@@ -69,6 +75,14 @@ public partial class BatchLaunchDialog : Window
             ? $"User ID {profile.UserId}"
             : $"@{profile.Username}  •  User ID {profile.UserId}";
         public string ColorHex { get; } = profile.ColorHex ?? "#7C5CFC";
+        public string DestinationSummary { get; } =
+            string.IsNullOrWhiteSpace(profile.Destination)
+                ? "Destination: uses first selected"
+                : $"Destination: {profile.Destination.Trim()}";
+        public string DestinationToolTip { get; } =
+            string.IsNullOrWhiteSpace(profile.Destination)
+                ? "This account will use the first selected account's destination."
+                : profile.Destination.Trim();
         public bool IsSelected { get; set; } = true;
     }
 }
