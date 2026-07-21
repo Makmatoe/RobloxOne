@@ -178,6 +178,24 @@ public partial class HandleScopeIntegrationDialog : Window
                     "#2A2348",
                     "IconActivity");
                 break;
+            case HandleScopeIntegrationState.StartPending:
+                SetStatePresentation(
+                    "API start requested",
+                    "SessionDock recently started the expected local API. Wait briefly, then test the connection.",
+                    "STARTING",
+                    "#A99BFF",
+                    "#2A2348",
+                    "IconActivity");
+                break;
+            case HandleScopeIntegrationState.RunningUntested:
+                SetStatePresentation(
+                    "API running - connection not tested",
+                    "The expected local API process is already running. Test the loopback connection before relying on the integration.",
+                    "RUNNING",
+                    "#A99BFF",
+                    "#2A2348",
+                    "IconActivity");
+                break;
             case HandleScopeIntegrationState.RunningDisabled:
                 SetStatePresentation(
                     "API running - integration disabled",
@@ -278,9 +296,13 @@ public partial class HandleScopeIntegrationDialog : Window
             HandleScopeIntegrationState.InstalledStopped;
         EnableButton.IsEnabled = !_isBusy && _state is
             HandleScopeIntegrationState.InstalledStopped or
+            HandleScopeIntegrationState.StartPending or
+            HandleScopeIntegrationState.RunningUntested or
             HandleScopeIntegrationState.RunningDisabled;
         DisableButton.IsEnabled = !_isBusy && _state is
             HandleScopeIntegrationState.InstalledStopped or
+            HandleScopeIntegrationState.StartPending or
+            HandleScopeIntegrationState.RunningUntested or
             HandleScopeIntegrationState.Ready or
             HandleScopeIntegrationState.UpdateRequired;
         TestConnectionButton.IsEnabled = !_isBusy && _state is not

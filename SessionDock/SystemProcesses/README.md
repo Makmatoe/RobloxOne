@@ -66,12 +66,15 @@ process identity before testing the connection; these are local safety checks,
 not cryptographic publisher verification.
 
 The panel reports **Not installed**, **Installed - connection not tested**,
+**API start requested**, **API running - connection not tested**,
 **API running - integration disabled**, **Ready**, **Update required**, or a
-configuration warning. An invalid or nonminimal existing configuration is
-preserved. Only after displaying that warning does the panel offer an explicit
-**Repair integration** action, which replaces the SessionDock opt-in with the
-fixed minimal policy. **Disable** prevents future SessionDock launch operations
-but does not stop the HandleScope API.
+configuration warning. A bounded start-pending state prevents rapid or
+concurrent requests from spawning another API before discovery is published.
+An invalid or nonminimal existing configuration is preserved. Only after
+displaying that warning does the panel offer an explicit **Repair integration**
+action, which replaces the SessionDock opt-in with the fixed minimal policy.
+**Disable** prevents future SessionDock launch operations but does not stop the
+HandleScope API.
 
 Developers working from a SessionDock source checkout may instead run
 `./scripts/Enable-HandleScope.ps1` from the repository root. HandleScope's

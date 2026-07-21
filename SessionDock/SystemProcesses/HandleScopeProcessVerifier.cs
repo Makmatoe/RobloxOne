@@ -13,7 +13,6 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
 {
     internal const string ExpectedProcessName = "HandleScope.Api";
     internal static readonly TimeSpan AllowedClockSkew = TimeSpan.FromSeconds(5);
-    internal static readonly TimeSpan MaximumDiscoveryDelay = TimeSpan.FromMinutes(2);
 
     private readonly string _localAppDataRoot;
     private readonly string _expectedExecutablePath;
@@ -118,7 +117,6 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         var processStartedAtUtc = process.StartedAtUtc.ToUniversalTime();
         var discoveryStartedAtUtc = connection.StartedAtUtc.ToUniversalTime();
         return discoveryStartedAtUtc >= processStartedAtUtc - AllowedClockSkew &&
-            discoveryStartedAtUtc <= processStartedAtUtc + MaximumDiscoveryDelay &&
             discoveryStartedAtUtc <= utcNow.ToUniversalTime() + AllowedClockSkew;
     }
 }

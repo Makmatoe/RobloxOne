@@ -65,6 +65,67 @@ public sealed class HandleScopeIntegrationServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_BackToBackRequests_StartOnlyOneProcess()
+    {
+        using var environment = new TestEnvironment();
+        environment.InstallApi();
+        var startCount = 0;
+        using var handler = new RecordingHandler(_ => ValidHealthResponse());
+        using var service = environment.CreateService(
+            handler,
+            isExpectedProcess: (_, _) => false,
+            startProcess: _ =>
+            {
+                startCount++;
+                return true;
+            });
+
+        var first = await service.StartAsync(TestContext.Current.CancellationToken);
+        var inspect = await service.InspectAsync(TestContext.Current.CancellationToken);
+        var enable = await service.EnableAsync(
+            cancellationToken: TestContext.Current.CancellationToken);
+        var connection = await service.TestConnectionAsync(
+            TestContext.Current.CancellationToken);
+        var second = await service.StartAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HandleScopeIntegrationState.StartPending, first.State);
+        Assert.Equal(HandleScopeIntegrationState.StartPending, inspect.State);
+        Assert.Equal(HandleScopeIntegrationState.StartPending, enable.State);
+        Assert.Equal(HandleScopeIntegrationState.StartPending, connection.State);
+        Assert.Equal(HandleScopeIntegrationState.StartPending, second.State);
+        Assert.Equal(1, startCount);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task StartAsync_ConcurrentRequests_StartOnlyOneProcess()
+    {
+        using var environment = new TestEnvironment();
+        environment.InstallApi();
+        var startCount = 0;
+        using var handler = new RecordingHandler(_ => ValidHealthResponse());
+        using var service = environment.CreateService(
+            handler,
+            isExpectedProcess: (_, _) => false,
+            startProcess: _ =>
+            {
+                Interlocked.Increment(ref startCount);
+                return true;
+            });
+
+        var starts = Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(
+                () => service.StartAsync(TestContext.Current.CancellationToken)))
+            .ToArray();
+        var results = await Task.WhenAll(starts);
+
+        Assert.All(results, result => Assert.Equal(
+            HandleScopeIntegrationState.StartPending,
+            result.State));
+        Assert.Equal(1, startCount);
+    }
+
+    [Fact]
     public async Task TestConnectionAsync_UnexpectedProcessIdentityStopsBeforeNetwork()
     {
         using var environment = new TestEnvironment();
@@ -398,7 +459,7 @@ public sealed class HandleScopeIntegrationServiceTests
         var result = await service.StartAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            HandleScopeIntegrationState.InstalledStopped,
+            HandleScopeIntegrationState.StartPending,
             result.State);
         Assert.NotNull(captured);
         Assert.Equal(environment.ExecutablePath, captured.FileName);
@@ -431,7 +492,7 @@ public sealed class HandleScopeIntegrationServiceTests
         var result = await service.StartAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            HandleScopeIntegrationState.InstalledStopped,
+            HandleScopeIntegrationState.RunningUntested,
             result.State);
         Assert.Equal(0, startCount);
         Assert.Equal(0, handler.RequestCount);

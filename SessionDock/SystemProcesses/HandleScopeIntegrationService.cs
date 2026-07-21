@@ -13,6 +13,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private const int MaximumHealthResponseBytes = 16 * 1024;
     private const string RequiredPolicy = "roblox-singleton-event-v1";
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartPendingDuration = TimeSpan.FromSeconds(5);
 
     private readonly string _localAppDataRoot;
     private readonly string _installRoot;
@@ -23,6 +24,8 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private readonly Func<ProcessStartInfo, bool> _startProcess;
     private readonly Func<string, bool>? _isReparsePoint;
     private readonly HttpClient _client;
+    private readonly object _startLock = new();
+    private long _startPendingUntilTimestamp;
     private bool _disposed;
 
     public HandleScopeIntegrationService()
@@ -89,7 +92,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(InspectLocal());
+        return Task.FromResult(ApplyTransientStartState(InspectLocal()));
     }
 
     public async Task<HandleScopeIntegrationResult> TestConnectionAsync(
@@ -108,8 +111,11 @@ public sealed class HandleScopeIntegrationService : IDisposable
             if (connection is null ||
                 !_processVerifier.IsExpected(connection))
             {
-                return Result(HandleScopeIntegrationState.InstalledStopped);
+                return ApplyTransientStartState(Result(
+                    HandleScopeIntegrationState.InstalledStopped));
             }
+
+            ClearStartPending();
 
             var health = await ProbeHealthAsync(
                 connection.BaseUrl,
@@ -178,47 +184,58 @@ public sealed class HandleScopeIntegrationService : IDisposable
         if (local.State is not HandleScopeIntegrationState.InstalledStopped)
             return Task.FromResult(local);
 
-        try
+        lock (_startLock)
         {
-            if (InspectInstall() is not InstallInspection.Valid)
-                return Task.FromResult(Result(
-                    HandleScopeIntegrationState.ConfigurationError));
-
-            var existing = _connectionLoader.Load();
-            if (existing is not null && _processVerifier.IsExpected(existing))
+            if (IsStartPendingNoLock())
             {
                 return Task.FromResult(Result(
-                    HandleScopeIntegrationState.InstalledStopped));
+                    HandleScopeIntegrationState.StartPending));
             }
 
-            var startInfo = new ProcessStartInfo
+            try
             {
-                FileName = _executablePath,
-                WorkingDirectory = _installRoot,
-                Arguments = string.Empty,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                ErrorDialog = false,
-                Verb = string.Empty,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-            cancellationToken.ThrowIfCancellationRequested();
-            if (startInfo.ArgumentList.Count != 0 || !_startProcess(startInfo))
+                if (InspectInstall() is not InstallInspection.Valid)
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.ConfigurationError));
+
+                var existing = _connectionLoader.Load();
+                if (existing is not null && _processVerifier.IsExpected(existing))
+                {
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.RunningUntested));
+                }
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = _executablePath,
+                    WorkingDirectory = _installRoot,
+                    Arguments = string.Empty,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    ErrorDialog = false,
+                    Verb = string.Empty,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                cancellationToken.ThrowIfCancellationRequested();
+                if (startInfo.ArgumentList.Count != 0 || !_startProcess(startInfo))
+                {
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.ConfigurationError));
+                }
+
+                _startPendingUntilTimestamp = Stopwatch.GetTimestamp() +
+                    (long)(StartPendingDuration.TotalSeconds * Stopwatch.Frequency);
+                return Task.FromResult(Result(
+                    HandleScopeIntegrationState.StartPending));
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or
+                    InvalidOperationException or ArgumentException or
+                    Win32Exception or NotSupportedException)
             {
                 return Task.FromResult(Result(
                     HandleScopeIntegrationState.ConfigurationError));
             }
-
-            return Task.FromResult(Result(
-                HandleScopeIntegrationState.InstalledStopped));
-        }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or
-                InvalidOperationException or ArgumentException or
-                Win32Exception or NotSupportedException)
-        {
-            return Task.FromResult(Result(
-                HandleScopeIntegrationState.ConfigurationError));
         }
     }
 
@@ -263,7 +280,30 @@ public sealed class HandleScopeIntegrationService : IDisposable
                     writeResult is HandleScopeConfigurationWriteResult.RepairRequired));
         }
 
-        return Task.FromResult(InspectLocal());
+        return Task.FromResult(ApplyTransientStartState(InspectLocal()));
+    }
+
+    private HandleScopeIntegrationResult ApplyTransientStartState(
+        HandleScopeIntegrationResult result)
+    {
+        if (result.State is not HandleScopeIntegrationState.InstalledStopped)
+            return result;
+
+        lock (_startLock)
+        {
+            return IsStartPendingNoLock()
+                ? Result(HandleScopeIntegrationState.StartPending)
+                : result;
+        }
+    }
+
+    private bool IsStartPendingNoLock() =>
+        Stopwatch.GetTimestamp() < _startPendingUntilTimestamp;
+
+    private void ClearStartPending()
+    {
+        lock (_startLock)
+            _startPendingUntilTimestamp = 0;
     }
 
     private HandleScopeIntegrationResult InspectLocal()

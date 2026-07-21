@@ -9,7 +9,7 @@ public sealed class HandleScopeProcessVerifierTests
     private const int ProcessId = 2468;
     private const int SessionId = 4;
     private const string ExpectedPath =
-        @"C:\Users\test\AppData\Local\Programs\HandleScope\Api\HandleScope.Api.exe";
+        @"C:\TestData\Programs\HandleScope\Api\HandleScope.Api.exe";
 
     [Fact]
     public void MatchesExpectedProcess_ExactCurrentIdentity_IsAccepted()
@@ -55,14 +55,10 @@ public sealed class HandleScopeProcessVerifierTests
         Assert.False(accepted);
     }
 
-    [Theory]
-    [InlineData(-6)]
-    [InlineData(121)]
-    public void MatchesExpectedProcess_StaleOrImplausibleDiscovery_IsRejected(
-        int secondsFromProcessStart)
+    [Fact]
+    public void MatchesExpectedProcess_StaleDiscoveryBeforeProcessStart_IsRejected()
     {
-        var connection = CreateConnection(
-            ProcessStart.AddSeconds(secondsFromProcessStart));
+        var connection = CreateConnection(ProcessStart.AddSeconds(-6));
 
         var accepted = HandleScopeProcessVerifier.MatchesExpectedProcess(
             connection,
@@ -72,6 +68,21 @@ public sealed class HandleScopeProcessVerifierTests
             ProcessStart.AddMinutes(3));
 
         Assert.False(accepted);
+    }
+
+    [Fact]
+    public void MatchesExpectedProcess_DelayedDiscoveryAfterSuspend_IsAccepted()
+    {
+        var connection = CreateConnection(ProcessStart.AddHours(1));
+
+        var accepted = HandleScopeProcessVerifier.MatchesExpectedProcess(
+            connection,
+            ExpectedPath,
+            SessionId,
+            CreateProcess(),
+            ProcessStart.AddHours(1).AddSeconds(1));
+
+        Assert.True(accepted);
     }
 
     [Fact]
