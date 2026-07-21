@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Roblox One problem
+about: Report a reproducible SessionDock problem
 title: "[Bug] "
 labels: bug
 assignees: ""
@@ -24,7 +24,7 @@ Describe what happened and what you expected.
 
 ## Environment
 
-- Roblox One version:
+- SessionDock version:
 - Install type (Setup, portable, or source build):
 - Windows version and architecture:
 - Roblox Player version, if relevant:
@@ -37,5 +37,5 @@ all authentication data.
 
 ## Additional context
 
-Mention whether the problem persists after reopening Roblox One. Do not disable
+Mention whether the problem persists after reopening SessionDock. Do not disable
 signature, destination, or process-trust checks to test a workaround.

@@ -3,7 +3,7 @@
 ## Supported versions
 
 Only the latest production release published from the canonical
-[Roblox One repository](https://github.com/Makmatoe/RobloxOne/releases) is
+[SessionDock repository](https://github.com/Makmatoe/SessionDock/releases) is
 supported. Development builds, portable test artifacts, and older releases may
 not receive security fixes.
 
@@ -30,11 +30,11 @@ Do not disclose the vulnerability in that issue.
 No bug bounty, payment, or response deadline is promised. Good-faith reports
 will be reviewed as capacity permits. Do not access other people's accounts or
 data, degrade Roblox or GitHub services, run denial-of-service testing, or use
-social engineering while researching Roblox One.
+social engineering while researching SessionDock.
 
 ## Security boundaries
 
-Roblox One is designed around these boundaries:
+SessionDock is designed around these boundaries:
 
 - Roblox credentials and cookies belong to isolated WebView2 profiles and are
   not application configuration data.
@@ -47,8 +47,8 @@ Roblox One is designed around these boundaries:
   hash, bounded metadata, and an exact package-content allowlist.
 - Optional HTTP hooks and HandleScope communication are loopback-only. The
   HandleScope API is separately installed, explicitly enabled, and never
-  elevated, installed, or bundled by Roblox One.
-- Account/history settings under `%LOCALAPPDATA%\RobloxOne` are private local
+  elevated, installed, or bundled by SessionDock.
+- Account/history settings under `%LOCALAPPDATA%\SessionDock` are private local
   data, not portable release content.
 
 Please report any path that bypasses these boundaries, including unsafe URI
@@ -59,7 +59,7 @@ secret leakage, or unsafe local-API behavior.
 ## Authentic releases
 
 Use only assets attached to releases in
-`https://github.com/Makmatoe/RobloxOne`. A production release is expected to
+`https://github.com/Makmatoe/SessionDock`. A production release is expected to
 include a signed release descriptor, Velopack package metadata, an SPDX SBOM,
 complete dependency notices, checksums covering every other asset, and a GitHub
 artifact attestation. The release verifier rejects unexpected package files and

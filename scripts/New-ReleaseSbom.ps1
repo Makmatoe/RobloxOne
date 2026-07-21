@@ -202,4 +202,4 @@ Write-Verbose 'Serialized SPDX document.'
     $outputPath,
     $json + "`n",
     [Text.UTF8Encoding]::new($false))
-Write-Host "Wrote SPDX 2.3 SBOM for Roblox One $($release.version)."
+Write-Host "Wrote SPDX 2.3 SBOM for SessionDock $($release.version)."

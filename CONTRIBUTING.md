@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve Roblox One. Bug reports, usability feedback, and
+Thank you for helping improve SessionDock. Bug reports, usability feedback, and
 focused feature proposals are welcome.
 
 ## Before submitting code
@@ -15,7 +15,7 @@ or production certificates.
 
 ## Development
 
-Roblox One targets Windows x64 and .NET 10. Use the SDK selected by
+SessionDock targets Windows x64 and .NET 10. Use the SDK selected by
 `global.json` and work from a short-lived branch based on `main`.
 
 ```powershell

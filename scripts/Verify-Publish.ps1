@@ -64,7 +64,7 @@ if (-not [Version]::TryParse($fileVersion, [ref] $parsedFileVersion) -or
     throw "Published RobloxOne.exe version '$fileVersion' does not match project version '$version'."
 }
 
-$assetsPath = Join-Path $root 'RobloxOneLauncher/obj/project.assets.json'
+$assetsPath = Join-Path $root 'SessionDock/obj/project.assets.json'
 if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) {
     throw 'Restore assets are unavailable; publish notices cannot be verified.'
 }
@@ -139,4 +139,4 @@ foreach ($entry in $sources.GetEnumerator()) {
     }
 }
 
-Write-Host "Verified exact publish inventory, version, and complete pinned notices for Roblox One $version."
+Write-Host "Verified exact publish inventory, version, and complete pinned notices for SessionDock $version."

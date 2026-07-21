@@ -1,6 +1,6 @@
 # Maintainer release guide
 
-Roblox One uses a no-cost, tag-triggered Windows release pipeline. It combines
+SessionDock uses a no-cost, tag-triggered Windows release pipeline. It combines
 an independently ECDSA-signed release descriptor, exact SHA-256/package
 validation, GitHub's protected release environment, immutable GitHub Releases,
 and GitHub artifact attestations. The Windows executables are intentionally not
@@ -23,7 +23,7 @@ Keep these controls enabled before publishing:
 6. Keep the `release` environment approval-protected and limited to tags
    matching `v*`.
 7. Store the single-line base64 of the P-256 PKCS#8 private key matching
-   `RobloxOneLauncher/Resources/update-public-key.pem` only in the protected
+   `SessionDock/Resources/update-public-key.pem` only in the protected
    environment secret `UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64`. Never commit, print,
    upload as an artifact, or copy that private key into application data.
 
@@ -38,7 +38,7 @@ manual reinstall.
 1. Start from a clean, reviewed `main` commit.
 2. Choose an unreleased semantic version in `major.minor.patch` form.
 3. Set the project version to exactly that value.
-4. Add `RobloxOneLauncher/ReleaseNotes/<version>.md`. Keep notes user-focused,
+4. Add `SessionDock/ReleaseNotes/<version>.md`. Keep notes user-focused,
    displayable, and free of secrets or untrusted HTML.
 5. Restore, build, test, and run repository validation locally.
 6. Confirm the publish inventory contains only the application, MIT license,
@@ -60,14 +60,14 @@ tip of `main`:
 $version = Read-Host 'New release version without the v prefix (major.minor.patch)'
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a major.minor.patch version.' }
 $tag = "v$version"
-$notesPath = "RobloxOneLauncher/ReleaseNotes/$version.md"
+$notesPath = "SessionDock/ReleaseNotes/$version.md"
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
     throw "Missing release notes: $notesPath"
 }
 
 git switch main
 git pull --ff-only
-git tag -a $tag -m "Roblox One $version"
+git tag -a $tag -m "SessionDock $version"
 git push origin $tag
 ```
 
@@ -112,10 +112,10 @@ $tag = Read-Host 'Published release tag (v followed by major.minor.patch)'
 if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected a vmajor.minor.patch tag.' }
 $directory = "verified-release-$tag"
 
-gh release download $tag --repo Makmatoe/RobloxOne --dir $directory
+gh release download $tag --repo Makmatoe/SessionDock --dir $directory
 if ($LASTEXITCODE -ne 0) { throw "Release download failed: $tag" }
 Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
-    gh attestation verify $_.FullName --repo Makmatoe/RobloxOne
+    gh attestation verify $_.FullName --repo Makmatoe/SessionDock
     if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed: $($_.Name)" }
 }
 $lines = Get-Content (Join-Path $directory 'SHA256SUMS.txt')

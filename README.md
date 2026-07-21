@@ -1,11 +1,11 @@
-# Roblox One
+# SessionDock
 
-[![CI](https://github.com/Makmatoe/RobloxOne/actions/workflows/ci.yml/badge.svg)](https://github.com/Makmatoe/RobloxOne/actions/workflows/ci.yml)
+[![CI](https://github.com/Makmatoe/SessionDock/actions/workflows/ci.yml/badge.svg)](https://github.com/Makmatoe/SessionDock/actions/workflows/ci.yml)
 
-Roblox One is a Windows launcher that keeps Roblox website sessions separate,
+SessionDock is a Windows launcher that keeps Roblox website sessions separate,
 so you can choose the account and destination before opening Roblox Player.
 
-[View Windows downloads](https://github.com/Makmatoe/RobloxOne/releases)
+[View Windows downloads](https://github.com/Makmatoe/SessionDock/releases)
 
 Release installers are published only on the canonical GitHub Releases page.
 If that page has no release yet, a production installer is not currently
@@ -14,7 +14,7 @@ cryptographically signed, but its Windows executables are not Authenticode
 code-signed and Windows may display **Unknown publisher** or a SmartScreen
 warning.
 
-> Roblox One is an independent project. It is not affiliated with, endorsed by,
+> SessionDock is an independent project. It is not affiliated with, endorsed by,
 > or sponsored by Roblox Corporation. Roblox and the Roblox logo are trademarks
 > of Roblox Corporation.
 
@@ -23,11 +23,11 @@ warning.
 1. Install Roblox Player. WebView2 is already included with Windows 11 and
    nearly all Windows 10 installations. Only if the sign-in view cannot open,
    install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
-2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases)
+2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/SessionDock/releases)
    page and download both the Setup executable and its `SHA256SUMS.txt` asset
    from the latest release. The checksum file also has a stable
-   [latest-release download link](https://github.com/Makmatoe/RobloxOne/releases/latest/download/SHA256SUMS.txt).
-3. Confirm the download came from `Makmatoe/RobloxOne`, then use the
+   [latest-release download link](https://github.com/Makmatoe/SessionDock/releases/latest/download/SHA256SUMS.txt).
+3. Confirm the download came from `Makmatoe/SessionDock`, then use the
    [regular-user checksum commands](docs/UPDATES.md#verify-a-manual-installer-download)
    before running it. If Windows warns about the unknown publisher, continue
    only when the filename and SHA-256 match that same release.
@@ -57,17 +57,17 @@ itself.
 
 ## Local by design
 
-Roblox One has no cloud backend, advertising, or telemetry. It does not ask
+SessionDock has no cloud backend, advertising, or telemetry. It does not ask
 for, read, or store Roblox passwords. Account browser profiles, settings,
-favorites, and recent-launch metadata remain under `%LOCALAPPDATA%\RobloxOne`.
+favorites, and recent-launch metadata remain under `%LOCALAPPDATA%\SessionDock`.
 
-Roblox One's direct Roblox API requests and top-level sign-in navigation are
+SessionDock's direct Roblox API requests and top-level sign-in navigation are
 limited to official Roblox HTTPS endpoints. Embedded Roblox pages may still
 load subresources chosen by Roblox. The Player executable is location-checked
 and Windows-signature-checked before launch.
 Optional post-launch integrations accept loopback addresses only and are off
 until the user configures them. HandleScope is never bundled, installed,
-elevated, or started by Roblox One.
+elevated, or started by SessionDock.
 
 To use the optional connector, install
 [HandleScope from its canonical repository](https://github.com/Makmatoe/HandleScope),
@@ -77,7 +77,7 @@ then run its installed helper from a normal, non-administrator PowerShell:
 & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
 ```
 
-Start HandleScope's documented v1 local API separately; Roblox One never
+Start HandleScope's documented v1 local API separately; SessionDock never
 starts it. The installed path above is the canonical route for release users.
 Developers working from a SessionDock source checkout may instead run
 `./scripts/Enable-HandleScope.ps1` from the repository root to write the same
@@ -95,7 +95,7 @@ Read [Privacy](docs/PRIVACY.md) for the complete data/network summary and
 ## Updates
 
 The top-right update button checks this repository's stable GitHub Releases
-feed. Roblox One shows the version and cryptographically signed release notes
+feed. SessionDock shows the version and cryptographically signed release notes
 before it downloads anything, and installs only after confirmation.
 
 Production updates require a release descriptor authorized by the public key
@@ -118,17 +118,17 @@ dotnet restore --locked-mode
 To run the desktop project during development:
 
 ```powershell
-dotnet run --project ./RobloxOneLauncher/RobloxOneLauncher.csproj
+dotnet run --project ./SessionDock/SessionDock.csproj
 ```
 
-Local builds are development artifacts, not official Roblox One releases.
+Local builds are development artifacts, not official SessionDock releases.
 Release packages include the MIT license, pinned upstream licenses and notices,
 an SPDX SBOM, checksums, and GitHub artifact attestations.
 Maintainer setup and the tag-driven release checklist are in
 [Releasing](docs/RELEASING.md). Optional local hook configuration is documented
-under [SystemProcesses](RobloxOneLauncher/SystemProcesses/README.md).
+under [SystemProcesses](SessionDock/SystemProcesses/README.md).
 
 ## License and contributions
 
-Roblox One is open source under the [MIT License](LICENSE.md). Read
+SessionDock is open source under the [MIT License](LICENSE.md). Read
 [CONTRIBUTING.md](CONTRIBUTING.md) before proposing code changes.

@@ -6,7 +6,7 @@ function Get-RepositoryRoot {
 }
 
 function Get-ApplicationProject {
-    return (Join-Path (Get-RepositoryRoot) 'RobloxOneLauncher/RobloxOneLauncher.csproj')
+    return (Join-Path (Get-RepositoryRoot) 'SessionDock/SessionDock.csproj')
 }
 
 function Get-ProjectVersion {

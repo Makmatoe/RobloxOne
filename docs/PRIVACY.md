@@ -1,12 +1,12 @@
 # Privacy and local data
 
-Roblox One is local-first. It has no project-operated account service, cloud
+SessionDock is local-first. It has no project-operated account service, cloud
 database, advertising system, or telemetry collector.
 
 ## Data stored on the computer
 
-Roblox One stores application settings and isolated browser profiles under
-`%LOCALAPPDATA%\RobloxOne`. Depending on features used, this can include:
+SessionDock stores application settings and isolated browser profiles under
+`%LOCALAPPDATA%\SessionDock`. Depending on features used, this can include:
 
 - local account-slot identifiers, Roblox user ID/username after Roblox reports
   them, custom labels, and accent colors;
@@ -23,21 +23,21 @@ Roblox One stores application settings and isolated browser profiles under
 - optional local integration configuration or connection metadata created by
   those separately installed integrations.
 
-Roblox One does not intentionally store Roblox passwords, launch tickets, raw
+SessionDock does not intentionally store Roblox passwords, launch tickets, raw
 Roblox Player logs, server IP addresses, HandleScope bearer tokens, or raw
-handle values. Never send the `%LOCALAPPDATA%\RobloxOne` directory in a public
+handle values. Never send the `%LOCALAPPDATA%\SessionDock` directory in a public
 bug report because its WebView2 profiles may contain authenticated cookies.
 
 ## Network connections
 
-Roblox One makes its direct Roblox requests to official Roblox HTTPS endpoints
+SessionDock makes its direct Roblox requests to official Roblox HTTPS endpoints
 when the user signs in, verifies an account, resolves supported destinations,
 looks up experience metadata, or requests a launch ticket. The embedded Roblox
 pages may also load subresources selected by Roblox. Roblox receives data
 according to its own privacy policy and account settings.
 
-When the user explicitly checks for an application update, Roblox One connects
-to GitHub Releases for `Makmatoe/RobloxOne`. GitHub receives ordinary request
+When the user explicitly checks for an application update, SessionDock connects
+to GitHub Releases for `Makmatoe/SessionDock`. GitHub receives ordinary request
 metadata such as the source IP address and user agent under GitHub's policies.
 
 An optional post-launch HTTP hook is used only after the user configures a
@@ -49,22 +49,22 @@ destinations, private-server codes, and server job IDs.
 
 The optional HandleScope integration connects only to an already-running,
 separately installed local API after the user enables and configures it.
-Roblox One does not download, bundle, install, elevate, or remotely contact
+SessionDock does not download, bundle, install, elevate, or remotely contact
 HandleScope.
 
 ## Browser permissions
 
-Account pages run in Microsoft WebView2 profiles. Roblox One limits top-level
+Account pages run in Microsoft WebView2 profiles. SessionDock limits top-level
 navigation to official Roblox HTTPS domains and blocks downloads, external app
 protocols, password autofill integration, and camera, microphone, location, and
 notification permissions. Browser extensions are not loaded; standard
 clipboard paste and the context menu remain available for credentials copied
 from a password manager. Microsoft services may install or update the WebView2
-Runtime independently of Roblox One.
+Runtime independently of SessionDock.
 
 ## Deleting local data
 
-Removing an account in Roblox One is intended to delete that account slot's
+Removing an account in SessionDock is intended to delete that account slot's
 complete local WebView2 profile, including cookies, local storage, cache,
 history, service workers, and autofill data. Clear Recent/Public/Private history
 with the corresponding in-app controls. The account filter also scopes a clear
@@ -72,8 +72,8 @@ operation when one account is selected. Clearing history does not remove pinned
 Favorites unless the user removes those entries separately, and removing an
 account does not silently erase its shared Recent/Favorite records.
 
-To remove all Roblox One data, first remove accounts in the app, close Roblox
-One, and then delete `%LOCALAPPDATA%\RobloxOne`. This action signs those local
+To remove all SessionDock data, first remove accounts in the app, close
+SessionDock, and then delete `%LOCALAPPDATA%\SessionDock`. This action signs those local
 profiles out by removing their data; it does not revoke Roblox sessions on
 other devices. Use Roblox account security controls when global session
 revocation is needed.

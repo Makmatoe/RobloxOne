@@ -1,7 +1,7 @@
 # Third-party notices
 
-Roblox One depends on third-party software. Each component remains governed by
-its own license; the Roblox One license does not replace those terms.
+SessionDock depends on third-party software. Each component remains governed by
+its own license; the SessionDock license does not replace those terms.
 
 ## Microsoft WebView2
 
@@ -32,7 +32,7 @@ Its MIT license is shipped as `licenses/Velopack-LICENSE.txt`.
 
 The repository uses `Microsoft.NET.Test.Sdk`, `xunit.v3`, and
 `xunit.runner.visualstudio` only to execute automated tests. These packages are
-not included in the Roblox One application or release package. They remain
+not included in the SessionDock application or release package. They remain
 subject to the licenses identified in their NuGet packages and upstream
 projects.
 
@@ -49,8 +49,8 @@ is shipped as `licenses/Microsoft.WindowsDesktop-LICENSE.txt`. See
 
 Roblox Player, the Microsoft Edge WebView2 Runtime, and
 [HandleScope](https://github.com/Makmatoe/HandleScope) are not licensed as part
-of Roblox One. HandleScope is optional, separately installed, and not bundled
-in Roblox One releases. Users must obtain and operate external software under
+of SessionDock. HandleScope is optional, separately installed, and not bundled
+in SessionDock releases. Users must obtain and operate external software under
 its publisher's terms.
 
 These notices travel inside both the installed application and portable ZIP.

@@ -25,9 +25,9 @@ try {
         throw "Tag '$Tag' must exactly match project version '$version' as v$version."
     }
 
-    $notesPath = Join-Path $root "RobloxOneLauncher/ReleaseNotes/$version.md"
+    $notesPath = Join-Path $root "SessionDock/ReleaseNotes/$version.md"
     if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
-        throw "Release notes are required at RobloxOneLauncher/ReleaseNotes/$version.md."
+        throw "Release notes are required at SessionDock/ReleaseNotes/$version.md."
     }
 
     $notes = Get-Content -LiteralPath $notesPath -Raw

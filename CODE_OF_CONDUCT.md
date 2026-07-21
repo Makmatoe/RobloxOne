@@ -1,6 +1,6 @@
 # Community code of conduct
 
-Roblox One's project spaces should be useful, safe, and respectful.
+SessionDock's project spaces should be useful, safe, and respectful.
 
 ## Expected behavior
 

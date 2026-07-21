@@ -14,7 +14,7 @@ updates:
           - "*"
 
   - package-ecosystem: nuget
-    directory: /RobloxOneLauncher
+    directory: /SessionDock
     schedule:
       interval: weekly
       day: monday
@@ -36,7 +36,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: nuget
-    directory: /RobloxOneLauncher.Tests
+    directory: /SessionDock.Tests
     schedule:
       interval: weekly
       day: monday

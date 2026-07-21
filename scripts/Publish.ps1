@@ -45,7 +45,7 @@ try {
         '--mainExe' 'RobloxOne.exe' `
         '--packTitle' 'Roblox One' `
         '--packAuthors' 'Makmatoe' `
-        '--releaseNotes' (Join-Path $root "RobloxOneLauncher/ReleaseNotes/$version.md") `
+        '--releaseNotes' (Join-Path $root "SessionDock/ReleaseNotes/$version.md") `
         '--runtime' 'win-x64' `
         '--channel' 'win-x64-stable' `
         '--outputDir' $output
@@ -55,16 +55,17 @@ try {
         throw "Expected exactly one full Velopack package; found $($fullPackages.Count)."
     }
 
-    $signerProject = Join-Path $root 'RobloxOneLauncher/tools/ReleaseSigner/ReleaseSigner.csproj'
-    $notesPath = Join-Path $root "RobloxOneLauncher/ReleaseNotes/$version.md"
+    $signerProject = Join-Path $root 'SessionDock/tools/ReleaseSigner/ReleaseSigner.csproj'
+    $notesPath = Join-Path $root "SessionDock/ReleaseNotes/$version.md"
     $descriptorPath = Join-Path $output 'robloxone-release.json'
     Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
         '--no-restore' '--' `
         'sign' '--package' $fullPackages[0].FullName '--notes' $notesPath '--output' $descriptorPath `
         '--repository' 'Makmatoe/RobloxOne' '--channel' 'win-x64-stable' '--version' $version `
-        '--tag' $Tag '--private-key-base64-env' 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64'
+        '--tag' $Tag '--private-key-base64-env' 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64' `
+        '--identity' 'legacy'
 
-    $publicKeyPath = Join-Path $root 'RobloxOneLauncher/Resources/update-public-key.pem'
+    $publicKeyPath = Join-Path $root 'SessionDock/Resources/update-public-key.pem'
     Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
         '--no-restore' '--' `
         'verify' '--manifest' $descriptorPath '--package' $fullPackages[0].FullName '--public-key' $publicKeyPath
@@ -73,7 +74,7 @@ try {
     & (Join-Path $PSScriptRoot 'New-ReleaseSbom.ps1') `
         -Descriptor $descriptorPath `
         -Project $project `
-        -LockFile (Join-Path $root 'RobloxOneLauncher/packages.lock.json') `
+        -LockFile (Join-Path $root 'SessionDock/packages.lock.json') `
         -License (Join-Path $appOutput 'LICENSE.md') `
         -Output $sbomPath
     & (Join-Path $PSScriptRoot 'New-ReleaseChecksums.ps1') -Directory $output
