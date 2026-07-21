@@ -85,6 +85,7 @@ jobs:
           New-Item -ItemType Directory artifacts/release-input/scripts -Force | Out-Null
           Copy-Item scripts/New-ReleaseChecksums.ps1 artifacts/release-input/scripts/New-ReleaseChecksums.ps1
           Copy-Item scripts/New-ReleaseSbom.ps1 artifacts/release-input/scripts/New-ReleaseSbom.ps1
+          Copy-Item scripts/ReleaseJson.ps1 artifacts/release-input/scripts/ReleaseJson.ps1
           Copy-Item scripts/Verify-Assets.ps1 artifacts/release-input/scripts/Verify-Assets.ps1
           Copy-Item scripts/Verify-ReleaseLicense.ps1 artifacts/release-input/scripts/Verify-ReleaseLicense.ps1
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append

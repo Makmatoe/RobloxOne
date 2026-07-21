@@ -19,6 +19,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+. (Join-Path $PSScriptRoot 'ReleaseJson.ps1')
 
 function Get-RelativeFiles([string] $Root) {
     $trimmedRoot = $Root.TrimEnd('\', '/')
@@ -155,7 +156,7 @@ $manifestInfo = Get-Item -LiteralPath $manifestPath
 if ($manifestInfo.Length -le 0 -or $manifestInfo.Length -gt 128 * 1024) {
     throw 'Release descriptor must be between 1 byte and 128 KiB.'
 }
-$descriptor = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$descriptor = ConvertFrom-ReleaseJson (Get-Content -LiteralPath $manifestPath -Raw)
 $requiredDescriptorFields = @(
     'schemaVersion', 'product', 'repository', 'channel', 'keyId', 'version', 'tag',
     'publishedAt', 'packageFile', 'packageSize', 'packageSha256', 'releaseNotes', 'signature'
@@ -249,9 +250,9 @@ $expectedAssets = [Collections.Generic.Dictionary[string, string]]::new(
 $expectedAssets.Add($setupName, 'Installer')
 $expectedAssets.Add($packageName, 'Full')
 $expectedAssets.Add($portableName, 'Portable')
-$parsedAssetsDocument = Get-Content `
-    -LiteralPath (Join-Path $directoryPath "assets.$ExpectedChannel.json") `
-    -Raw | ConvertFrom-Json
+$parsedAssetsDocument = ConvertFrom-ReleaseJson (Get-Content `
+        -LiteralPath (Join-Path $directoryPath "assets.$ExpectedChannel.json") `
+        -Raw)
 $assetsDocument = @($parsedAssetsDocument)
 if ($assetsDocument.Count -ne $expectedAssets.Count) {
     throw 'Velopack asset inventory has an unexpected number of entries.'
@@ -267,9 +268,9 @@ foreach ($asset in $assetsDocument) {
     }
 }
 
-$releasesDocument = Get-Content `
-    -LiteralPath (Join-Path $directoryPath "releases.$ExpectedChannel.json") `
-    -Raw | ConvertFrom-Json
+$releasesDocument = ConvertFrom-ReleaseJson (Get-Content `
+        -LiteralPath (Join-Path $directoryPath "releases.$ExpectedChannel.json") `
+        -Raw)
 Assert-ExactSet `
     -Expected @('Assets') `
     -Actual @($releasesDocument.PSObject.Properties.Name) `
@@ -454,7 +455,7 @@ $machinePathPattern = '(?i)([A-Z]:' + [regex]::Escape($windowsUsersSegment) +
 if ($sbomText -match $machinePathPattern) {
     throw 'Release SBOM contains a machine-specific user path.'
 }
-$sbom = $sbomText | ConvertFrom-Json
+$sbom = ConvertFrom-ReleaseJson $sbomText
 if ($sbom.spdxVersion -cne 'SPDX-2.3' -or
     $sbom.dataLicense -cne 'CC0-1.0' -or
     $sbom.SPDXID -cne 'SPDXRef-DOCUMENT' -or
