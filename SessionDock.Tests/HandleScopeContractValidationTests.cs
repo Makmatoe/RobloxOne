@@ -53,7 +53,8 @@ public sealed class HandleScopeContractValidationTests
               "apiVersion": "v1",
               "baseUrl": "http://127.0.0.1:51327",
               "token": "{{ValidToken}}",
-              "processId": {{ExpectedPid}}
+              "processId": {{ExpectedPid}},
+              "startedAtUtc": "2026-07-21T12:00:00+00:00"
             }
             """);
 
@@ -80,7 +81,50 @@ public sealed class HandleScopeContractValidationTests
               "apiVersion": "{{apiVersion}}",
               "baseUrl": "http://127.0.0.1:51327",
               "token": "{{token}}",
-              "processId": {{processId}}
+              "processId": {{processId}},
+              "startedAtUtc": "2026-07-21T12:00:00+00:00"
+            }
+            """));
+    }
+
+    [Fact]
+    public void ConnectionLoader_AmbiguousOrNonContractDocument_IsRejected()
+    {
+        Assert.Null(LoadConnection($$"""
+            {
+              "apiVersion": "v1",
+              "baseUrl": "http://127.0.0.1:51327",
+              "token": "{{ValidToken}}",
+              "processId": {{ExpectedPid}}
+            }
+            """));
+        Assert.Null(LoadConnection($$"""
+            {
+              "apiVersion": "v1",
+              "baseUrl": "http://127.0.0.1:51327",
+              "token": "{{ValidToken}}",
+              "processId": {{ExpectedPid}},
+              "startedAtUtc": "2026-07-21T12:00:00+00:00",
+              "unexpected": true
+            }
+            """));
+        Assert.Null(LoadConnection($$"""
+            {
+              "apiVersion": "v1",
+              "baseUrl": "http://127.0.0.1:51327",
+              "token": "{{ValidToken}}",
+              "processId": {{ExpectedPid}},
+              "processId": {{ExpectedPid}},
+              "startedAtUtc": "2026-07-21T12:00:00+00:00"
+            }
+            """));
+        Assert.Null(LoadConnection($$"""
+            {
+              "ApiVersion": "v1",
+              "baseUrl": "http://127.0.0.1:51327",
+              "token": "{{ValidToken}}",
+              "processId": {{ExpectedPid}},
+              "startedAtUtc": "2026-07-21T12:00:00+00:00"
             }
             """));
     }

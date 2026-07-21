@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace SessionDock.SystemProcesses;
@@ -10,19 +11,35 @@ internal sealed class HandleScopeConnectionLoader
     private const int MaximumConnectionBytes = 16 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = false,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        MaxDepth = 4
     };
     private static readonly Regex TokenPattern = new(
         "^[A-Za-z0-9_-]{43}$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly string _connectionPath;
+    private readonly string _localAppDataRoot;
+    private readonly Func<string, bool>? _isReparsePoint;
 
     public HandleScopeConnectionLoader(string? connectionPath = null)
+        : this(connectionPath, localAppDataRoot: null, isReparsePoint: null)
     {
-        _connectionPath = connectionPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    }
+
+    internal HandleScopeConnectionLoader(
+        string? connectionPath,
+        string? localAppDataRoot,
+        Func<string, bool>? isReparsePoint)
+    {
+        _localAppDataRoot = Path.GetFullPath(localAppDataRoot ??
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        _connectionPath = Path.GetFullPath(connectionPath ?? Path.Combine(
+            _localAppDataRoot,
             "HandleScope",
-            "connection.json");
+            "connection.json"));
+        _isReparsePoint = isReparsePoint;
     }
 
     public HandleScopeConnection? Load()
@@ -36,23 +53,42 @@ internal sealed class HandleScopeConnectionLoader
         try
         {
             var directory = Path.GetDirectoryName(
-                Path.GetFullPath(_connectionPath));
+                _connectionPath);
             if (directory is null ||
-                (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                !HandleScopePathSecurity.IsSafeExistingPath(
+                    _localAppDataRoot,
+                    directory,
+                    targetMustExist: true,
+                    _isReparsePoint) ||
+                !HandleScopePathSecurity.IsSafeExistingPath(
+                    _localAppDataRoot,
+                    _connectionPath,
+                    targetMustExist: true,
+                    _isReparsePoint))
             {
                 Trace.WriteLine("HandleScope connection was rejected.");
                 return null;
             }
 
             var attributes = File.GetAttributes(_connectionPath);
-            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                Trace.WriteLine("HandleScope connection was rejected.");
+                return null;
+            }
+
+            var json = ReadBoundedConnectionFile();
+            using var parsed = JsonDocument.Parse(
+                json,
+                new JsonDocumentOptions { MaxDepth = 4 });
+            if (!IsStrictConnectionDocument(parsed.RootElement))
             {
                 Trace.WriteLine("HandleScope connection was rejected.");
                 return null;
             }
 
             var document = JsonSerializer.Deserialize<ConnectionDocument>(
-                ReadBoundedConnectionFile(),
+                json,
                 JsonOptions);
             if (document is null ||
                 !TryValidateBaseUrl(document.BaseUrl, out var baseUrl) ||
@@ -62,7 +98,9 @@ internal sealed class HandleScopeConnectionLoader
                     document.ApiVersion,
                     "v1",
                     StringComparison.Ordinal) ||
-                document.ProcessId is not > 0)
+                document.ProcessId is not > 0 ||
+                document.StartedAtUtc is null ||
+                document.StartedAtUtc == default)
             {
                 Trace.WriteLine("HandleScope connection was rejected.");
                 return null;
@@ -82,6 +120,35 @@ internal sealed class HandleScopeConnectionLoader
                 $"HandleScope connection could not be read: {ex.GetType().Name}.");
             return null;
         }
+    }
+
+    private static bool IsStrictConnectionDocument(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            root.GetPropertyCount() != 5)
+        {
+            return false;
+        }
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!names.Add(property.Name))
+                return false;
+
+            var expectedKind = property.Name switch
+            {
+                "apiVersion" or "baseUrl" or "token" or "startedAtUtc" =>
+                    JsonValueKind.String,
+                "processId" => JsonValueKind.Number,
+                _ => JsonValueKind.Undefined
+            };
+            if (property.Value.ValueKind != expectedKind)
+                return false;
+        }
+
+        return names.SetEquals(
+            ["apiVersion", "baseUrl", "token", "processId", "startedAtUtc"]);
     }
 
     internal static bool TryValidateBaseUrl(string? value, out Uri? baseUrl)
@@ -131,6 +198,7 @@ internal sealed class HandleScopeConnectionLoader
         public string? Token { get; set; }
         public string? ApiVersion { get; set; }
         public int? ProcessId { get; set; }
+        public DateTimeOffset? StartedAtUtc { get; set; }
     }
 }
 

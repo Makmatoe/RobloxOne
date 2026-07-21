@@ -40,28 +40,44 @@ authentication tickets, and WebView2 data.
 
 ## HandleScope connector
 
-HandleScope support is disabled by default. SessionDock does not include or
-launch HandleScope and never requests elevation for it. To opt in:
+HandleScope support is disabled by default. SessionDock does not include,
+download, install, or elevate HandleScope. Regular users can opt in without
+PowerShell:
 
 1. Download and install HandleScope only from its
    [canonical repository](https://github.com/Makmatoe/HandleScope) or
    [release page](https://github.com/Makmatoe/HandleScope/releases).
-2. After installing HandleScope's API, run its installed integration helper
-   from a normal, non-administrator PowerShell:
+2. Select **Integrations** in the SessionDock sidebar to open the HandleScope
+   panel.
+3. Select **Enable** to write the fixed, minimal per-user opt-in.
+4. Select **Start API** to explicitly request a start of the API at its expected
+   per-user installation path after local safety checks. SessionDock never
+   starts it when the app or integration panel opens.
+5. Select **Test connection** to check only its loopback health endpoint after
+   the connection file and same-session process identity pass local checks.
+   This test never enumerates or closes a handle.
 
-   ```powershell
-   & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
-   ```
+HandleScope releases are not Authenticode-signed. SessionDock cannot prove the
+publisher of an unsigned executable stored in a user-writable directory, so
+install it only from the official release page and verify the published
+checksum. The panel checks the exact standard path, rejects reparse points,
+requires a structurally valid Windows executable, and checks the running
+process identity before testing the connection; these are local safety checks,
+not cryptographic publisher verification.
 
-   This installed path is the canonical route for release users. Developers
-   working from a SessionDock source checkout may instead run
-   `./scripts/Enable-HandleScope.ps1` from the SessionDock repository root to
-   write the same per-user opt-in. That source-only fallback does not install
-   or start HandleScope. Both helpers refuse to replace an existing
-   configuration; review that file first, or deliberately pass `-Force` to
-   reset it.
-3. Start HandleScope's documented v1 local API. SessionDock never starts or
-   elevates it.
+The panel reports **Not installed**, **Installed - connection not tested**,
+**API running - integration disabled**, **Ready**, **Update required**, or a
+configuration warning. An invalid or nonminimal existing configuration is
+preserved. Only after displaying that warning does the panel offer an explicit
+**Repair integration** action, which replaces the SessionDock opt-in with the
+fixed minimal policy. **Disable** prevents future SessionDock launch operations
+but does not stop the HandleScope API.
+
+Developers working from a SessionDock source checkout may instead run
+`./scripts/Enable-HandleScope.ps1` from the repository root. HandleScope's
+installed `Enable-SessionDockIntegration.ps1` helper provides the matching
+command-line route. Both helpers and the UI use the same per-user opt-in; the
+source helper does not install or start HandleScope.
 
 The complete required configuration can be only:
 
