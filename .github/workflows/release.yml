@@ -101,7 +101,7 @@ jobs:
           retention-days: 1
 
   sign-attest-and-publish:
-    name: Sign, attest, and publish
+    name: Sign descriptor, attest, and publish
     needs: validate-and-build
     runs-on: windows-latest
     timeout-minutes: 30
@@ -110,6 +110,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - name: Download verified release input
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -122,58 +123,18 @@ jobs:
         with:
           dotnet-version: '10.0.300'
 
-      - name: Require protected signing configuration
+      - name: Validate protected release context and license
         shell: pwsh
         env:
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
-          EXPECTED_PUBLISHER_SUBJECT: ${{ vars.EXPECTED_PUBLISHER_SUBJECT }}
-          APPROVED_RELEASE_LICENSE_SHA256: ${{ vars.APPROVED_RELEASE_LICENSE_SHA256 }}
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          $required = @(
-            'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
-            'AZURE_SIGNING_ENDPOINT', 'AZURE_SIGNING_ACCOUNT', 'AZURE_SIGNING_PROFILE',
-            'EXPECTED_PUBLISHER_SUBJECT', 'APPROVED_RELEASE_LICENSE_SHA256'
-          )
-          foreach ($name in $required) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Protected release configuration '$name' is missing. No unsigned release will be produced."
-            }
-          }
           if ($env:SOURCE_REPOSITORY -cne 'Makmatoe/RobloxOne') {
             throw 'This workflow may publish only from Makmatoe/RobloxOne.'
           }
           & ./release-input/scripts/Verify-ReleaseLicense.ps1 `
-            -LicensePath ./release-input/app/LICENSE.md `
-            -ApprovedSha256 $env:APPROVED_RELEASE_LICENSE_SHA256
+            -LicensePath ./release-input/app/LICENSE.md
 
-      - name: Authenticate to Azure with OpenID Connect
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Create Azure Artifact Signing metadata
-        shell: pwsh
-        env:
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
-        run: |
-          $metadata = [ordered]@{
-            Endpoint = $env:AZURE_SIGNING_ENDPOINT
-            CodeSigningAccountName = $env:AZURE_SIGNING_ACCOUNT
-            CertificateProfileName = $env:AZURE_SIGNING_PROFILE
-          }
-          $metadata | ConvertTo-Json | Set-Content signing-metadata.json -Encoding utf8NoBOM
-
-      - name: Build and Authenticode-sign Velopack assets
+      - name: Build Velopack assets
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ needs.validate-and-build.outputs.version }}
@@ -189,59 +150,8 @@ jobs:
             --releaseNotes ./release-input/notes.md `
             --runtime win-x64 `
             --channel win-x64-stable `
-            --outputDir ./release-output `
-            --azureTrustedSignFile ./signing-metadata.json
+            --outputDir ./release-output
           if ($LASTEXITCODE -ne 0) { throw "Velopack packaging failed with exit code $LASTEXITCODE." }
-
-      - name: Verify Authenticode before releasing Azure credentials
-        shell: pwsh
-        env:
-          EXPECTED_PUBLISHER_SUBJECT: ${{ vars.EXPECTED_PUBLISHER_SUBJECT }}
-        run: |
-          $executables = @(Get-ChildItem release-output -File -Filter *.exe)
-          if ($executables.Count -eq 0) { throw 'Velopack produced no executable release asset.' }
-          foreach ($file in $executables) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($file.Name): $($signature.StatusMessage)" }
-            if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -cne $env:EXPECTED_PUBLISHER_SUBJECT) {
-              throw "Unexpected publisher on $($file.Name)."
-            }
-          }
-
-          $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
-          if ($package.Count -ne 1) { throw "Expected one full package; found $($package.Count)." }
-          $unpack = Join-Path $env:RUNNER_TEMP package-verification
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($package[0].FullName, $unpack)
-          $application = @(Get-ChildItem $unpack -Recurse -File -Filter RobloxOne.exe)
-          if ($application.Count -ne 1) { throw "Expected one packaged RobloxOne.exe; found $($application.Count)." }
-          $signature = Get-AuthenticodeSignature -LiteralPath $application[0].FullName
-          if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
-              $signature.SignerCertificate.Subject -cne $env:EXPECTED_PUBLISHER_SUBJECT) {
-            throw 'The packaged RobloxOne.exe does not have the expected valid signature.'
-          }
-
-          $portable = @(Get-ChildItem release-output -File -Filter *-Portable.zip)
-          if ($portable.Count -ne 1) { throw "Expected one portable ZIP; found $($portable.Count)." }
-          $portableUnpack = Join-Path $env:RUNNER_TEMP portable-verification
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($portable[0].FullName, $portableUnpack)
-          $portableApplication = @(Get-ChildItem $portableUnpack -Recurse -File -Filter RobloxOne.exe)
-          if ($portableApplication.Count -ne 1) {
-            throw "Expected one portable RobloxOne.exe; found $($portableApplication.Count)."
-          }
-          $portableSignature = Get-AuthenticodeSignature -LiteralPath $portableApplication[0].FullName
-          if ($portableSignature.Status -ne 'Valid' -or $null -eq $portableSignature.SignerCertificate -or
-              $portableSignature.SignerCertificate.Subject -cne $env:EXPECTED_PUBLISHER_SUBJECT) {
-            throw 'The portable RobloxOne.exe does not have the expected valid signature.'
-          }
-
-      - name: Clear Azure session and signing metadata
-        if: always()
-        shell: pwsh
-        run: |
-          az logout 2>$null
-          az account clear 2>$null
-          Remove-Item signing-metadata.json -Force -ErrorAction SilentlyContinue
 
       - name: Sign the release descriptor
         shell: pwsh
@@ -252,6 +162,9 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-and-build.outputs.version }}
           RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM)) {
+            throw 'The protected release descriptor signing key is not configured.'
+          }
           $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
           if ($package.Count -ne 1) { throw "Expected one full package; found $($package.Count)." }
           & ./release-input/signer/ReleaseSigner.exe sign `
@@ -288,16 +201,12 @@ jobs:
       - name: Verify the final release asset set
         shell: pwsh
         env:
-          EXPECTED_PUBLISHER_SUBJECT: ${{ vars.EXPECTED_PUBLISHER_SUBJECT }}
-          APPROVED_RELEASE_LICENSE_SHA256: ${{ vars.APPROVED_RELEASE_LICENSE_SHA256 }}
           RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
         run: |
           & ./release-input/scripts/Verify-Assets.ps1 `
             -Directory ./release-output `
             -Manifest ./release-output/robloxone-release.json `
             -PublishedApplicationDirectory ./release-input/app `
-            -ExpectedPublisherSubject $env:EXPECTED_PUBLISHER_SUBJECT `
-            -ApprovedReleaseLicenseSha256 $env:APPROVED_RELEASE_LICENSE_SHA256 `
             -ExpectedTag $env:RELEASE_TAG
 
       - name: Create a fresh draft GitHub release

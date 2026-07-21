@@ -21,8 +21,8 @@ public partial class UpdateConfirmationDialog : Window
         SizeText.Text = $"{update.Descriptor.PackageSize / (1024d * 1024d):0.0} MB";
         ReleaseNotesBox.Text = update.Descriptor.ReleaseNotes;
         IntegrityText.Text = alreadyDownloaded
-            ? $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Package bytes and Windows publisher verified."
-            : $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Package identity authorized; bytes and publisher are checked after download.";
+            ? $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Signed package bytes, contents, and version verified."
+            : $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Signed package identity authorized; bytes, contents, and version are checked after download. Windows binaries are not code-signed.";
     }
 
     private void InstallButton_Click(object sender, RoutedEventArgs e) =>

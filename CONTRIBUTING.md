@@ -5,11 +5,9 @@ focused feature proposals are welcome.
 
 ## Before submitting code
 
-This repository is source-visible and does not grant an open-source license.
-External code contributions are accepted only after the maintainer has agreed
-in writing to the scope and contribution terms. Open an issue before doing
-substantial implementation work. An unsolicited pull request may be closed
-without review.
+This repository is available under the MIT License. Open an issue before doing
+substantial implementation work so effort can be coordinated; focused pull
+requests are welcome.
 
 Never submit Roblox credentials, cookies, launch tickets, private-server codes,
 local account data, signing keys, access tokens, HandleScope connection files,
@@ -43,7 +41,7 @@ An approved pull request should:
 - pass formatting, build, test, dependency, and secret-scanning checks; and
 - avoid generated build output, local settings, or release secrets.
 
-Do not edit a release tag after publication. Release preparation and signing
+Do not edit a release tag after publication. Release preparation and descriptor signing
 follow [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Reporting security issues

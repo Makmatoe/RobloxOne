@@ -11,8 +11,9 @@ the canonical project's GitHub Releases. Updates are not silently installed.
 3. If a newer stable version exists, review its version and signed release
    notes.
 4. Confirm installation. Cancelling leaves the current version unchanged.
-5. Roblox One downloads the authorized package, checks its SHA-256 and Windows
-   publisher, closes, and asks Velopack to replace and reopen the application.
+5. Roblox One downloads the authorized package, checks its signed SHA-256,
+   exact contents, and version, closes, and asks Velopack to replace and reopen
+   the application.
 
 If a verified package was downloaded during an earlier attempt, the update
 button asks whether to restart and install that pending version.
@@ -28,29 +29,27 @@ the application. That descriptor authorizes the exact target version, package
 filename, size, SHA-256 digest, channel, and release notes. Velopack also checks
 the downloaded package against the authorized package metadata.
 
-Production application files are Authenticode-signed through Azure Artifact
-Signing. Windows signature verification identifies the expected publisher; the
-independent descriptor protects the in-app release decision. GitHub artifact
-attestations provide additional build provenance but do not replace either
-signature check.
+The project intentionally uses a free release model. Its Windows executables
+are not Authenticode code-signed, so Windows may display **Unknown publisher**
+or a SmartScreen warning. The signed descriptor protects the in-app release
+decision independently of GitHub asset metadata. GitHub artifact attestations
+and published checksums provide additional, manually verifiable provenance.
 
 Immediately before scheduling installation, Roblox One rechecks the downloaded
 full package against the signed size and SHA-256, extracts only its application
 executables into a locked temporary directory, rejects missing, duplicate,
 path-like, oversized, or unexpected archive entries, validates the package
-identity/version metadata, and validates the Windows trust chain for the app,
-update stub, and updater. Every executable signer subject must match the
-currently installed, trusted Roblox One executable. A deliberate
-publisher-identity change therefore requires a fresh Setup installation instead
-of silently crossing that boundary.
+identity/version metadata, and checks that each expected executable is
+structurally a Windows PE file. This confirms exact signed-package integrity;
+it does not establish a certificate-backed Windows publisher identity.
 
 Release notes are displayed as bounded, inert text. Web content from a release
 is not executed in the application.
 
 Each release also publishes an SPDX SBOM, complete bundled dependency notices,
 SHA-256 checksums for every other asset, and GitHub attestations. These aid
-independent inspection; the in-app trust decision still relies on the signed
-descriptor and Windows executable signatures.
+independent inspection; the in-app trust decision relies on the signed
+descriptor, exact package hash, and package allowlist.
 
 ## User data
 
@@ -71,6 +70,7 @@ application's account removal controls first when profile deletion is desired.
   [release page](https://github.com/Makmatoe/RobloxOne/releases) for notices.
 - Do not download a replacement executable from chat, email, file-sharing, or
   a repository fork.
-- If Windows reports an unexpected or missing publisher signature on a claimed
-  production release, do not run it. Report it privately under
-  [SECURITY.md](../SECURITY.md).
+- Windows is expected to report an unknown publisher because the project does
+  not buy an Authenticode certificate. Continue only for assets from the
+  canonical release page whose published checksum matches. Treat any claim
+  that Roblox One currently has a verified Windows publisher as suspicious.

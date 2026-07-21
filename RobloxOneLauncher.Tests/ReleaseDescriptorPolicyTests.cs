@@ -10,22 +10,17 @@ public sealed class ReleaseDescriptorPolicyTests
         new(2026, 7, 21, 12, 0, 0, TimeSpan.Zero);
     private const string PackageHash =
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private const string PackageFile = "RobloxOne-2.1.0-full.nupkg";
+    private const string PackageFile = "RobloxOne-2.1.0-win-x64-stable-full.nupkg";
 
     [Fact]
     public void Verify_ValidSignedDescriptor_ReturnsRelease()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(key);
-
-        var verified = ReleaseDescriptorPolicy.Verify(
-            ReleaseDescriptorPolicy.Serialize(descriptor),
-            CreateAsset(),
-            key.ExportSubjectPublicKeyInfoPem(),
-            PublishedAt.AddMinutes(1));
+        var verified = Verify(CreateSignedDescriptor(key), CreateAsset(), key);
 
         Assert.Equal(new Version(2, 1, 0), verified.Version);
-        Assert.Equal("Security and reliability improvements.",
+        Assert.Equal(
+            "Security and reliability improvements.",
             verified.Descriptor.ReleaseNotes);
     }
 
@@ -33,17 +28,9 @@ public sealed class ReleaseDescriptorPolicyTests
     public void Verify_LowercaseFeedHashMatchingSignedHash_IsAccepted()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(key);
-        var asset = CreateAsset() with
-        {
-            Sha256 = PackageHash.ToLowerInvariant()
-        };
+        var asset = CreateAsset() with { Sha256 = PackageHash.ToLowerInvariant() };
 
-        var verified = ReleaseDescriptorPolicy.Verify(
-            ReleaseDescriptorPolicy.Serialize(descriptor),
-            asset,
-            key.ExportSubjectPublicKeyInfoPem(),
-            PublishedAt.AddMinutes(1));
+        var verified = Verify(CreateSignedDescriptor(key), asset, key);
 
         Assert.Equal("2.1.0", verified.Descriptor.Version);
     }
@@ -58,37 +45,26 @@ public sealed class ReleaseDescriptorPolicyTests
         };
 
         Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                CreateAsset(),
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(descriptor, CreateAsset(), key));
     }
 
     [Fact]
     public void Verify_FeedHashDoesNotMatchSignedHash_IsRejected()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(key);
-        var asset = CreateAsset() with
-        {
-            Sha256 = new string('B', 64)
-        };
+        var asset = CreateAsset() with { Sha256 = new string('B', 64) };
 
         Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                asset,
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(CreateSignedDescriptor(key), asset, key));
     }
 
     [Fact]
     public void Verify_UnknownJsonField_IsRejected()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var json = JsonNode.Parse(ReleaseDescriptorPolicy.Serialize(
-            CreateSignedDescriptor(key)))!.AsObject();
+        var json = JsonNode.Parse(
+            ReleaseDescriptorPolicy.Serialize(CreateSignedDescriptor(key)))!
+            .AsObject();
         json["unexpected"] = true;
 
         Assert.Throws<ReleaseTrustException>(() =>
@@ -104,14 +80,9 @@ public sealed class ReleaseDescriptorPolicyTests
     {
         using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var otherKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(signingKey);
 
         Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                CreateAsset(),
-                otherKey.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(CreateSignedDescriptor(signingKey), CreateAsset(), otherKey));
     }
 
     [Fact]
@@ -130,13 +101,8 @@ public sealed class ReleaseDescriptorPolicyTests
 
         foreach (var variant in variants)
         {
-            var signed = SignDescriptor(variant, key);
             var exception = Assert.Throws<ReleaseTrustException>(() =>
-                ReleaseDescriptorPolicy.Verify(
-                    ReleaseDescriptorPolicy.Serialize(signed),
-                    CreateAsset(),
-                    key.ExportSubjectPublicKeyInfoPem(),
-                    PublishedAt.AddMinutes(1)));
+                Verify(SignDescriptor(variant, key), CreateAsset(), key));
             Assert.Contains(
                 "update channel",
                 exception.Message,
@@ -156,11 +122,7 @@ public sealed class ReleaseDescriptorPolicyTests
         var asset = CreateAsset() with { Size = packageSize };
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                asset,
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(descriptor, asset, key));
 
         Assert.Contains("package size", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -169,17 +131,10 @@ public sealed class ReleaseDescriptorPolicyTests
     public void Verify_MalformedSignature_IsRejectedAsTrustFailure()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateUnsignedDescriptor() with
-        {
-            Signature = "not-base64"
-        };
+        var descriptor = CreateUnsignedDescriptor() with { Signature = "not-base64" };
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                CreateAsset(),
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(descriptor, CreateAsset(), key));
 
         Assert.Contains("signature", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -198,10 +153,10 @@ public sealed class ReleaseDescriptorPolicyTests
     }
 
     [Theory]
-    [InlineData("../RobloxOne-2.1.0-full.nupkg")]
-    [InlineData(@"..\RobloxOne-2.1.0-full.nupkg")]
-    [InlineData("nested/RobloxOne-2.1.0-full.nupkg")]
-    [InlineData(@"C:\RobloxOne-2.1.0-full.nupkg")]
+    [InlineData("../RobloxOne-2.1.0-win-x64-stable-full.nupkg")]
+    [InlineData(@"..\RobloxOne-2.1.0-win-x64-stable-full.nupkg")]
+    [InlineData("nested/RobloxOne-2.1.0-win-x64-stable-full.nupkg")]
+    [InlineData(@"C:\RobloxOne-2.1.0-win-x64-stable-full.nupkg")]
     public void Verify_PathLikePackageName_IsRejected(string unsafeName)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -211,11 +166,7 @@ public sealed class ReleaseDescriptorPolicyTests
         var asset = CreateAsset() with { FileName = unsafeName };
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                asset,
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(descriptor, asset, key));
 
         Assert.Contains("package name", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -224,15 +175,10 @@ public sealed class ReleaseDescriptorPolicyTests
     public void Verify_MissingFeedHash_IsRejectedAsTrustFailure()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(key);
         var asset = CreateAsset() with { Sha256 = null! };
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                asset,
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(CreateSignedDescriptor(key), asset, key));
 
         Assert.Contains("SHA-256", exception.Message, StringComparison.Ordinal);
     }
@@ -241,11 +187,10 @@ public sealed class ReleaseDescriptorPolicyTests
     public void Verify_MalformedPublicKey_IsRejectedAsTrustFailure()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var descriptor = CreateSignedDescriptor(key);
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
             ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
+                ReleaseDescriptorPolicy.Serialize(CreateSignedDescriptor(key)),
                 CreateAsset(),
                 "not a PEM public key",
                 PublishedAt.AddMinutes(1)));
@@ -286,19 +231,23 @@ public sealed class ReleaseDescriptorPolicyTests
             key);
 
         var exception = Assert.Throws<ReleaseTrustException>(() =>
-            ReleaseDescriptorPolicy.Verify(
-                ReleaseDescriptorPolicy.Serialize(descriptor),
-                CreateAsset(),
-                key.ExportSubjectPublicKeyInfoPem(),
-                PublishedAt.AddMinutes(1)));
+            Verify(descriptor, CreateAsset(), key));
 
         Assert.Contains("release notes", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static ReleaseDescriptor CreateSignedDescriptor(ECDsa key)
-    {
-        return SignDescriptor(CreateUnsignedDescriptor(), key);
-    }
+    private static VerifiedReleaseDescriptor Verify(
+        ReleaseDescriptor descriptor,
+        ReleaseAssetIdentity asset,
+        ECDsa key) =>
+        ReleaseDescriptorPolicy.Verify(
+            ReleaseDescriptorPolicy.Serialize(descriptor),
+            asset,
+            key.ExportSubjectPublicKeyInfoPem(),
+            PublishedAt.AddMinutes(1));
+
+    private static ReleaseDescriptor CreateSignedDescriptor(ECDsa key) =>
+        SignDescriptor(CreateUnsignedDescriptor(), key);
 
     private static ReleaseDescriptor CreateUnsignedDescriptor() =>
         new(

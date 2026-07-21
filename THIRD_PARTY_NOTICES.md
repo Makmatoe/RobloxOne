@@ -47,10 +47,11 @@ is shipped as `licenses/Microsoft.WindowsDesktop-LICENSE.txt`. See
 
 ## External optional software
 
-Roblox Player, the Microsoft Edge WebView2 Runtime, and HandleScope are not
-licensed as part of Roblox One. HandleScope is optional, separately installed,
-and not bundled in Roblox One releases. Users must obtain and operate external
-software under its publisher's terms.
+Roblox Player, the Microsoft Edge WebView2 Runtime, and
+[HandleScope](https://github.com/Makmatoe/HandleScope) are not licensed as part
+of Roblox One. HandleScope is optional, separately installed, and not bundled
+in Roblox One releases. Users must obtain and operate external software under
+its publisher's terms.
 
 These notices travel inside both the installed application and portable ZIP.
 The versioned SBOM published with each release identifies the application,

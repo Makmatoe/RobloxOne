@@ -4,16 +4,6 @@ param(
     [ValidatePattern('^v\d+\.\d+\.\d+$')]
     [string] $Tag,
 
-    [Parameter(Mandatory)]
-    [string] $AzureTrustedSignFile,
-
-    [Parameter(Mandatory)]
-    [string] $ExpectedPublisherSubject,
-
-    [Parameter(Mandatory)]
-    [ValidatePattern('^[0-9A-F]{64}$')]
-    [string] $ApprovedReleaseLicenseSha256,
-
     [string] $OutputDirectory = 'artifacts/release'
 )
 
@@ -26,15 +16,8 @@ $appOutput = Assert-SafeOutputDirectory (Join-Path $root 'artifacts/publish')
 if ($output.Equals($appOutput, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Release output must be different from the application publish directory.'
 }
-$signingFile = [IO.Path]::GetFullPath($AzureTrustedSignFile)
-if (-not (Test-Path -LiteralPath $signingFile -PathType Leaf)) {
-    throw "Azure Artifact Signing metadata file not found: $signingFile"
-}
-if ($signingFile.StartsWith($output.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Azure signing metadata must be stored outside the release output directory.'
-}
 if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PEM)) {
-    throw 'UPDATE_SIGNING_PRIVATE_KEY_PEM is required. Roblox One never creates an unsigned release.'
+    throw 'UPDATE_SIGNING_PRIVATE_KEY_PEM is required to sign the release descriptor.'
 }
 
 Push-Location $root
@@ -46,6 +29,8 @@ try {
         -RequireAnnotatedTag `
         -RequireCleanWorkingTree
     & (Join-Path $PSScriptRoot 'Build.ps1') -Configuration Release -Runtime win-x64 -OutputDirectory 'artifacts/publish' -CI
+    & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
+        -LicensePath (Join-Path $appOutput 'LICENSE.md')
     Invoke-CheckedCommand dotnet tool restore
 
     $version = Get-ProjectVersion
@@ -63,8 +48,7 @@ try {
         '--releaseNotes' (Join-Path $root "RobloxOneLauncher/ReleaseNotes/$version.md") `
         '--runtime' 'win-x64' `
         '--channel' 'win-x64-stable' `
-        '--outputDir' $output `
-        '--azureTrustedSignFile' $signingFile
+        '--outputDir' $output
 
     $fullPackages = @(Get-ChildItem -LiteralPath $output -File -Filter '*-full.nupkg')
     if ($fullPackages.Count -ne 1) {
@@ -96,8 +80,6 @@ try {
 
     & (Join-Path $PSScriptRoot 'Verify-Assets.ps1') -Directory $output -Manifest $descriptorPath `
         -PublishedApplicationDirectory $appOutput `
-        -ExpectedPublisherSubject $ExpectedPublisherSubject `
-        -ApprovedReleaseLicenseSha256 $ApprovedReleaseLicenseSha256 `
         -ExpectedTag $Tag
 }
 finally {

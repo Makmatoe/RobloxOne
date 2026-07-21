@@ -92,7 +92,7 @@
                 <Button Grid.Column="2" Content="Install update"
                         Click="InstallButton_Click" IsDefault="True"
                         Padding="22,9"
-                        AutomationProperties.Name="Install verified update"/>
+                        AutomationProperties.Name="Install integrity-checked update"/>
             </Grid>
         </Grid>
     </Border>

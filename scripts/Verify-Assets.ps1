@@ -9,12 +9,6 @@ param(
     [Parameter(Mandatory)]
     [string] $PublishedApplicationDirectory,
 
-    [Parameter(Mandatory)]
-    [string] $ExpectedPublisherSubject,
-
-    [Parameter(Mandatory)]
-    [string] $ApprovedReleaseLicenseSha256,
-
     [string] $ExpectedRepository = 'Makmatoe/RobloxOne',
 
     [string] $ExpectedChannel = 'win-x64-stable',
@@ -47,17 +41,6 @@ function Assert-ExactSet(
     }
 }
 
-function Assert-Authenticode([string] $Path) {
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
-        throw "Authenticode validation failed for $([IO.Path]::GetFileName($Path)): $($signature.StatusMessage)"
-    }
-    if ($null -eq $signature.SignerCertificate -or
-        $signature.SignerCertificate.Subject -cne $ExpectedPublisherSubject) {
-        throw "Unexpected Authenticode publisher for $([IO.Path]::GetFileName($Path))."
-    }
-}
-
 function Get-NormalizedNotes([string] $Value) {
     return $Value.Replace("`r`n", "`n").Replace("`r", "`n").Trim()
 }
@@ -78,6 +61,38 @@ function Assert-ExecutableVersion(
         $versionInfo.ProductVersion -cnotmatch
             ('^' + [regex]::Escape($ExpectedVersion) + '(\+[0-9a-f]{40})?$')) {
         throw "Unexpected executable version for $([IO.Path]::GetFileName($Path))."
+    }
+}
+
+function Assert-PortableExecutable([string] $Path) {
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        $header = [byte[]]::new(64)
+        if ($stream.Read($header, 0, $header.Length) -ne $header.Length -or
+            $header[0] -ne [byte][char]'M' -or
+            $header[1] -ne [byte][char]'Z') {
+            throw "Release executable is not a valid PE file: $([IO.Path]::GetFileName($Path))"
+        }
+        $peOffset = [BitConverter]::ToInt32($header, 60)
+        if ($peOffset -lt $header.Length -or $peOffset -gt $stream.Length - 4) {
+            throw "Release executable has an invalid PE offset: $([IO.Path]::GetFileName($Path))"
+        }
+        $stream.Position = $peOffset
+        $signature = [byte[]]::new(4)
+        if ($stream.Read($signature, 0, $signature.Length) -ne $signature.Length -or
+            $signature[0] -ne [byte][char]'P' -or
+            $signature[1] -ne [byte][char]'E' -or
+            $signature[2] -ne 0 -or
+            $signature[3] -ne 0) {
+            throw "Release executable has an invalid PE signature: $([IO.Path]::GetFileName($Path))"
+        }
+    }
+    finally {
+        $stream.Dispose()
     }
 }
 
@@ -103,12 +118,6 @@ if (-not $manifestPath.Equals($expectedManifestPath, [StringComparison]::Ordinal
     -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw 'The release descriptor must be the top-level robloxone-release.json asset.'
 }
-if ([string]::IsNullOrWhiteSpace($ExpectedPublisherSubject) -or
-    $ExpectedPublisherSubject.Length -gt 512 -or
-    $ExpectedPublisherSubject -match '[\x00-\x1F\x7F]') {
-    throw 'The expected Authenticode publisher subject is invalid.'
-}
-
 $releaseItems = @(Get-ChildItem -LiteralPath $directoryPath -Force)
 if ($releaseItems | Where-Object {
         $_.PSIsContainer -or
@@ -134,15 +143,13 @@ $expectedApplicationFiles = @(
     'licenses/Microsoft.WindowsDesktop-LICENSE.txt',
     'licenses/Velopack-LICENSE.txt'
 )
-$sourceComparableApplicationFiles = @(
-    $expectedApplicationFiles | Where-Object { $_ -cne 'RobloxOne.exe' })
+$sourceComparableApplicationFiles = $expectedApplicationFiles
 Assert-ExactSet `
     -Expected $expectedApplicationFiles `
     -Actual (Get-RelativeFiles $applicationPath) `
     -Description 'Published application input'
 & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
-    -LicensePath (Join-Path $applicationPath 'LICENSE.md') `
-    -ApprovedSha256 $ApprovedReleaseLicenseSha256
+    -LicensePath (Join-Path $applicationPath 'LICENSE.md')
 
 $manifestInfo = Get-Item -LiteralPath $manifestPath
 if ($manifestInfo.Length -le 0 -or $manifestInfo.Length -gt 128 * 1024) {
@@ -362,7 +369,7 @@ try {
             'lib/app/RobloxOne.exe',
             'lib/app/RobloxOne_ExecutionStub.exe',
             'lib/app/Squirrel.exe')) {
-        Assert-Authenticode (Join-Path $packageExtraction $relativePath)
+        Assert-PortableExecutable (Join-Path $packageExtraction $relativePath)
     }
 }
 finally {
@@ -422,7 +429,7 @@ try {
         throw 'Portable version metadata does not match the full package.'
     }
     foreach ($relativePath in @('current/RobloxOne.exe', 'Roblox One.exe', 'Update.exe')) {
-        Assert-Authenticode (Join-Path $portableExtraction $relativePath)
+        Assert-PortableExecutable (Join-Path $portableExtraction $relativePath)
     }
 }
 finally {
@@ -430,7 +437,7 @@ finally {
         Remove-Item -LiteralPath $portableExtraction -Recurse -Force
     }
 }
-Assert-Authenticode $setupPath
+Assert-PortableExecutable $setupPath
 
 $sbomPath = Join-Path $directoryPath $sbomName
 $sbomInfo = Get-Item -LiteralPath $sbomPath
@@ -458,20 +465,15 @@ if ($sbom.spdxVersion -cne 'SPDX-2.3' -or
 $sbomPackage = @($sbom.packages | Where-Object { $_.SPDXID -ceq 'SPDXRef-Package-RobloxOne' })
 if ($sbomPackage.Count -ne 1 -or
     $sbomPackage[0].name -cne $packageName -or
-    $sbomPackage[0].versionInfo -cne [string] $descriptor.version) {
+    $sbomPackage[0].versionInfo -cne [string] $descriptor.version -or
+    $sbomPackage[0].licenseConcluded -cne 'MIT' -or
+    $sbomPackage[0].licenseDeclared -cne 'MIT') {
     throw 'Release SBOM does not describe the full release package.'
 }
 $sbomChecksum = @($sbomPackage[0].checksums | Where-Object { $_.algorithm -ceq 'SHA256' })
 if ($sbomChecksum.Count -ne 1 -or
     $sbomChecksum[0].checksumValue -cne [string] $descriptor.packageSha256) {
     throw 'Release SBOM package checksum does not match the descriptor.'
-}
-$licenseInfo = @($sbom.hasExtractedLicensingInfos |
-    Where-Object { $_.licenseId -ceq 'LicenseRef-RobloxOne-Release-License' })
-if ($licenseInfo.Count -ne 1 -or
-    (Get-NormalizedNotes ([string] $licenseInfo[0].extractedText)) -cne
-        (Get-NormalizedNotes (Get-Content -LiteralPath (Join-Path $applicationPath 'LICENSE.md') -Raw))) {
-    throw 'Release SBOM does not contain the approved release license.'
 }
 $requiredSbomPackages = @(
     'Microsoft.NETCore.App.Runtime.win-x64',
@@ -512,4 +514,4 @@ Assert-ExactSet `
     -Actual @($checksumNames) `
     -Description 'SHA256SUMS.txt'
 
-Write-Host 'Verified exact release inventory, feeds, SPDX SBOM, checksums, licenses, package contents, and every executable signature.'
+Write-Host 'Verified exact release inventory, feeds, SPDX SBOM, checksums, licenses, package contents, and executable structure.'

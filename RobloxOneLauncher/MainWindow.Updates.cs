@@ -32,7 +32,7 @@ public partial class MainWindow
             {
                 SetStatus(
                     "Update ready to restart",
-                    "Verifying the signed release details before restarting…",
+                    "Verifying the signed release descriptor and downloaded package before restarting…",
                     "VERIFYING UPDATE");
                 var verifiedPending = await _updateService.VerifyPendingAsync(
                     pending,

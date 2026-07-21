@@ -3,10 +3,14 @@ namespace RobloxOneLauncher.SystemProcesses;
 public sealed class HandleScopeConfiguration
 {
     public bool Enabled { get; set; }
-    public string ProcessName { get; set; } = "RobloxPlayerBeta";
-    public string HandleName { get; set; } = string.Empty;
-    public string? HandleType { get; set; }
-    public string? Access { get; set; }
+    public string ProcessName { get; set; } =
+        HandleScopeConfigurationLoader.RequiredProcessName;
+    public string HandleName { get; set; } =
+        HandleScopeConfigurationLoader.RequiredHandleName;
+    public string? HandleType { get; set; } =
+        HandleScopeConfigurationLoader.RequiredHandleType;
+    public string? Access { get; set; } =
+        HandleScopeConfigurationLoader.RequiredAccess;
     public string Match { get; set; } = "exact";
     public bool CloseAll { get; set; }
     public bool AllProcesses { get; set; } = true;

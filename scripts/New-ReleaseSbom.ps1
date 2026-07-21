@@ -56,10 +56,8 @@ function New-SpdxPackage(
 $descriptorPath = Require-File $Descriptor 'Release descriptor'
 $projectPath = Require-File $Project 'Application project'
 $lockPath = Require-File $LockFile 'Application package lock'
-$licensePath = Require-File $License 'Release license'
+[void] (Require-File $License 'Release license')
 $outputPath = [IO.Path]::GetFullPath($Output)
-$strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
-$licenseText = [IO.File]::ReadAllText($licensePath, $strictUtf8)
 
 $release = Get-Content -LiteralPath $descriptorPath -Raw | ConvertFrom-Json
 Write-Verbose 'Parsed release descriptor.'
@@ -124,8 +122,8 @@ $releasePackage = [ordered]@{
             checksumValue = [string] $release.packageSha256
         }
     )
-    licenseConcluded = 'NOASSERTION'
-    licenseDeclared = 'LicenseRef-RobloxOne-Release-License'
+    licenseConcluded = 'MIT'
+    licenseDeclared = 'MIT'
     copyrightText = 'Copyright (c) 2026 Makmatoe'
     supplier = 'Person: Makmatoe'
 }
@@ -190,13 +188,6 @@ $document = [ordered]@{
     }
     packages = $packages.ToArray()
     relationships = $relationships.ToArray()
-    hasExtractedLicensingInfos = @(
-        [ordered]@{
-            licenseId = 'LicenseRef-RobloxOne-Release-License'
-            extractedText = $licenseText
-            name = 'Roblox One approved release license'
-        }
-    )
 }
 Write-Verbose 'Constructed SPDX document.'
 

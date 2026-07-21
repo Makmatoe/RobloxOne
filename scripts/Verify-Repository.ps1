@@ -20,6 +20,7 @@ try {
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
+        'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
         'scripts/Verify-ReleaseLicense.ps1'
@@ -35,6 +36,8 @@ try {
     if ($velopackLicenseHash -cne '91845DB83551C877EBBB1118E0FB92E4E527290D23B995C55DCD438B3293943F') {
         throw 'The bundled Velopack license must match the pinned 1.2.0 upstream license exactly.'
     }
+    & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
+        -LicensePath (Join-Path $root 'LICENSE.md')
 
     $globalJson = Get-Content -LiteralPath (Join-Path $root 'global.json') -Raw |
         ConvertFrom-Json
@@ -157,6 +160,24 @@ try {
                  $contents -notmatch '(?m)^\s+environment:\s*release\s*$' -or
                  $contents -match '--clobber')) {
                 throw 'Release workflow must be tag-only, environment-protected, and non-clobbering.'
+            }
+            if ($workflow.Name -ceq 'release.yml') {
+                if ($contents -match '(?i)azure/login|AzureTrustedSign|AZURE_(?:CLIENT|TENANT|SUBSCRIPTION|SIGNING)|EXPECTED_PUBLISHER_SUBJECT') {
+                    throw 'The release workflow must not depend on Azure or paid Authenticode signing.'
+                }
+                $secretReferences = @([regex]::Matches(
+                    $contents,
+                    '\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}') |
+                    ForEach-Object { $_.Groups[1].Value } |
+                    Sort-Object -Unique)
+                if ($secretReferences.Count -ne 1 -or
+                    $secretReferences[0] -cne 'UPDATE_SIGNING_PRIVATE_KEY_PEM') {
+                    throw 'The release workflow may use only the protected descriptor-signing key.'
+                }
+                if ($contents -notmatch '(?m)^\s+artifact-metadata:\s*write\s*$' -or
+                    $contents -notmatch 'actions/attest@') {
+                    throw 'The release publication job must retain GitHub artifact attestation permissions.'
+                }
             }
             if ($contents -match 'actions/setup-dotnet@' -and
                 $contents -notmatch $exactSdkPattern) {
