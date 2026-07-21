@@ -16,7 +16,9 @@ that page has no release yet, a production installer is not currently available.
 
 ## Quick start
 
-1. Install Roblox Player and the Microsoft Edge WebView2 Runtime.
+1. Install Roblox Player. WebView2 is already included with Windows 11 and
+   nearly all Windows 10 installations. Only if the sign-in view cannot open,
+   install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
 2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases)
    page and download the Setup executable from the latest release.
 3. Add an account, then sign in on the official Roblox page shown in its
