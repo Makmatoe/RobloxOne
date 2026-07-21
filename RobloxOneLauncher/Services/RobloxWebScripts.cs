@@ -127,6 +127,30 @@ internal static class RobloxWebScripts
             """;
     }
 
+    public static string GetUserLocale(string requestId)
+    {
+        var id = JsonSerializer.Serialize(requestId);
+        return $$"""
+            (async () => {
+                let locale = null;
+                try {
+                    const response = await fetch(
+                        'https://locale.roblox.com/v1/locales/user-locale',
+                        { credentials: 'include' });
+                    if (response.ok) {
+                        const value = await response.json();
+                        locale = value?.supportedLocale?.locale ?? null;
+                    }
+                } catch {}
+
+                window.chrome.webview.postMessage({
+                    requestId: {{id}},
+                    locale
+                });
+            })();
+            """;
+    }
+
     public static string GetExperienceName(string requestId, long placeId)
     {
         var id = JsonSerializer.Serialize(requestId);

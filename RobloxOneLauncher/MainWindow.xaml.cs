@@ -17,16 +17,18 @@ public partial class MainWindow : Window
     private readonly RobloxServerTracker _serverTracker = new();
     private readonly RobloxWebSessionService _webSession = new();
     private readonly UiSoundService _soundService;
-    private readonly ILaunchHook _launchHook = new CompositeLaunchHook(
+    private readonly CompositeLaunchHook _launchHook = new(
         new HandleScopeLaunchHook(),
         new LocalApiLaunchHook());
     private readonly CancellationTokenSource _launchHookCancellation = new();
     private readonly SemaphoreSlim _accountCheckLock = new(1, 1);
     private readonly AppSettings _settings;
+    private readonly string? _startupNotice;
     private AccountProfile? _activeProfile;
     private AccountProfile? _pendingProfile;
     private RobloxUser? _currentUser;
     private CancellationTokenSource? _browserSwitchCancellation;
+    private CancellationTokenSource? _batchCancellation;
     private bool _launchInProgress;
     private bool _operationBusy;
     private bool _destinationTrackingEnabled;
@@ -40,6 +42,17 @@ public partial class MainWindow : Window
         InstallUpdateButton.ToolTip =
             $"Check for signed updates (current {_updateService.CurrentVersion})";
         _settings = _settingsService.Load();
+        var removedOrphanedProfiles =
+            _settingsService.CleanupOrphanedSessionDirectories(_settings);
+        _startupNotice = removedOrphanedProfiles > 0
+            ? string.Join(
+                Environment.NewLine + Environment.NewLine,
+                new[]
+                {
+                    _settingsService.LoadNotice,
+                    $"Removed {removedOrphanedProfiles} incomplete local account profile(s) left by an interrupted sign-in."
+                }.Where(message => !string.IsNullOrWhiteSpace(message)))
+            : _settingsService.LoadNotice;
         app.UiSoundsEnabled = _settings.UiSoundsEnabled;
         _webSession.RobloxPageLoaded += WebSession_RobloxPageLoaded;
         _activeProfile = FindActiveSavedProfile();
@@ -56,6 +69,15 @@ public partial class MainWindow : Window
         _soundService.PlayStartup(
             _settings.StartupSound,
             _settings.CustomStartupSoundFileName);
+        if (!string.IsNullOrWhiteSpace(_startupNotice))
+        {
+            MessageBox.Show(
+                this,
+                _startupNotice,
+                "Local settings recovery",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
         if (_activeProfile is null)
         {
             SetSignedOutState();
@@ -216,21 +238,27 @@ public partial class MainWindow : Window
         StatusDetail.Text = detail;
         SessionBadge.Text = badge;
 
-        var isError =
-            badge.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("BLOCKED", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("INVALID", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("REQUIRED", StringComparison.OrdinalIgnoreCase);
-        var isSuccess =
-            badge.Contains("VERIFIED", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("READY", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("STARTED", StringComparison.OrdinalIgnoreCase) ||
-            badge.Contains("CLOSED", StringComparison.OrdinalIgnoreCase);
+        var tone = StatusToneClassifier.Classify(badge);
+        var isError = tone == StatusTone.Error;
+        var isSuccess = tone == StatusTone.Success;
+        var isWarning = tone == StatusTone.Warning;
 
         var accent = ColorConverter.ConvertFromString(
-            isError ? "#FF7188" : isSuccess ? "#57D9A3" : "#9A89FF");
+            isError
+                ? "#FF7188"
+                : isSuccess
+                    ? "#57D9A3"
+                    : isWarning
+                        ? "#E0A33A"
+                        : "#9A89FF");
         var surface = ColorConverter.ConvertFromString(
-            isError ? "#2A171D" : isSuccess ? "#15271F" : "#211D39");
+            isError
+                ? "#2A171D"
+                : isSuccess
+                    ? "#15271F"
+                    : isWarning
+                        ? "#2A2215"
+                        : "#211D39");
         var accentBrush = new SolidColorBrush((Color)accent);
         var surfaceBrush = new SolidColorBrush((Color)surface);
         SessionBadge.Foreground = accentBrush;
@@ -275,6 +303,9 @@ public partial class MainWindow : Window
             pending
                 ? "New account sign-in"
                 : $"Select {account.Label ?? $"@{account.Username}"}");
+        AutomationProperties.SetItemStatus(
+            button,
+            selected ? "Selected account" : "Not selected");
 
         var accountColor = (Color)ColorConverter.ConvertFromString(
             account.ColorHex ?? "#7C5CFC");
@@ -617,7 +648,9 @@ public partial class MainWindow : Window
 
         var ticketTask = _webSession.GetAuthenticationTicketAsync();
         var nameTask = TryGetExperienceNameAsync(target.PlaceId);
-        var ticket = await ticketTask;
+        var localeTask = _webSession.GetUserLocaleAsync();
+        await Task.WhenAll(ticketTask, localeTask);
+        var ticket = ticketTask.Result;
         if (string.IsNullOrWhiteSpace(ticket))
         {
             _launchInProgress = false;
@@ -643,8 +676,9 @@ public partial class MainWindow : Window
             AccountUsername = currentUser.Name,
             LastLaunchedAt = DateTimeOffset.UtcNow
         };
+        var locale = localeTask.Result;
         await LaunchClientAsync(
-            RobloxLaunchUriBuilder.Build(target, ticket, serverJobId),
+            RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
             recent);
     }
 
@@ -677,14 +711,26 @@ public partial class MainWindow : Window
         {
             SaveRecentExperience(recent);
             BeginServerTracking(recent, launchStartedAt);
-            SetReadyState();
-            SessionBadge.Text = "CLIENT STARTED";
+            SetStatus(
+                "Roblox Player started",
+                _launchHook.IsConfigured
+                    ? "Running configured local launch integrations…"
+                    : "Checking optional local launch integrations…",
+                "CLIENT STARTED");
             var accountLabel = _activeProfile?.Label;
-            _ = Task.Run(() => NotifyLaunchHookAsync(
+            await NotifyLaunchHookAsync(
                 recent,
                 processId,
                 accountLabel,
-                _launchHookCancellation.Token));
+                _launchHookCancellation.Token);
+            SetStatus(
+                "Roblox Player started",
+                _launchHook.IsConfigured
+                    ? "Configured local integrations finished their bounded attempt. They never control launch success."
+                    : "No local launch integration is configured, so that step was skipped.",
+                "CLIENT STARTED");
+            RefreshLaunchAvailability();
+            LaunchButtonLabel.Text = "Launch";
             return;
         }
 
@@ -764,7 +810,7 @@ public partial class MainWindow : Window
             return;
 
         var result = MessageBox.Show(
-            $"Remove @{profile.Username} from Roblox One? Its isolated sign-in will be cleared.",
+            $"Remove @{profile.Username} from Roblox One? Its isolated sign-in will be cleared. Recent and Favorites entries for this account will remain until you remove or clear them.",
             "Remove account", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes)
             return;
@@ -800,7 +846,17 @@ public partial class MainWindow : Window
     }
 
     private async Task<bool> ClearCurrentBrowserProfileAsync()
-        => await _webSession.ClearProfileAsync();
+    {
+        var profile = _pendingProfile ?? _activeProfile;
+        if (profile is null)
+            return true;
+
+        var browserDataCleared = await _webSession.ClearProfileAsync();
+        _webSession.ReleaseBrowser();
+        BrowserHost.Children.Clear();
+        var directoryRemoved = await _settingsService.DeleteSessionDataAsync(profile);
+        return browserDataCleared || directoryRemoved;
+    }
 
     private void PlaceIdBox_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -818,15 +874,6 @@ public partial class MainWindow : Window
         LaunchButton_Click(LaunchButton, new RoutedEventArgs());
     }
 
-    private bool IsValidPlaceId() =>
-        TryResolveLaunchInput(
-            PlaceIdBox.Text,
-            out _,
-            out _,
-            out _,
-            out _,
-            out _);
-
     private bool TryResolveLaunchInput(
         string input,
         out string destination,
@@ -835,21 +882,24 @@ public partial class MainWindow : Window
         out long? trackedPlaceId,
         out string error)
     {
-        destination = input.Trim();
-        serverJobId = null;
-        trackedPlaceId = null;
-
-        if (RecentServerJoinResolver.TryResolve(
-                destination,
+        if (LaunchInputResolver.TryResolve(
+                input,
                 _settings.RecentExperiences,
-                out var trackedServer))
+                out var resolved,
+                out error))
         {
-            destination = trackedServer!.Destination;
-            serverJobId = Guid.Parse(trackedServer.ServerJobId!).ToString("D");
-            trackedPlaceId = trackedServer.PlaceId;
+            destination = resolved!.Destination;
+            target = resolved.Target;
+            serverJobId = resolved.ServerJobId;
+            trackedPlaceId = resolved.TrackedPlaceId;
+            return true;
         }
 
-        return DestinationParser.TryParse(destination, out target, out error);
+        destination = input.Trim();
+        target = null;
+        serverJobId = null;
+        trackedPlaceId = null;
+        return false;
     }
 
     private void TrackDestinationForActiveProfile()
@@ -866,7 +916,11 @@ public partial class MainWindow : Window
         {
             _activeProfile.Destination = null;
         }
-        else if (DestinationParser.TryParse(destination, out _, out _))
+        else if (LaunchInputResolver.TryResolve(
+                     destination,
+                     _settings.RecentExperiences,
+                     out _,
+                     out _))
         {
             _activeProfile.Destination = destination;
         }
@@ -903,17 +957,32 @@ public partial class MainWindow : Window
         if (LaunchButton is null)
             return;
 
+        var destination = PlaceIdBox.Text.Trim();
+        var destinationIsValid = LaunchInputResolver.TryResolve(
+            destination,
+            _settings.RecentExperiences,
+            out _,
+            out var validationError);
+        if (DestinationValidationText is not null)
+        {
+            DestinationValidationText.Text = validationError;
+            DestinationValidationText.Visibility =
+                destination.Length > 0 && !destinationIsValid
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+
         LaunchButton.IsEnabled =
             !_operationBusy &&
             !_launchInProgress &&
             _currentUser?.Id == _activeProfile?.UserId &&
-            IsValidPlaceId();
+            destinationIsValid;
         BatchLaunchButton.IsEnabled =
             !_operationBusy &&
             !_launchInProgress &&
             _pendingProfile is null &&
             _settings.Accounts.Count >= 2 &&
-            IsValidPlaceId();
+            destinationIsValid;
     }
 
     private void SetOperationBusy(bool busy)
@@ -944,6 +1013,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        var incompleteProfile = _pendingProfile;
         TrackDestinationForActiveProfile();
         try
         {
@@ -957,6 +1027,19 @@ public partial class MainWindow : Window
         _browserSwitchCancellation?.Dispose();
         _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;
         _webSession.Dispose();
+        if (incompleteProfile is not null)
+        {
+            try
+            {
+                _settingsService.DeleteSessionDataAsync(incompleteProfile)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch
+            {
+                // The next reliable startup reconciles abandoned profile folders.
+            }
+        }
         _launchHookCancellation.Cancel();
         _launchHook.Dispose();
         _launchHookCancellation.Dispose();

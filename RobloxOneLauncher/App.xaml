@@ -30,6 +30,17 @@
         <Geometry x:Key="IconServerJoin">M 4,5 H 14 V 10 H 4 Z M 4,14 H 14 V 19 H 4 Z M 7,7.5 L 7.1,7.5 M 7,16.5 L 7.1,16.5 M 16,8 H 21 M 18,5 L 21,8 L 18,11</Geometry>
         <Geometry x:Key="IconUpdate">M 12,4 V 15 M 7.5,11 L 12,15.5 L 16.5,11 M 5,20 H 19</Geometry>
 
+        <Style x:Key="KeyboardFocusVisual">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border Margin="2" CornerRadius="10"
+                                BorderBrush="#C9BEFF" BorderThickness="2"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
@@ -38,7 +49,7 @@
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}"/>
             <Setter Property="Padding" Value="22,13"/>
             <Setter Property="Template">
                 <Setter.Value>

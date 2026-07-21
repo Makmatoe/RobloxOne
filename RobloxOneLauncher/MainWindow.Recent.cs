@@ -25,6 +25,8 @@ public partial class MainWindow
         LaunchTabButton.Foreground = CreateBrush("#98A3B8");
         RecentTabButton.Background = CreateBrush("#2A3142");
         RecentTabButton.Foreground = Brushes.White;
+        AutomationProperties.SetItemStatus(LaunchTabButton, "Not selected");
+        AutomationProperties.SetItemStatus(RecentTabButton, "Selected");
         RenderRecentExperiences();
     }
 
@@ -36,6 +38,8 @@ public partial class MainWindow
         LaunchTabButton.Foreground = Brushes.White;
         RecentTabButton.Background = Brushes.Transparent;
         RecentTabButton.Foreground = CreateBrush("#98A3B8");
+        AutomationProperties.SetItemStatus(LaunchTabButton, "Selected");
+        AutomationProperties.SetItemStatus(RecentTabButton, "Not selected");
     }
 
     private void RenderRecentExperiences()
@@ -227,6 +231,12 @@ public partial class MainWindow
             Foreground = CreateBrush("#C4CCDA")
         };
         AutomationProperties.SetName(button, tooltip);
+        if (iconResourceKey == "IconStar")
+        {
+            AutomationProperties.SetItemStatus(
+                button,
+                recent.IsPinned ? "Selected" : "Not selected");
+        }
         button.Click += handler;
         return button;
     }
@@ -335,8 +345,9 @@ public partial class MainWindow
         var entryText = removableCount == 1
             ? "1 non-favorite entry"
             : $"{removableCount} non-favorite entries";
+        var accountScope = GetRecentAccountScopeDescription();
         var result = MessageBox.Show(
-            $"Clear {scope} across all accounts? This removes {entryText}. Favorites will stay saved.",
+            $"Clear {scope} {accountScope}? This removes {entryText}. Favorites will stay saved.",
             $"Clear {scope}",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
@@ -402,15 +413,39 @@ public partial class MainWindow
     }
 
     private bool MatchesRecentType(RecentExperience item) =>
-        _recentTypeFilter switch
-        {
-            RecentTypeFilter.Public => !item.IsPrivateServer,
-            RecentTypeFilter.Private => item.IsPrivateServer,
-            _ => true
-        };
+        RecentHistoryScope.MatchesType(
+            item,
+            _recentTypeFilter switch
+            {
+                RecentTypeFilter.Public => RecentServerType.Public,
+                RecentTypeFilter.Private => RecentServerType.Private,
+                _ => RecentServerType.All
+            });
 
     private bool MatchesClearHistoryScope(RecentExperience item) =>
-        !item.IsPinned && MatchesRecentType(item);
+        RecentHistoryScope.CanClear(
+            item,
+            _recentTypeFilter switch
+            {
+                RecentTypeFilter.Public => RecentServerType.Public,
+                RecentTypeFilter.Private => RecentServerType.Private,
+                _ => RecentServerType.All
+            },
+            _recentAccountFilter);
+
+    private string GetRecentAccountScopeDescription()
+    {
+        if (_recentAccountFilter == 0)
+            return "across all accounts";
+
+        var username = _settings.RecentExperiences
+            .Where(item => item.AccountUserId == _recentAccountFilter)
+            .Select(item => item.AccountUsername)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        return username is null
+            ? $"for account {_recentAccountFilter}"
+            : $"for @{username}";
+    }
 
     private void UpdateClearHistoryButton()
     {
@@ -422,8 +457,12 @@ public partial class MainWindow
                 "Clear private history",
             _ => "Clear all history"
         };
-        AutomationProperties.SetName(ClearHistoryButton, accessibleName);
-        ClearHistoryButton.ToolTip = $"{accessibleName}; Favorites stay saved";
+        var accountScope = GetRecentAccountScopeDescription();
+        AutomationProperties.SetName(
+            ClearHistoryButton,
+            $"{accessibleName} {accountScope}");
+        ClearHistoryButton.ToolTip =
+            $"{accessibleName} {accountScope}; Favorites stay saved";
         ClearHistoryButton.IsEnabled =
             !_operationBusy &&
             _settings.RecentExperiences.Any(MatchesClearHistoryScope);
@@ -507,6 +546,7 @@ public partial class MainWindow
     {
         button.Background = active ? CreateBrush("#2A3142") : Brushes.Transparent;
         button.Foreground = active ? Brushes.White : CreateBrush("#98A3B8");
+        AutomationProperties.SetItemStatus(button, active ? "Selected" : "Not selected");
     }
 
     private static SolidColorBrush CreateBrush(string color) =>

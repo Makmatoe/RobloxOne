@@ -9,38 +9,60 @@ public sealed class SettingsService
     public static readonly IReadOnlyList<string> AccountColors =
         ["#7C5CFC", "#4D8DFF", "#27B58A", "#E0A33A", "#E36B8D", "#A56DE2"];
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private readonly string _rootDirectory;
+    private readonly string _backupPath;
+    private readonly string _profileCleanupGuardPath;
     private readonly string _settingsPath;
+    private bool _primaryIsUnreadable;
 
-    public SettingsService()
+    public SettingsService(string? storageDirectory = null)
     {
-        var directory = Path.Combine(
+        _rootDirectory = Path.GetFullPath(storageDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "RobloxOne");
-        Directory.CreateDirectory(directory);
-        _settingsPath = Path.Combine(directory, "settings.json");
+            "RobloxOne"));
+        Directory.CreateDirectory(_rootDirectory);
+        _settingsPath = Path.Combine(_rootDirectory, "settings.json");
+        _backupPath = Path.Combine(_rootDirectory, "settings.backup.json");
+        _profileCleanupGuardPath = Path.Combine(
+            _rootDirectory,
+            "profile-cleanup-paused.txt");
+        CanReconcileProfiles = !File.Exists(_profileCleanupGuardPath);
     }
+
+    public string? LoadNotice { get; private set; }
+    public bool CanReconcileProfiles { get; private set; } = true;
 
     public string GetSessionDataDirectory(AccountProfile profile)
     {
-        var root = Path.GetFullPath(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "RobloxOne"));
-        var path = Path.GetFullPath(Path.Combine(root, profile.SessionFolder));
-        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        var path = Path.GetFullPath(Path.Combine(_rootDirectory, profile.SessionFolder));
+        if (!path.StartsWith(
+                _rootDirectory + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
             throw new InvalidOperationException("The account session path is outside Roblox One.");
+        }
         return path;
     }
 
     public AppSettings Load()
     {
-        try
+        LoadNotice = null;
+        CanReconcileProfiles = !File.Exists(_profileCleanupGuardPath);
+        _primaryIsUnreadable = false;
+        var primaryExists = File.Exists(_settingsPath);
+        if (!primaryExists && !File.Exists(_backupPath))
         {
-            var settings = File.Exists(_settingsPath)
-                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath)) ?? new()
-                : new();
-            var migrated = MigrateLegacyAccount(settings);
-            Normalize(settings);
-            migrated |= MigrateLegacyDestinations(settings);
+            if (HasPreservedSettingsFiles())
+            {
+                PauseProfileCleanup();
+                AddProfileCleanupNotice();
+            }
+            return new();
+        }
+
+        if (primaryExists &&
+            TryLoadFile(_settingsPath, out var settings, out var migrated))
+        {
             if (migrated)
             {
                 try
@@ -52,19 +74,257 @@ public sealed class SettingsService
                     // Keep the successfully loaded settings in memory for this run.
                 }
             }
+            AddProfileCleanupNotice();
             return settings;
         }
-        catch
+
+        if (TryLoadFile(_backupPath, out settings, out migrated))
         {
-            return new();
+            _primaryIsUnreadable = true;
+            if (PreserveUnreadableFile(_settingsPath))
+            {
+                _primaryIsUnreadable = false;
+                try
+                {
+                    WriteFresh(settings);
+                    if (migrated)
+                        Save(settings);
+                }
+                catch
+                {
+                    // The validated backup remains available if restoration is blocked.
+                }
+            }
+            LoadNotice = primaryExists
+                ? "Roblox One recovered your accounts and history from the local settings backup. The unreadable file was preserved for diagnosis."
+                : "Roblox One recovered your accounts and history from the local settings backup after the primary file was missing.";
+            AddProfileCleanupNotice();
+            return settings;
         }
+
+        _primaryIsUnreadable = !PreserveUnreadableFile(_settingsPath);
+        PreserveUnreadableFile(_backupPath);
+        PauseProfileCleanup();
+        LoadNotice =
+            "Roblox One could not read the local settings or its backup. The unreadable files were preserved, and browser profiles were left untouched.";
+        AddProfileCleanupNotice();
+        return new();
     }
 
     public void Save(AppSettings settings)
     {
+        if (_primaryIsUnreadable)
+        {
+            if (!PreserveUnreadableFile(_settingsPath))
+            {
+                throw new IOException(
+                    "The unreadable settings file is still in use and was not overwritten.");
+            }
+            _primaryIsUnreadable = false;
+        }
+
         var temporaryPath = _settingsPath + ".tmp";
-        File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings, JsonOptions));
-        File.Move(temporaryPath, _settingsPath, overwrite: true);
+        try
+        {
+            File.WriteAllText(
+                temporaryPath,
+                JsonSerializer.Serialize(settings, JsonOptions));
+            if (File.Exists(_settingsPath))
+            {
+                File.Replace(
+                    temporaryPath,
+                    _settingsPath,
+                    _backupPath,
+                    ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(temporaryPath, _settingsPath);
+            }
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
+    public int CleanupOrphanedSessionDirectories(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (!CanReconcileProfiles)
+            return 0;
+
+        var profilesDirectory = Path.Combine(_rootDirectory, "Profiles");
+        if (!Directory.Exists(profilesDirectory))
+            return 0;
+
+        var referencedKeys = settings.Accounts
+            .Select(account => account.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removed = 0;
+        foreach (var directory in Directory.EnumerateDirectories(
+                     profilesDirectory,
+                     "*",
+                     SearchOption.TopDirectoryOnly))
+        {
+            var key = Path.GetFileName(directory);
+            if (!IsValidKey(key) || key == "legacy" || referencedKeys.Contains(key))
+                continue;
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+                removed++;
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                // A WebView2 process can briefly retain an interrupted profile.
+            }
+        }
+        return removed;
+    }
+
+    public async Task<bool> DeleteSessionDataAsync(
+        AccountProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        var path = GetSessionDataDirectory(profile);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (!Directory.Exists(path))
+                    return true;
+                Directory.Delete(path, recursive: true);
+                return true;
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == 9)
+                    return false;
+                await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken);
+            }
+        }
+        return false;
+    }
+
+    private bool TryLoadFile(
+        string path,
+        out AppSettings settings,
+        out bool migrated)
+    {
+        settings = new();
+        migrated = false;
+        try
+        {
+            if (!File.Exists(path))
+                return false;
+            settings = JsonSerializer.Deserialize<AppSettings>(
+                File.ReadAllText(path)) ?? new();
+            migrated = MigrateLegacyAccount(settings);
+            Normalize(settings);
+            migrated |= MigrateLegacyDestinations(settings);
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or JsonException or
+                NotSupportedException or ArgumentException)
+        {
+            settings = new();
+            migrated = false;
+            return false;
+        }
+    }
+
+    private void WriteFresh(AppSettings settings)
+    {
+        var temporaryPath = _settingsPath + ".restore.tmp";
+        try
+        {
+            File.WriteAllText(
+                temporaryPath,
+                JsonSerializer.Serialize(settings, JsonOptions));
+            File.Move(temporaryPath, _settingsPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
+    private static bool PreserveUnreadableFile(string path)
+    {
+        if (!File.Exists(path))
+            return true;
+        try
+        {
+            var preservedPath = Path.Combine(
+                Path.GetDirectoryName(path)!,
+                $"{Path.GetFileNameWithoutExtension(path)}.corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}.json");
+            File.Move(path, preservedPath);
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException)
+        {
+            // Never destroy an unreadable settings file just to make recovery tidy.
+            return false;
+        }
+    }
+
+    private bool HasPreservedSettingsFiles()
+    {
+        try
+        {
+            return Directory.EnumerateFiles(
+                    _rootDirectory,
+                    "settings.corrupt-*.json",
+                    SearchOption.TopDirectoryOnly)
+                .Any() ||
+                Directory.EnumerateFiles(
+                    _rootDirectory,
+                    "settings.backup.corrupt-*.json",
+                    SearchOption.TopDirectoryOnly)
+                .Any();
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException)
+        {
+            // If the recovery state cannot be inspected, preserve profiles.
+            return true;
+        }
+    }
+
+    private void PauseProfileCleanup()
+    {
+        CanReconcileProfiles = false;
+        try
+        {
+            File.WriteAllText(
+                _profileCleanupGuardPath,
+                "Automatic browser-profile cleanup is paused because settings could not be recovered. Keep this file until account metadata has been recovered or all old profiles may be deleted.");
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException)
+        {
+            // The preserved corrupt files provide a second persistent guard.
+        }
+    }
+
+    private void AddProfileCleanupNotice()
+    {
+        if (CanReconcileProfiles)
+            return;
+
+        const string notice =
+            "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
+        LoadNotice = string.IsNullOrWhiteSpace(LoadNotice)
+            ? notice
+            : $"{LoadNotice}{Environment.NewLine}{Environment.NewLine}{notice}";
     }
 
     private static void Normalize(AppSettings settings)

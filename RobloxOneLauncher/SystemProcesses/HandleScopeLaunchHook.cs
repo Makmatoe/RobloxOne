@@ -24,6 +24,8 @@ public sealed class HandleScopeLaunchHook : ILaunchHook
     private Task _operationTail = Task.CompletedTask;
     private bool _disposed;
 
+    public bool IsConfigured => _configurationLoader.LoadEnabled() is not null;
+
     public HandleScopeLaunchHook()
         : this(new HandleScopeConfigurationLoader(), new HandleScopeConnectionLoader())
     {

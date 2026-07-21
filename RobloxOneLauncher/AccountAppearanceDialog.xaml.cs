@@ -64,6 +64,9 @@ public partial class AccountAppearanceDialog : Window
                                StringComparison.OrdinalIgnoreCase);
             button.Content = selected ? "✓" : null;
             button.Opacity = selected ? 1 : 0.72;
+            System.Windows.Automation.AutomationProperties.SetItemStatus(
+                button,
+                selected ? "Selected" : "Not selected");
         }
     }
 

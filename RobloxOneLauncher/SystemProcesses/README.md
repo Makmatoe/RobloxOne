@@ -4,6 +4,11 @@ The integrations in this directory run only after Roblox Player starts
 successfully. They are optional, loopback-only, bounded by short timeouts, and
 cannot change a successful launch into a failed launch.
 
+Roblox One waits for each bounded integration attempt before marking that step
+finished. The activity panel distinguishes a configured attempt from a skipped
+step, but it never reports an optional integration as the reason Roblox itself
+did or did not launch.
+
 ## Generic local API hook
 
 `LocalApiLaunchHook` sends one JSON `POST` when

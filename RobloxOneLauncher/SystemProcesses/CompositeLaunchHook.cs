@@ -6,6 +6,8 @@ public sealed class CompositeLaunchHook : ILaunchHook
 {
     private readonly IReadOnlyList<ILaunchHook> _hooks;
 
+    public bool IsConfigured => _hooks.Any(hook => hook.IsConfigured);
+
     public CompositeLaunchHook(params ILaunchHook[] hooks)
     {
         ArgumentNullException.ThrowIfNull(hooks);

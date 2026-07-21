@@ -12,6 +12,8 @@ public sealed class LocalApiLaunchHook : ILaunchHook
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
     private readonly HttpClient _client;
 
+    public bool IsConfigured => TryGetEndpoint(out _);
+
     public LocalApiLaunchHook()
     {
         var handler = new SocketsHttpHandler
