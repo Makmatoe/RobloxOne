@@ -24,10 +24,13 @@ warning.
    nearly all Windows 10 installations. Only if the sign-in view cannot open,
    install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
 2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases)
-   page and download the Setup executable from the latest release.
-3. Confirm the download came from `Makmatoe/RobloxOne`. If Windows warns about
-   the unknown publisher, continue only when the filename and published
-   SHA-256 checksum match that release.
+   page and download both the Setup executable and its `SHA256SUMS.txt` asset
+   from the latest release. The checksum file also has a stable
+   [latest-release download link](https://github.com/Makmatoe/RobloxOne/releases/latest/download/SHA256SUMS.txt).
+3. Confirm the download came from `Makmatoe/RobloxOne`, then use the
+   [regular-user checksum commands](docs/UPDATES.md#verify-a-manual-installer-download)
+   before running it. If Windows warns about the unknown publisher, continue
+   only when the filename and SHA-256 match that same release.
 4. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
 5. Choose a destination and select **Launch Roblox**.
@@ -68,11 +71,19 @@ elevated, or started by Roblox One.
 
 To use the optional connector, install
 [HandleScope from its canonical repository](https://github.com/Makmatoe/HandleScope),
-run its released `./api/Enable-SessionDockIntegration.ps1` helper, and start its
-documented v1 local API. A SessionDock source checkout can use the equivalent
-`./scripts/Enable-HandleScope.ps1` helper. SessionDock stores only
-`{"enabled":true}`; its narrow Roblox handle policy remains compiled into the
-app.
+then run its installed helper from a normal, non-administrator PowerShell:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
+```
+
+Start HandleScope's documented v1 local API separately; Roblox One never
+starts it. The installed path above is the canonical route for release users.
+Developers working from a SessionDock source checkout may instead run
+`./scripts/Enable-HandleScope.ps1` from the repository root to write the same
+per-user opt-in; that source-only fallback does not install or start
+HandleScope. SessionDock stores only `{"enabled":true}`; its narrow Roblox
+handle policy remains compiled into the app.
 
 The embedded sign-in view intentionally does not load extensions or password
 manager integrations. It supports normal clipboard paste and its context menu,

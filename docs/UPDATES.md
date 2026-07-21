@@ -22,6 +22,40 @@ The installer-based production build is the recommended updateable edition.
 Source, debug, and raw `dotnet publish` builds do not become trusted production
 installations and cannot use the production self-update path.
 
+## Verify a manual installer download
+
+Download both `RobloxOne-win-x64-stable-Setup.exe` and `SHA256SUMS.txt` from
+the same entry on the canonical
+[GitHub Releases page](https://github.com/Makmatoe/RobloxOne/releases). For the
+latest release, the checksum file is also available through its stable
+[direct download link](https://github.com/Makmatoe/RobloxOne/releases/latest/download/SHA256SUMS.txt).
+Do not combine an installer from one release with a checksum file from another.
+
+Open a normal PowerShell in the directory containing both files, then run:
+
+```powershell
+$asset = 'RobloxOne-win-x64-stable-Setup.exe'
+$checksumFile = '.\SHA256SUMS.txt'
+$pattern = '^(?<hash>[0-9a-fA-F]{64})  ' + [Regex]::Escape($asset) + '$'
+$matchingLines = @(Get-Content -LiteralPath $checksumFile |
+    Where-Object { $_ -match $pattern })
+
+if ($matchingLines.Count -ne 1) {
+    throw "Expected exactly one checksum entry for $asset."
+}
+
+$expected = $matchingLines[0].Substring(0, 64).ToLowerInvariant()
+$actual = (Get-FileHash -LiteralPath ".\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -cne $expected) {
+    throw "SHA-256 mismatch for $asset. Delete the download and do not run it."
+}
+
+Write-Host "SHA-256 verified: $asset"
+```
+
+Run the installer only after the command prints `SHA-256 verified`. A missing,
+duplicate, malformed, or mismatched entry is a verification failure.
+
 ## What is verified
 
 The updater requires a signed release descriptor whose public key is pinned in

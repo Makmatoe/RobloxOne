@@ -36,10 +36,10 @@ manual reinstall.
 ## Prepare a release
 
 1. Start from a clean, reviewed `main` commit.
-2. Choose a semantic version such as `2.1.0`.
+2. Choose an unreleased semantic version in `major.minor.patch` form.
 3. Set the project version to exactly that value.
-4. Add `ReleaseNotes/2.1.0.md`. Keep notes user-focused, displayable, and free
-   of secrets or untrusted HTML.
+4. Add `RobloxOneLauncher/ReleaseNotes/<version>.md`. Keep notes user-focused,
+   displayable, and free of secrets or untrusted HTML.
 5. Restore, build, test, and run repository validation locally.
 6. Confirm the publish inventory contains only the application, MIT license,
    dependency notices, and pinned upstream license files.
@@ -57,10 +57,18 @@ Create and push an annotated version tag only after the reviewed commit is the
 tip of `main`:
 
 ```powershell
+$version = Read-Host 'New release version without the v prefix (major.minor.patch)'
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a major.minor.patch version.' }
+$tag = "v$version"
+$notesPath = "RobloxOneLauncher/ReleaseNotes/$version.md"
+if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
+    throw "Missing release notes: $notesPath"
+}
+
 git switch main
 git pull --ff-only
-git tag -a v2.1.0 -m "Roblox One 2.1.0"
-git push origin v2.1.0
+git tag -a $tag -m "Roblox One $version"
+git push origin $tag
 ```
 
 The protected workflow then:
@@ -100,15 +108,23 @@ Before announcing a release:
 - verify the checksums and GitHub attestation for every asset.
 
 ```powershell
-gh release download v2.1.0 --repo Makmatoe/RobloxOne --dir verified-release
-gh attestation verify verified-release/* --repo Makmatoe/RobloxOne
-$lines = Get-Content verified-release/SHA256SUMS.txt
+$tag = Read-Host 'Published release tag (v followed by major.minor.patch)'
+if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected a vmajor.minor.patch tag.' }
+$directory = "verified-release-$tag"
+
+gh release download $tag --repo Makmatoe/RobloxOne --dir $directory
+if ($LASTEXITCODE -ne 0) { throw "Release download failed: $tag" }
+Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
+    gh attestation verify $_.FullName --repo Makmatoe/RobloxOne
+    if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed: $($_.Name)" }
+}
+$lines = Get-Content (Join-Path $directory 'SHA256SUMS.txt')
 foreach ($line in $lines) {
     if ($line -notmatch '^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)$') { throw 'Malformed checksum file.' }
-    $actual = (Get-FileHash (Join-Path verified-release $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = (Get-FileHash (Join-Path $directory $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -cne $Matches[1]) { throw "Checksum mismatch: $($Matches[2])" }
 }
-Get-AuthenticodeSignature verified-release/RobloxOne-win-x64-stable-Setup.exe |
+Get-AuthenticodeSignature (Join-Path $directory 'RobloxOne-win-x64-stable-Setup.exe') |
     Format-List Status,StatusMessage
 ```
 
