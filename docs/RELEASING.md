@@ -22,7 +22,11 @@ Configure these controls before the first public release:
    write permissions only in the release workflow.
 5. Enable private vulnerability reporting, Dependabot alerts, secret scanning,
    push protection, CodeQL default setup for C#, and immutable releases where
-   available.
+   available. After GitHub Dependency Review is supported and the repository's
+   Dependency Graph is enabled, add the repository variable
+   `DEPENDENCY_REVIEW_ENABLED=true`. Until then, the CI build still fails on
+   vulnerable or deprecated NuGet dependencies through the repository-owned
+   audit script.
 6. Create a protected `release` environment with a required human reviewer and
    prevention of self-review. Only the final signing/publishing job may use it.
 7. Configure Azure workload identity federation for GitHub Actions. Do not

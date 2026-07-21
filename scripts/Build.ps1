@@ -45,6 +45,11 @@ try {
         Invoke-CheckedCommand dotnet @restoreArguments
     }
 
+    if ($CI) {
+        & (Join-Path $PSScriptRoot 'Verify-NuGetSecurity.ps1') `
+            -Project (Join-Path $root 'RobloxOne.slnx')
+    }
+
     Invoke-CheckedCommand dotnet build $project '--configuration' $Configuration '--runtime' $Runtime '--no-restore' @commonProperties
 
     if (Test-Path -LiteralPath $signerProject -PathType Leaf) {
