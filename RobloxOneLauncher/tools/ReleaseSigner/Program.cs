@@ -9,7 +9,7 @@ internal static class ReleaseSignerProgram
     private static readonly HashSet<string> SignOptions = new(StringComparer.Ordinal)
     {
         "package", "notes", "output", "repository", "channel", "version", "tag",
-        "private-key-env"
+        "private-key-base64-env"
     };
 
     private static readonly HashSet<string> VerifyOptions = new(StringComparer.Ordinal)
@@ -58,7 +58,7 @@ internal static class ReleaseSignerProgram
         var channel = Require(options, "channel");
         var versionText = Require(options, "version");
         var tag = Require(options, "tag");
-        var privateKeyEnvironmentName = Require(options, "private-key-env");
+        var privateKeyEnvironmentName = Require(options, "private-key-base64-env");
 
         if (repository != ReleaseDescriptorPolicy.Repository ||
             channel != ReleaseDescriptorPolicy.Channel)
@@ -102,19 +102,48 @@ internal static class ReleaseSignerProgram
             releaseNotes,
             string.Empty);
 
-        var privateKeyPem = Environment.GetEnvironmentVariable(
+        var privateKeyBase64 = Environment.GetEnvironmentVariable(
             privateKeyEnvironmentName);
-        if (string.IsNullOrWhiteSpace(privateKeyPem))
+        if (string.IsNullOrWhiteSpace(privateKeyBase64))
             throw new ArgumentException("The configured release signing key is unavailable.");
+        if (privateKeyBase64.Length > 1024 ||
+            privateKeyBase64.Any(char.IsWhiteSpace))
+        {
+            throw new ArgumentException(
+                "The configured release signing key must be one canonical base64 value.");
+        }
 
-        using var privateKey = ECDsa.Create();
-        privateKey.ImportFromPem(privateKeyPem);
-        if (privateKey.KeySize != 256)
-            throw new CryptographicException("The release signing key must use P-256.");
+        byte[] privateKeyBytes;
+        try
+        {
+            privateKeyBytes = Convert.FromBase64String(privateKeyBase64);
+        }
+        catch (FormatException exception)
+        {
+            throw new ArgumentException(
+                "The configured release signing key is not valid base64.",
+                exception);
+        }
 
-        var signature = privateKey.SignData(
-            ReleaseDescriptorPolicy.CreateCanonicalPayload(unsignedDescriptor),
-            HashAlgorithmName.SHA256);
+        byte[] signature;
+        try
+        {
+            using var privateKey = ECDsa.Create();
+            privateKey.ImportPkcs8PrivateKey(privateKeyBytes, out var bytesRead);
+            if (bytesRead != privateKeyBytes.Length || privateKey.KeySize != 256)
+            {
+                throw new CryptographicException(
+                    "The release signing key must be one P-256 PKCS#8 key.");
+            }
+
+            signature = privateKey.SignData(
+                ReleaseDescriptorPolicy.CreateCanonicalPayload(unsignedDescriptor),
+                HashAlgorithmName.SHA256);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(privateKeyBytes);
+        }
         var signedDescriptor = unsignedDescriptor with
         {
             Signature = Convert.ToBase64String(signature)

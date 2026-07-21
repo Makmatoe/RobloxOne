@@ -171,7 +171,7 @@ try {
                     ForEach-Object { $_.Groups[1].Value } |
                     Sort-Object -Unique)
                 if ($secretReferences.Count -ne 1 -or
-                    $secretReferences[0] -cne 'UPDATE_SIGNING_PRIVATE_KEY_PEM') {
+                    $secretReferences[0] -cne 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64') {
                     throw 'The release workflow may use only the protected descriptor-signing key.'
                 }
                 if ($contents -notmatch '(?m)^\s+artifact-metadata:\s*write\s*$' -or
