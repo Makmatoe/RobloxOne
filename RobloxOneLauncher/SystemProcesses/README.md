@@ -46,16 +46,20 @@ launch HandleScope and never requests elevation for it. To opt in:
 1. Download and install HandleScope only from its
    [canonical repository](https://github.com/Makmatoe/HandleScope) or
    [release page](https://github.com/Makmatoe/HandleScope/releases).
-2. From the extracted HandleScope release, run its integration helper:
+2. After installing HandleScope's API, run its installed integration helper
+   from a normal, non-administrator PowerShell:
 
    ```powershell
-   ./api/Enable-SessionDockIntegration.ps1
+   & "$env:LOCALAPPDATA\Programs\HandleScope\Api\Enable-SessionDockIntegration.ps1"
    ```
 
-   This is the preferred path for release users. From a SessionDock source
-   checkout, `./scripts/Enable-HandleScope.ps1` performs the equivalent
-   per-user opt-in. Both scripts refuse to replace an existing configuration;
-   review that file first, or deliberately pass `-Force` to reset it.
+   This installed path is the canonical route for release users. Developers
+   working from a SessionDock source checkout may instead run
+   `./scripts/Enable-HandleScope.ps1` from the SessionDock repository root to
+   write the same per-user opt-in. That source-only fallback does not install
+   or start HandleScope. Both helpers refuse to replace an existing
+   configuration; review that file first, or deliberately pass `-Force` to
+   reset it.
 3. Start HandleScope's documented v1 local API. Roblox One never starts or
    elevates it.
 
