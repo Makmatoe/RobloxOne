@@ -18,6 +18,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ReleaseJson.ps1')
 
 function Require-File([string] $Path, [string] $Description) {
     $fullPath = [IO.Path]::GetFullPath($Path)
@@ -59,7 +60,7 @@ $lockPath = Require-File $LockFile 'Application package lock'
 [void] (Require-File $License 'Release license')
 $outputPath = [IO.Path]::GetFullPath($Output)
 
-$release = Get-Content -LiteralPath $descriptorPath -Raw | ConvertFrom-Json
+$release = ConvertFrom-ReleaseJson (Get-Content -LiteralPath $descriptorPath -Raw)
 Write-Verbose 'Parsed release descriptor.'
 if ($release.version -cnotmatch '^\d+\.\d+\.\d+$' -or
     $release.tag -cne "v$($release.version)" -or
@@ -79,7 +80,7 @@ if ($runtimeVersions.Count -ne 1 -or $runtimeVersions[0] -cnotmatch '^\d+\.\d+\.
 }
 $runtimeVersion = [string] $runtimeVersions[0]
 
-$lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+$lock = ConvertFrom-ReleaseJson (Get-Content -LiteralPath $lockPath -Raw)
 Write-Verbose 'Parsed application lock file.'
 $resolved = @{}
 foreach ($framework in $lock.dependencies.PSObject.Properties) {

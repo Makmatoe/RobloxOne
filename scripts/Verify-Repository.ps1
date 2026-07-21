@@ -20,6 +20,7 @@ try {
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
+        'scripts/ReleaseJson.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
@@ -38,6 +39,14 @@ try {
     }
     & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
         -LicensePath (Join-Path $root 'LICENSE.md')
+
+    . (Join-Path $PSScriptRoot 'ReleaseJson.ps1')
+    $dateProbeText = '2026-07-21T17:06:45.1234567+00:00'
+    $dateProbe = ConvertFrom-ReleaseJson ('{"publishedAt":"' + $dateProbeText + '"}')
+    if ($dateProbe.publishedAt -isnot [string] -or
+        $dateProbe.publishedAt -cne $dateProbeText) {
+        throw 'Release JSON parsing must preserve canonical timestamp strings.'
+    }
 
     $globalJson = Get-Content -LiteralPath (Join-Path $root 'global.json') -Raw |
         ConvertFrom-Json
