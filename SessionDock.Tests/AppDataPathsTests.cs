@@ -143,6 +143,49 @@ public sealed class AppDataPathsTests : IDisposable
     }
 
     [Fact]
+    public void ResolveForDirectories_MergeFailureAfterProfileMove_PausesCleanup()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        var legacyKey = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(preferred);
+        var legacyProfile = Path.Combine(legacy, "Profiles", legacyKey);
+        Directory.CreateDirectory(legacyProfile);
+        File.WriteAllText(Path.Combine(preferred, "handlescope.json"), "current");
+        WriteSettings(legacy, legacyKey, 202, "legacy-user");
+        var sentinelName = "Cookies";
+        File.WriteAllText(
+            Path.Combine(legacyProfile, sentinelName),
+            "legacy-session");
+        using var settingsLock = new FileStream(
+            Path.Combine(legacy, "settings.json"),
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.None);
+
+        var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
+        var settingsService = new SettingsService(resolved);
+        var loaded = settingsService.Load();
+        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Equal(0, removed);
+        Assert.False(settingsService.CanReconcileProfiles);
+        Assert.Contains(
+            "did not finish cleanly",
+            Assert.IsType<string>(settingsService.LoadNotice),
+            StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationInProgressFileName)));
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            "Profiles",
+            legacyKey,
+            sentinelName)));
+        Assert.True(File.Exists(Path.Combine(legacy, "settings.json")));
+    }
+
+    [Fact]
     public void ResolveForDirectories_OneSettingsRoot_MigratesReferencedLegacyProfile()
     {
         var preferred = Path.Combine(_root, "SessionDock");
@@ -173,6 +216,9 @@ public sealed class AppDataPathsTests : IDisposable
         Assert.False(File.Exists(Path.Combine(
             preferred,
             AppDataPaths.MigrationConflictFileName)));
+        Assert.False(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationInProgressFileName)));
     }
 
     [Theory]

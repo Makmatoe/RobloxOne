@@ -7,7 +7,10 @@ internal static class AppDataPaths
     internal const string CurrentDirectoryName = "SessionDock";
     internal const string LegacyDirectoryName = "RobloxOne";
     internal const string MigrationConflictFileName = "migration-conflict.txt";
+    internal const string MigrationInProgressFileName = "migration-in-progress.txt";
     private static readonly HashSet<string> ActiveMigrationConflicts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> ActiveIncompleteMigrations =
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly object MigrationConflictLock = new();
 
@@ -35,6 +38,19 @@ internal static class AppDataPaths
         return File.Exists(conflictPath) || Directory.Exists(conflictPath);
     }
 
+    internal static bool HasIncompleteMigration(string directory)
+    {
+        var root = Path.GetFullPath(directory);
+        lock (MigrationConflictLock)
+        {
+            if (ActiveIncompleteMigrations.Contains(root))
+                return true;
+        }
+
+        var markerPath = Path.Combine(root, MigrationInProgressFileName);
+        return File.Exists(markerPath) || Directory.Exists(markerPath);
+    }
+
     internal static string ResolveForDirectories(
         string preferredDirectory,
         string legacyDirectory)
@@ -56,14 +72,20 @@ internal static class AppDataPaths
                         Directory.Delete(preferred, recursive: false);
                         Directory.Move(legacy, preferred);
                     }
+                    else if (HasIncompleteMigration(preferred))
+                    {
+                        // A prior merge stopped after it may have moved data.
+                        // Preserve both roots for explicit recovery.
+                    }
                     else if (HasSettingsState(preferred) &&
                              HasSettingsState(legacy))
                     {
                         PreserveMigrationConflict(preferred);
                     }
-                    else
+                    else if (TryBeginMigration(preferred))
                     {
                         MergeWithoutOverwrite(legacy, preferred);
+                        CompleteMigration(preferred, legacy);
                     }
                 }
                 catch (Exception exception) when (
@@ -100,6 +122,62 @@ internal static class AppDataPaths
     private static bool HasSettingsState(string directory) =>
         File.Exists(Path.Combine(directory, "settings.json")) ||
         File.Exists(Path.Combine(directory, "settings.backup.json"));
+
+    private static bool TryBeginMigration(string preferredDirectory)
+    {
+        lock (MigrationConflictLock)
+            ActiveIncompleteMigrations.Add(preferredDirectory);
+
+        var markerPath = Path.Combine(
+            preferredDirectory,
+            MigrationInProgressFileName);
+        try
+        {
+            using var stream = new FileStream(
+                markerPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read);
+            using var writer = new StreamWriter(stream);
+            writer.Write(
+                "SessionDock began moving legacy RobloxOne data, but the migration did not finish cleanly. Some files may already be in the SessionDock directory. Automatic browser-profile cleanup is paused. Reconcile both data directories before removing this file.");
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // Without a durable guard, moving any legacy data is unsafe.
+            return false;
+        }
+    }
+
+    private static void CompleteMigration(
+        string preferredDirectory,
+        string legacyDirectory)
+    {
+        if (Directory.Exists(legacyDirectory))
+            return;
+
+        var markerPath = Path.Combine(
+            preferredDirectory,
+            MigrationInProgressFileName);
+        try
+        {
+            File.Delete(markerPath);
+            if (File.Exists(markerPath) || Directory.Exists(markerPath))
+                return;
+
+            lock (MigrationConflictLock)
+                ActiveIncompleteMigrations.Remove(preferredDirectory);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // A stale guard pauses cleanup safely until explicit recovery.
+        }
+    }
 
     private static void PreserveMigrationConflict(string preferredDirectory)
     {
