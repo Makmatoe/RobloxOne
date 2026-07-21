@@ -26,7 +26,8 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly HttpClient _client;
     private readonly object _startLock = new();
-    private DateTimeOffset _startPendingUntilUtc;
+    private long _startPendingTimestamp;
+    private bool _hasPendingStart;
     private int? _startedProcessId;
     private bool _disposed;
 
@@ -209,6 +210,15 @@ public sealed class HandleScopeIntegrationService : IDisposable
                         HandleScopeIntegrationState.RunningUntested));
                 }
 
+                var runningProcessId =
+                    _processVerifier.FindExpectedRunningProcessId();
+                if (runningProcessId is > 0)
+                {
+                    TrackObservedProcessNoLock(runningProcessId.Value);
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.RunningUntested));
+                }
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = _executablePath,
@@ -231,8 +241,8 @@ public sealed class HandleScopeIntegrationService : IDisposable
                 }
 
                 _startedProcessId = processId.Value;
-                _startPendingUntilUtc =
-                    _timeProvider.GetUtcNow() + StartPendingDuration;
+                _startPendingTimestamp = _timeProvider.GetTimestamp();
+                _hasPendingStart = true;
                 return Task.FromResult(Result(
                     HandleScopeIntegrationState.StartPending));
             }
@@ -309,7 +319,9 @@ public sealed class HandleScopeIntegrationService : IDisposable
     }
 
     private bool IsStartPendingNoLock() =>
-        _timeProvider.GetUtcNow() < _startPendingUntilUtc;
+        _hasPendingStart &&
+        _timeProvider.GetElapsedTime(_startPendingTimestamp) <
+            StartPendingDuration;
 
     private HandleScopeIntegrationResult ApplyVerifiedStartedProcessState(
         HandleScopeIntegrationResult result)
@@ -317,7 +329,16 @@ public sealed class HandleScopeIntegrationService : IDisposable
         lock (_startLock)
         {
             var state = GetVerifiedStartedProcessStateNoLock();
-            return state is null ? result : Result(state.Value);
+            if (state is not null)
+                return Result(state.Value);
+
+            var runningProcessId =
+                _processVerifier.FindExpectedRunningProcessId();
+            if (runningProcessId is not > 0)
+                return result;
+
+            TrackObservedProcessNoLock(runningProcessId.Value);
+            return Result(HandleScopeIntegrationState.RunningUntested);
         }
     }
 
@@ -345,13 +366,15 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private void TrackObservedProcessNoLock(int processId)
     {
         _startedProcessId = processId;
-        _startPendingUntilUtc = DateTimeOffset.MinValue;
+        _hasPendingStart = false;
+        _startPendingTimestamp = 0;
     }
 
     private void ClearStartedProcessNoLock()
     {
         _startedProcessId = null;
-        _startPendingUntilUtc = DateTimeOffset.MinValue;
+        _hasPendingStart = false;
+        _startPendingTimestamp = 0;
     }
 
     private HandleScopeIntegrationResult InspectLocal()

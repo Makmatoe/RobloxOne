@@ -10,6 +10,8 @@ internal interface IHandleScopeProcessVerifier
     bool IsExpected(HandleScopeConnection connection);
 
     bool IsExpectedStartedProcess(int processId);
+
+    int? FindExpectedRunningProcessId();
 }
 
 internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
@@ -102,6 +104,45 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         {
             return false;
         }
+    }
+
+    public int? FindExpectedRunningProcessId()
+    {
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName(ExpectedProcessName);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or Win32Exception or
+                NotSupportedException)
+        {
+            return null;
+        }
+
+        try
+        {
+            foreach (var process in processes)
+            {
+                try
+                {
+                    var processId = process.Id;
+                    if (IsExpectedStartedProcess(processId))
+                        return processId;
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited while the snapshot was enumerated.
+                }
+            }
+        }
+        finally
+        {
+            foreach (var process in processes)
+                process.Dispose();
+        }
+
+        return null;
     }
 
     private bool TryGetExpectedProcessSnapshot(

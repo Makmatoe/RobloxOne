@@ -163,6 +163,32 @@ public sealed class HandleScopeIntegrationServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_PreexistingVerifiedProcessWithoutDiscovery_IsNotDuplicated()
+    {
+        using var environment = new TestEnvironment();
+        environment.InstallApi();
+        var startCount = 0;
+        using var handler = new RecordingHandler(_ => ValidHealthResponse());
+        using var service = environment.CreateService(
+            handler,
+            findExpectedRunningProcess: () => ApiProcessId,
+            startProcess: _ =>
+            {
+                startCount++;
+                return ApiProcessId + 1;
+            });
+
+        var result = await service.StartAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            HandleScopeIntegrationState.RunningUntested,
+            result.State);
+        Assert.Equal(0, startCount);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task TestConnectionAsync_UnexpectedProcessIdentityStopsBeforeNetwork()
     {
         using var environment = new TestEnvironment();
@@ -929,6 +955,7 @@ public sealed class HandleScopeIntegrationServiceTests
             HttpMessageHandler handler,
             Func<HandleScopeConnection, string, bool>? isExpectedProcess = null,
             Func<int, bool>? isExpectedStartedProcess = null,
+            Func<int?>? findExpectedRunningProcess = null,
             Func<ProcessStartInfo, int?>? startProcess = null,
             Func<string, bool>? isReparsePoint = null,
             TimeProvider? timeProvider = null)
@@ -939,7 +966,8 @@ public sealed class HandleScopeIntegrationServiceTests
                     StringComparison.OrdinalIgnoreCase)))(
                         connection,
                         ExecutablePath),
-                isExpectedStartedProcess ?? (_ => false));
+                isExpectedStartedProcess ?? (_ => false),
+                findExpectedRunningProcess ?? (() => null));
             return new HandleScopeIntegrationService(
                 LocalAppDataRoot,
                 SessionDockDataRoot,
@@ -966,28 +994,41 @@ public sealed class HandleScopeIntegrationServiceTests
 
     private sealed class TestProcessVerifier(
         Func<HandleScopeConnection, bool> connectionVerifier,
-        Func<int, bool> startedProcessVerifier)
+        Func<int, bool> startedProcessVerifier,
+        Func<int?> runningProcessFinder)
         : IHandleScopeProcessVerifier
     {
         private readonly Func<HandleScopeConnection, bool> _connectionVerifier =
             connectionVerifier;
         private readonly Func<int, bool> _startedProcessVerifier =
             startedProcessVerifier;
+        private readonly Func<int?> _runningProcessFinder = runningProcessFinder;
 
         public bool IsExpected(HandleScopeConnection connection) =>
             _connectionVerifier(connection);
 
         public bool IsExpectedStartedProcess(int processId) =>
             _startedProcessVerifier(processId);
+
+        public int? FindExpectedRunningProcessId() => _runningProcessFinder();
     }
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         private DateTimeOffset _utcNow = utcNow;
+        private long _timestamp;
 
         public override DateTimeOffset GetUtcNow() => _utcNow;
 
-        internal void Advance(TimeSpan duration) => _utcNow += duration;
+        public override long GetTimestamp() => _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        internal void Advance(TimeSpan duration)
+        {
+            _utcNow += duration;
+            _timestamp += duration.Ticks;
+        }
     }
 
     private sealed class RecordingHandler(

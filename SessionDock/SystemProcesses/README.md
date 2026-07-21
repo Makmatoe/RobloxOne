@@ -71,8 +71,11 @@ The panel reports **Not installed**, **Installed - connection not tested**,
 **API running - integration disabled**, **Ready**, **Update required**, or a
 configuration warning. A bounded start-pending state prevents rapid or
 concurrent requests from spawning another API before discovery is published.
-After that window, SessionDock verifies the process ID returned by the explicit
-start request before it will allow another API process to be launched.
+The interval uses a monotonic clock. After that window, SessionDock verifies
+the process ID returned by the explicit start request before it will allow
+another API process to be launched. It also checks for an already-running,
+fully verified API at the exact install path when no valid discovery file is
+available.
 An invalid or nonminimal existing configuration is preserved. Only after
 displaying that warning does the panel offer an explicit **Repair integration**
 action, which replaces the SessionDock opt-in with the fixed minimal policy.
