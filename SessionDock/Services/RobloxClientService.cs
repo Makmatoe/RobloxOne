@@ -55,10 +55,13 @@ public sealed class RobloxClientService
         }
     }
 
-    public Task<LaunchResult> LaunchAsync(string launchUri)
+    public Task<LaunchResult> LaunchAsync(
+        string launchUri,
+        CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var playerPath = FindPlayerPath();
@@ -74,16 +77,21 @@ public sealed class RobloxClientService
                     UseShellExecute = false
                 };
                 startInfo.ArgumentList.Add(launchUri);
+                cancellationToken.ThrowIfCancellationRequested();
                 using var process = Process.Start(startInfo);
                 return process is null
                     ? LaunchResult.Failed("Roblox Player did not return a process.")
                     : LaunchResult.Succeeded(process.Id);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 return LaunchResult.Failed($"Roblox Player could not start: {ex.Message}");
             }
-        });
+        }, cancellationToken);
     }
 
     public Task<ClosePlayersResult> CloseAllPlayersAsync(

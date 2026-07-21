@@ -6,7 +6,11 @@ public partial class MainWindow
 {
     private async void CloseAllInstancesButton_Click(
         object sender,
-        RoutedEventArgs e)
+        RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(CloseAllInstancesButtonClickAsync);
+
+    private async Task CloseAllInstancesButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -28,7 +32,8 @@ public partial class MainWindow
         try
         {
             var result = await _robloxClient.CloseAllPlayersAsync(
-                _launchHookCancellation.Token);
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (result.Success)
             {
                 var detail = result.Found == 0
@@ -74,7 +79,8 @@ public partial class MainWindow
         }
         finally
         {
-            SetOperationBusy(false);
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
         }
     }
 }

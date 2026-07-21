@@ -7,7 +7,11 @@ namespace SessionDock;
 
 public partial class MainWindow
 {
-    private async void BatchLaunchButton_Click(object sender, RoutedEventArgs e)
+    private async void BatchLaunchButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(BatchLaunchButtonClickAsync);
+
+    private async Task BatchLaunchButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy || _pendingProfile is not null)
             return;
@@ -31,7 +35,7 @@ public partial class MainWindow
 
         var originalProfile = _activeProfile;
         _batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            _launchHookCancellation.Token);
+            cancellationToken);
         SetOperationBusy(true);
         CancelBatchButton.Visibility = Visibility.Visible;
         CancelBatchButton.IsEnabled = true;
@@ -52,27 +56,30 @@ public partial class MainWindow
         {
             _launchInProgress = false;
             CancelBatchButton.IsEnabled = false;
-            if (!_launchHookCancellation.IsCancellationRequested)
+            if (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
                     restoredOriginalProfile = await RestoreBatchProfileAsync(
                         originalProfile,
-                        _launchHookCancellation.Token);
+                        cancellationToken);
                 }
                 catch (OperationCanceledException) when (
-                    _launchHookCancellation.IsCancellationRequested)
+                    cancellationToken.IsCancellationRequested)
                 {
                     restoredOriginalProfile = false;
                 }
             }
             _batchCancellation.Dispose();
             _batchCancellation = null;
-            CancelBatchButton.Visibility = Visibility.Collapsed;
-            SetOperationBusy(false);
+            if (!_operationLifetime.IsShuttingDown)
+            {
+                CancelBatchButton.Visibility = Visibility.Collapsed;
+                SetOperationBusy(false);
+            }
         }
 
-        if (_launchHookCancellation.IsCancellationRequested)
+        if (cancellationToken.IsCancellationRequested)
             return;
 
         ShowBatchResult(
@@ -360,11 +367,15 @@ public partial class MainWindow
             _settingsService.Save(_settings);
             RenderAccountList();
 
-            await InitializeBrowserAsync(account, showLogin: false);
+            await InitializeBrowserAsync(
+                account,
+                showLogin: false,
+                cancellationToken);
             await pageLoaded.Task.WaitAsync(
                 TimeSpan.FromSeconds(20),
                 cancellationToken);
-            await CheckAuthenticatedAccountAsync();
+            await CheckAuthenticatedAccountAsync(
+                cancellationToken: cancellationToken);
             return _currentUser?.Id == account.UserId;
         }
         catch (TimeoutException)
@@ -400,6 +411,7 @@ public partial class MainWindow
             target = await _webSession.ResolvePrivateServerAsync(
                 target.ShareCode,
                 cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (target is null)
                 return false;
         }
@@ -416,9 +428,12 @@ public partial class MainWindow
         try
         {
             var ticketTask = _webSession.GetAuthenticationTicketAsync(cancellationToken);
-            var nameTask = TryGetExperienceNameAsync(target.PlaceId);
+            var nameTask = TryGetExperienceNameAsync(
+                target.PlaceId,
+                cancellationToken);
             var localeTask = _webSession.GetUserLocaleAsync(cancellationToken);
             await Task.WhenAll(ticketTask, localeTask);
+            cancellationToken.ThrowIfCancellationRequested();
             var ticket = ticketTask.Result;
             if (string.IsNullOrWhiteSpace(ticket))
                 return false;
@@ -446,7 +461,9 @@ public partial class MainWindow
                     target,
                     ticket,
                     serverJobId,
-                    locale));
+                    locale),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (result is not { Success: true, ProcessId: int processId })
                 return false;
 

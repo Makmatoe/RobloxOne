@@ -195,16 +195,23 @@ public sealed class RobloxWebSessionService : IDisposable
         return string.IsNullOrWhiteSpace(name) || name.Length > 200 ? null : name;
     }
 
-    public async Task<bool> ClearProfileAsync()
+    public async Task<bool> ClearProfileAsync(
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsReady)
             return false;
 
         try
         {
             await GetCore().Profile.ClearBrowsingDataAsync(
-                CoreWebView2BrowsingDataKinds.AllProfile);
+                    CoreWebView2BrowsingDataKinds.AllProfile)
+                .WaitAsync(cancellationToken);
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -252,6 +259,7 @@ public sealed class RobloxWebSessionService : IDisposable
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var core = GetCore();
         var completion = new TaskCompletionSource<JsonElement?>(
             TaskCreationOptions.RunContinuationsAsynchronously);

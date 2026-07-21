@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -12,6 +13,10 @@ namespace SessionDock;
 
 public partial class MainWindow : Window
 {
+    private static readonly TimeSpan OperationShutdownTimeout =
+        TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan PendingProfileCleanupTimeout =
+        TimeSpan.FromSeconds(2);
     private readonly SettingsService _settingsService = new();
     private readonly RobloxClientService _robloxClient = new();
     private readonly RobloxServerTracker _serverTracker = new();
@@ -20,7 +25,7 @@ public partial class MainWindow : Window
     private readonly CompositeLaunchHook _launchHook = new(
         new HandleScopeLaunchHook(),
         new LocalApiLaunchHook());
-    private readonly CancellationTokenSource _launchHookCancellation = new();
+    private readonly WindowOperationLifetime _operationLifetime = new();
     private readonly SemaphoreSlim _accountCheckLock = new(1, 1);
     private readonly AppSettings _settings;
     private readonly string? _startupNotice;
@@ -32,6 +37,7 @@ public partial class MainWindow : Window
     private bool _launchInProgress;
     private bool _operationBusy;
     private bool _destinationTrackingEnabled;
+    private bool _shutdownComplete;
 
     public MainWindow()
     {
@@ -61,10 +67,13 @@ public partial class MainWindow : Window
         RenderAccountList();
         RenderRecentExperiences();
         Loaded += MainWindow_Loaded;
-        Closed += MainWindow_Closed;
+        Closing += MainWindow_Closing;
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(MainWindowLoadedAsync);
+
+    private async Task MainWindowLoadedAsync(CancellationToken cancellationToken)
     {
         _soundService.PlayStartup(
             _settings.StartupSound,
@@ -84,15 +93,23 @@ public partial class MainWindow : Window
             return;
         }
 
-        await InitializeBrowserAsync(_activeProfile, showLogin: false);
+        await InitializeBrowserAsync(
+            _activeProfile,
+            showLogin: false,
+            cancellationToken);
     }
 
-    private async Task InitializeBrowserAsync(AccountProfile profile, bool showLogin)
+    private async Task InitializeBrowserAsync(
+        AccountProfile profile,
+        bool showLogin,
+        CancellationToken cancellationToken = default)
     {
         _browserSwitchCancellation?.Cancel();
         _browserSwitchCancellation?.Dispose();
-        _browserSwitchCancellation = new CancellationTokenSource();
-        var cancellationToken = _browserSwitchCancellation.Token;
+        _browserSwitchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _operationLifetime.Token,
+            cancellationToken);
+        var browserCancellationToken = _browserSwitchCancellation.Token;
         _currentUser = null;
         LaunchButton.IsEnabled = false;
 
@@ -106,13 +123,13 @@ public partial class MainWindow : Window
                 browser,
                 _settingsService.GetSessionDataDirectory(profile),
                 showLogin,
-                cancellationToken);
+                browserCancellationToken);
         }
         catch (OperationCanceledException)
         {
             // A newer account selection superseded this browser initialization.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!_operationLifetime.IsShuttingDown)
         {
             SetStatus("Web sign-in could not start", ex.Message, "SESSION ERROR");
             SignInButton.Visibility = Visibility.Visible;
@@ -120,26 +137,34 @@ public partial class MainWindow : Window
     }
 
     private async void WebSession_RobloxPageLoaded(object? sender, EventArgs e) =>
-        await CheckAuthenticatedAccountAsync(skipIfBusy: true);
+        await _operationLifetime.RunAsync(cancellationToken =>
+            CheckAuthenticatedAccountAsync(
+                skipIfBusy: true,
+                cancellationToken));
 
-    private async Task CheckAuthenticatedAccountAsync(bool skipIfBusy = false)
+    private async Task CheckAuthenticatedAccountAsync(
+        bool skipIfBusy = false,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!_webSession.IsReady)
             return;
 
         if (skipIfBusy)
         {
-            if (!await _accountCheckLock.WaitAsync(0))
+            if (!await _accountCheckLock.WaitAsync(0, cancellationToken))
                 return;
         }
         else
         {
-            await _accountCheckLock.WaitAsync();
+            await _accountCheckLock.WaitAsync(cancellationToken);
         }
 
         try
         {
-            _currentUser = await _webSession.GetAuthenticatedUserAsync();
+            _currentUser = await _webSession.GetAuthenticatedUserAsync(
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (_currentUser is null)
             {
                 SetSignedOutState();
@@ -187,7 +212,11 @@ public partial class MainWindow : Window
             LauncherPanel.Visibility = Visibility.Visible;
             SetReadyState();
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch when (!_operationLifetime.IsShuttingDown)
         {
             SetSignedOutState();
         }
@@ -473,7 +502,13 @@ public partial class MainWindow : Window
         };
     }
 
-    private async void AccountButton_Click(object sender, RoutedEventArgs e)
+    private async void AccountButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(cancellationToken =>
+            AccountButtonClickAsync(sender, cancellationToken));
+
+    private async Task AccountButtonClickAsync(
+        object sender,
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -490,10 +525,18 @@ public partial class MainWindow : Window
         _settingsService.Save(_settings);
         RenderAccountList();
         SetStatus($"Switching to @{profile.Username}", "Loading its isolated Roblox session…", "SWITCHING");
-        await InitializeBrowserAsync(profile, showLogin: false);
+        await InitializeBrowserAsync(
+            profile,
+            showLogin: false,
+            cancellationToken);
     }
 
-    private async void AddAccountButton_Click(object sender, RoutedEventArgs e)
+    private async void AddAccountButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(cancellationToken =>
+            AddAccountButtonClickAsync(cancellationToken));
+
+    private async Task AddAccountButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy || _pendingProfile is not null)
             return;
@@ -511,28 +554,43 @@ public partial class MainWindow : Window
         RenderAccountList();
         LauncherPanel.Visibility = Visibility.Collapsed;
         BrowserPanel.Visibility = Visibility.Visible;
-        await InitializeBrowserAsync(_pendingProfile, showLogin: true);
+        await InitializeBrowserAsync(
+            _pendingProfile,
+            showLogin: true,
+            cancellationToken);
     }
 
-    private async void SignInButton_Click(object sender, RoutedEventArgs e)
+    private async void SignInButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(cancellationToken =>
+            SignInButtonClickAsync(cancellationToken));
+
+    private async Task SignInButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
         if (_activeProfile is null)
         {
-            AddAccountButton_Click(sender, e);
+            await AddAccountButtonClickAsync(cancellationToken);
             return;
         }
 
         LauncherPanel.Visibility = Visibility.Collapsed;
         BrowserPanel.Visibility = Visibility.Visible;
         if (!_webSession.IsReady)
-            await InitializeBrowserAsync(_activeProfile, showLogin: true);
+            await InitializeBrowserAsync(
+                _activeProfile,
+                showLogin: true,
+                cancellationToken);
         else
             _webSession.NavigateToLogin();
     }
 
-    private async void BrowserBackButton_Click(object sender, RoutedEventArgs e)
+    private async void BrowserBackButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(BrowserBackButtonClickAsync);
+
+    private async Task BrowserBackButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_pendingProfile is null)
         {
@@ -541,7 +599,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!await ClearCurrentBrowserProfileAsync())
+        if (!await ClearCurrentBrowserProfileAsync(cancellationToken))
         {
             SetStatus(
                 "Temporary session could not be cleared",
@@ -549,6 +607,7 @@ public partial class MainWindow : Window
                 "CLEANUP ERROR");
             return;
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         BrowserPanel.Visibility = Visibility.Collapsed;
         LauncherPanel.Visibility = Visibility.Visible;
@@ -557,28 +616,36 @@ public partial class MainWindow : Window
         ShowDestinationForProfile(_activeProfile);
         RenderAccountList();
         if (_activeProfile is not null)
-            await InitializeBrowserAsync(_activeProfile, showLogin: false);
+            await InitializeBrowserAsync(
+                _activeProfile,
+                showLogin: false,
+                cancellationToken);
         else
             SetSignedOutState();
     }
 
-    private async void LaunchButton_Click(object sender, RoutedEventArgs e)
+    private async void LaunchButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(LaunchButtonClickAsync);
+
+    private async Task LaunchButtonClickAsync(CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
         SetOperationBusy(true);
         try
         {
-            await LaunchAsync();
+            await LaunchAsync(cancellationToken);
         }
         finally
         {
-            SetOperationBusy(false);
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
         }
     }
 
-    private async Task LaunchAsync()
+    private async Task LaunchAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var accountDestination = PlaceIdBox.Text.Trim();
         if (!TryResolveLaunchInput(
                 accountDestination,
@@ -592,7 +659,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        await CheckAuthenticatedAccountAsync();
+        await CheckAuthenticatedAccountAsync(
+            cancellationToken: cancellationToken);
         var currentUser = _currentUser;
         var activeProfile = _activeProfile;
         if (currentUser is null || activeProfile is null ||
@@ -611,7 +679,10 @@ public partial class MainWindow : Window
                 "Looking up the hidden experience and private-server link code…",
                 "RESOLVING SERVER");
             LaunchButton.IsEnabled = false;
-            target = await _webSession.ResolvePrivateServerAsync(target.ShareCode);
+            target = await _webSession.ResolvePrivateServerAsync(
+                target.ShareCode,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (target is null)
             {
                 _launchInProgress = false;
@@ -646,10 +717,13 @@ public partial class MainWindow : Window
             "GETTING TICKET");
         LaunchButton.IsEnabled = false;
 
-        var ticketTask = _webSession.GetAuthenticationTicketAsync();
-        var nameTask = TryGetExperienceNameAsync(target.PlaceId);
-        var localeTask = _webSession.GetUserLocaleAsync();
+        var ticketTask = _webSession.GetAuthenticationTicketAsync(cancellationToken);
+        var nameTask = TryGetExperienceNameAsync(
+            target.PlaceId,
+            cancellationToken);
+        var localeTask = _webSession.GetUserLocaleAsync(cancellationToken);
         await Task.WhenAll(ticketTask, localeTask);
+        cancellationToken.ThrowIfCancellationRequested();
         var ticket = ticketTask.Result;
         if (string.IsNullOrWhiteSpace(ticket))
         {
@@ -679,14 +753,23 @@ public partial class MainWindow : Window
         var locale = localeTask.Result;
         await LaunchClientAsync(
             RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
-            recent);
+            recent,
+            cancellationToken);
     }
 
-    private async Task<string?> TryGetExperienceNameAsync(long placeId)
+    private async Task<string?> TryGetExperienceNameAsync(
+        long placeId,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await _webSession.GetExperienceNameAsync(placeId);
+            return await _webSession.GetExperienceNameAsync(
+                placeId,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -696,7 +779,8 @@ public partial class MainWindow : Window
 
     private async Task LaunchClientAsync(
         string launchUri,
-        RecentExperience recent)
+        RecentExperience recent,
+        CancellationToken cancellationToken)
     {
         SetStatus(
             $"Launching as @{_currentUser?.Name}",
@@ -705,7 +789,10 @@ public partial class MainWindow : Window
         LaunchButton.IsEnabled = false;
 
         var launchStartedAt = DateTimeOffset.UtcNow;
-        var result = await _robloxClient.LaunchAsync(launchUri);
+        var result = await _robloxClient.LaunchAsync(
+            launchUri,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         _launchInProgress = false;
         if (result is { Success: true, ProcessId: int processId })
         {
@@ -722,7 +809,7 @@ public partial class MainWindow : Window
                 recent,
                 processId,
                 accountLabel,
-                _launchHookCancellation.Token);
+                cancellationToken);
             SetStatus(
                 "Roblox Player started",
                 _launchHook.IsConfigured
@@ -780,7 +867,8 @@ public partial class MainWindow : Window
                 recent.AccountUserId,
                 recent.PlaceId,
                 launchStartedAt,
-                _launchHookCancellation.Token);
+                _operationLifetime.Token);
+            _operationLifetime.Token.ThrowIfCancellationRequested();
             if (serverJobId is null ||
                 !_settings.RecentExperiences.Contains(recent))
             {
@@ -801,7 +889,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ResetButton_Click(object sender, RoutedEventArgs e)
+    private async void ResetButton_Click(object sender, RoutedEventArgs e) =>
+        await _operationLifetime.RunAsync(ResetButtonClickAsync);
+
+    private async Task ResetButtonClickAsync(CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -818,7 +909,7 @@ public partial class MainWindow : Window
         SetOperationBusy(true);
         try
         {
-            if (!await ClearCurrentBrowserProfileAsync())
+            if (!await ClearCurrentBrowserProfileAsync(cancellationToken))
             {
                 SetStatus(
                     "Account data could not be cleared",
@@ -826,6 +917,7 @@ public partial class MainWindow : Window
                     "CLEANUP ERROR");
                 return;
             }
+            cancellationToken.ThrowIfCancellationRequested();
 
             _settings.Accounts.RemoveAll(account => account.Key == profile.Key);
             _activeProfile = _settings.Accounts.FirstOrDefault();
@@ -835,26 +927,35 @@ public partial class MainWindow : Window
             _currentUser = null;
             RenderAccountList();
             if (_activeProfile is not null)
-                await InitializeBrowserAsync(_activeProfile, showLogin: false);
+                await InitializeBrowserAsync(
+                    _activeProfile,
+                    showLogin: false,
+                    cancellationToken);
             else
                 SetSignedOutState();
         }
         finally
         {
-            SetOperationBusy(false);
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
         }
     }
 
-    private async Task<bool> ClearCurrentBrowserProfileAsync()
+    private async Task<bool> ClearCurrentBrowserProfileAsync(
+        CancellationToken cancellationToken)
     {
         var profile = _pendingProfile ?? _activeProfile;
         if (profile is null)
             return true;
 
-        await _webSession.ClearProfileAsync();
+        await _webSession.ClearProfileAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         _webSession.ReleaseBrowser();
         BrowserHost.Children.Clear();
-        var directoryRemoved = await _settingsService.DeleteSessionDataAsync(profile);
+        var directoryRemoved = await _settingsService.DeleteSessionDataAsync(
+            profile,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return directoryRemoved;
     }
 
@@ -1051,39 +1152,95 @@ public partial class MainWindow : Window
             account => account.Key == _settings.ActiveAccountKey)
         ?? _settings.Accounts.FirstOrDefault();
 
-    private void MainWindow_Closed(object? sender, EventArgs e)
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        var incompleteProfile = _pendingProfile;
-        TrackDestinationForActiveProfile();
+        if (_shutdownComplete)
+            return;
+
+        e.Cancel = true;
+        if (!_operationLifetime.BeginShutdown())
+            return;
+
         try
         {
+            await CompleteShutdownAsync();
+        }
+        catch
+        {
+            // A shutdown failure must not keep the process and mutex alive.
+        }
+        finally
+        {
+            _shutdownComplete = true;
+            Close();
+        }
+    }
+
+    private async Task CompleteShutdownAsync()
+    {
+        CancelScopedOperation(_browserSwitchCancellation);
+        CancelScopedOperation(_batchCancellation);
+        await _operationLifetime.DrainAsync(OperationShutdownTimeout);
+        var incompleteProfile = _pendingProfile;
+
+        try
+        {
+            TrackDestinationForActiveProfile();
             _settingsService.Save(_settings);
         }
         catch
         {
             // Closing must continue even if local settings are unavailable.
         }
-        _browserSwitchCancellation?.Cancel();
-        _browserSwitchCancellation?.Dispose();
+
         _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;
-        _webSession.Dispose();
+        try
+        {
+            BrowserHost.Children.Clear();
+        }
+        catch
+        {
+            // Native browser teardown continues below.
+        }
+        DisposeDuringShutdown(_webSession);
         if (incompleteProfile is not null)
         {
-            try
-            {
-                _settingsService.DeleteSessionDataAsync(incompleteProfile)
-                    .GetAwaiter()
-                    .GetResult();
-            }
-            catch
-            {
-                // The next reliable startup reconciles abandoned profile folders.
-            }
+            await PendingProfileCleanup.TryDeleteAsync(
+                cancellationToken => _settingsService.DeleteSessionDataAsync(
+                    incompleteProfile,
+                    cancellationToken),
+                PendingProfileCleanupTimeout);
         }
-        _launchHookCancellation.Cancel();
-        _launchHook.Dispose();
-        _launchHookCancellation.Dispose();
-        _updateService.Dispose();
+
+        DisposeDuringShutdown(_browserSwitchCancellation);
+        DisposeDuringShutdown(_batchCancellation);
+        DisposeDuringShutdown(_launchHook);
+        DisposeDuringShutdown(_updateService);
+        DisposeDuringShutdown(_operationLifetime);
+    }
+
+    private static void CancelScopedOperation(CancellationTokenSource? cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The operation completed while shutdown was taking its snapshot.
+        }
+    }
+
+    private static void DisposeDuringShutdown(IDisposable? disposable)
+    {
+        try
+        {
+            disposable?.Dispose();
+        }
+        catch
+        {
+            // One teardown failure must not prevent the remaining releases.
+        }
     }
 
 }
