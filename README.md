@@ -5,7 +5,10 @@
 Roblox One is a Windows launcher that keeps Roblox website sessions separate,
 so you can choose the account and destination before opening Roblox Player.
 
-[Download the signed Windows installer](https://github.com/Makmatoe/RobloxOne/releases/latest/download/RobloxOne-win-x64-stable-Setup.exe)
+[View Windows downloads](https://github.com/Makmatoe/RobloxOne/releases)
+
+Signed installers are published only on the canonical GitHub Releases page. If
+that page has no release yet, a production installer is not currently available.
 
 > Roblox One is an independent project. It is not affiliated with, endorsed by,
 > or sponsored by Roblox Corporation. Roblox and the Roblox logo are trademarks
@@ -14,8 +17,8 @@ so you can choose the account and destination before opening Roblox Player.
 ## Quick start
 
 1. Install Roblox Player and the Microsoft Edge WebView2 Runtime.
-2. Download `RobloxOne-win-x64-stable-Setup.exe` from the canonical
-   [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases) page.
+2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases)
+   page and download the Setup executable from the latest release.
 3. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
 4. Choose a destination and select **Launch Roblox**.
