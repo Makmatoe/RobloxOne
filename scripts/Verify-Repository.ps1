@@ -73,6 +73,8 @@ try {
     $workflowDirectory = Join-Path $root '.github/workflows'
     if (Test-Path -LiteralPath $workflowDirectory -PathType Container) {
         $mutableActionRef = '(?m)^\s*-?\s*uses:\s*[^#\r\n]+@(?![0-9a-f]{40}(?:\s|#|$))'
+        $exactSdkPattern = '(?m)^\s+dotnet-version:\s*[''"]?{0}[''"]?\s*$' -f
+            [regex]::Escape($expectedSdk)
         foreach ($workflow in Get-ChildItem -LiteralPath $workflowDirectory -File -Include '*.yml', '*.yaml') {
             $contents = Get-Content -LiteralPath $workflow.FullName -Raw
             if ($contents -match $mutableActionRef) {
@@ -80,6 +82,13 @@ try {
             }
             if ($contents -match '(?m)^\s*pull_request_target\s*:') {
                 throw "pull_request_target is intentionally prohibited: $($workflow.Name)"
+            }
+            if ($contents -match 'actions/setup-dotnet@' -and
+                $contents -notmatch $exactSdkPattern) {
+                throw "Workflow must install the exact repository SDK ${expectedSdk}: $($workflow.Name)"
+            }
+            if ($contents -match '(?m)^\s+global-json-file:') {
+                throw "Workflow must use an exact dotnet-version, not setup-dotnet's feature-band global-json behavior: $($workflow.Name)"
             }
         }
     }
