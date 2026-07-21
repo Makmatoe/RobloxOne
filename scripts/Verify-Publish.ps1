@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath $directoryPath -PathType Container)) {
 
 $expectedFiles = @(
     'LICENSE.md',
-    'RobloxOne.exe',
+    'SessionDock.exe',
     'THIRD_PARTY_NOTICES.md',
     'licenses/DotNet-LICENSE.txt',
     'licenses/DotNet-THIRD-PARTY-NOTICES.txt',
@@ -51,17 +51,17 @@ if ($directoryDifferences.Count -ne 0 -or
     throw 'Publish output contains missing or unexpected directories.'
 }
 
-$applicationPath = Join-Path $directoryPath 'RobloxOne.exe'
+$applicationPath = Join-Path $directoryPath 'SessionDock.exe'
 $application = Get-Item -LiteralPath $applicationPath
 if ($application.Length -lt 1024 * 1024 -or $application.Length -gt 1024L * 1024 * 1024) {
-    throw 'Published RobloxOne.exe has an invalid size.'
+    throw 'Published SessionDock.exe has an invalid size.'
 }
 $version = Get-ProjectVersion
 $fileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($applicationPath).FileVersion
 $parsedFileVersion = $null
 if (-not [Version]::TryParse($fileVersion, [ref] $parsedFileVersion) -or
     $parsedFileVersion.ToString(3) -cne $version) {
-    throw "Published RobloxOne.exe version '$fileVersion' does not match project version '$version'."
+    throw "Published SessionDock.exe version '$fileVersion' does not match project version '$version'."
 }
 
 $assetsPath = Join-Path $root 'SessionDock/obj/project.assets.json'

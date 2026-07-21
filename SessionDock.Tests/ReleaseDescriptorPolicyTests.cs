@@ -11,7 +11,7 @@ public sealed class ReleaseDescriptorPolicyTests
     private const string PackageHash =
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private const string PackageFile =
-        "RobloxOne-2.1.0-win-x64-sessiondock-full.nupkg";
+        "RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg";
 
     [Fact]
     public void Verify_ValidSignedDescriptor_ReturnsRelease()
@@ -19,7 +19,7 @@ public sealed class ReleaseDescriptorPolicyTests
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var verified = Verify(CreateSignedDescriptor(key), CreateAsset(), key);
 
-        Assert.Equal(new Version(2, 1, 0), verified.Version);
+        Assert.Equal(new Version(2, 2, 0), verified.Version);
         Assert.Equal(
             "Security and reliability improvements.",
             verified.Descriptor.ReleaseNotes);
@@ -33,7 +33,7 @@ public sealed class ReleaseDescriptorPolicyTests
 
         var verified = Verify(CreateSignedDescriptor(key), asset, key);
 
-        Assert.Equal("2.1.0", verified.Descriptor.Version);
+        Assert.Equal("2.2.0", verified.Descriptor.Version);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class ReleaseDescriptorPolicyTests
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         const string legacyPackage =
-            "RobloxOne-2.1.0-win-x64-stable-full.nupkg";
+            "RobloxOne-2.1.5-win-x64-stable-full.nupkg";
         var descriptor = SignDescriptor(
             CreateUnsignedDescriptor() with
             {
@@ -49,14 +49,62 @@ public sealed class ReleaseDescriptorPolicyTests
                 Repository = ReleaseDescriptorPolicy.LegacyRepository,
                 Channel = ReleaseDescriptorPolicy.LegacyChannel,
                 KeyId = ReleaseDescriptorPolicy.LegacyKeyId,
+                Version = "2.1.5",
+                Tag = "v2.1.5",
                 PackageFile = legacyPackage
             },
             key);
-        var asset = CreateAsset() with { FileName = legacyPackage };
+        var asset = CreateAsset() with
+        {
+            Version = "2.1.5",
+            FileName = legacyPackage
+        };
 
         var verified = Verify(descriptor, asset, key);
 
         Assert.True(ReleaseDescriptorPolicy.IsLegacyIdentity(verified.Descriptor));
+    }
+
+    [Fact]
+    public void Verify_CurrentIdentityBeforeCanonicalRelease_IsRejected()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        const string package = "RobloxOne-2.1.5-win-x64-sessiondock-full.nupkg";
+        var descriptor = SignDescriptor(
+            CreateUnsignedDescriptor() with
+            {
+                Version = "2.1.5",
+                Tag = "v2.1.5",
+                PackageFile = package
+            },
+            key);
+        var asset = CreateAsset() with
+        {
+            Version = "2.1.5",
+            FileName = package
+        };
+
+        Assert.Throws<ReleaseTrustException>(() => Verify(descriptor, asset, key));
+    }
+
+    [Fact]
+    public void Verify_LegacyIdentityAfterMigrationRelease_IsRejected()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        const string package = "RobloxOne-2.2.0-win-x64-stable-full.nupkg";
+        var descriptor = SignDescriptor(
+            CreateUnsignedDescriptor() with
+            {
+                Product = ReleaseDescriptorPolicy.LegacyProduct,
+                Repository = ReleaseDescriptorPolicy.LegacyRepository,
+                Channel = ReleaseDescriptorPolicy.LegacyChannel,
+                KeyId = ReleaseDescriptorPolicy.LegacyKeyId,
+                PackageFile = package
+            },
+            key);
+        var asset = CreateAsset() with { FileName = package };
+
+        Assert.Throws<ReleaseTrustException>(() => Verify(descriptor, asset, key));
     }
 
     [Fact]
@@ -177,10 +225,10 @@ public sealed class ReleaseDescriptorPolicyTests
     }
 
     [Theory]
-    [InlineData("../RobloxOne-2.1.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData(@"..\RobloxOne-2.1.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData("nested/RobloxOne-2.1.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData(@"C:\RobloxOne-2.1.0-win-x64-sessiondock-full.nupkg")]
+    [InlineData("../RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
+    [InlineData(@"..\RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
+    [InlineData("nested/RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
+    [InlineData(@"C:\RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
     public void Verify_PathLikePackageName_IsRejected(string unsafeName)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -280,8 +328,8 @@ public sealed class ReleaseDescriptorPolicyTests
             ReleaseDescriptorPolicy.Repository,
             ReleaseDescriptorPolicy.Channel,
             ReleaseDescriptorPolicy.KeyId,
-            "2.1.0",
-            "v2.1.0",
+            "2.2.0",
+            "v2.2.0",
             PublishedAt.ToString("O"),
             PackageFile,
             ReleaseDescriptorPolicy.MinimumPackageSize,
@@ -300,7 +348,7 @@ public sealed class ReleaseDescriptorPolicyTests
         };
 
     private static ReleaseAssetIdentity CreateAsset() => new(
-        "2.1.0",
+        "2.2.0",
         PackageFile,
         ReleaseDescriptorPolicy.MinimumPackageSize,
         PackageHash);

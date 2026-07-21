@@ -20,6 +20,7 @@ try {
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
+        'scripts/Rename-SessionDockReleaseAssets.ps1',
         'scripts/ReleaseJson.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
@@ -133,6 +134,21 @@ try {
         }
     }
     [xml] $applicationProject = Get-Content -LiteralPath (Get-ApplicationProject) -Raw
+    $applicationIdentity = @{
+        AssemblyName = 'SessionDock'
+        RootNamespace = 'SessionDock'
+        Product = 'SessionDock'
+        RepositoryUrl = 'https://github.com/Makmatoe/SessionDock'
+    }
+    foreach ($identity in $applicationIdentity.GetEnumerator()) {
+        $values = @($applicationProject.SelectNodes(
+                "/Project/PropertyGroup/$($identity.Key)") |
+            ForEach-Object { $_.InnerText } |
+            Where-Object { $_ })
+        if ($values.Count -ne 1 -or $values[0] -cne $identity.Value) {
+            throw "The application $($identity.Key) must be '$($identity.Value)'."
+        }
+    }
     $runtimeVersions = @($applicationProject.SelectNodes('/Project/PropertyGroup/RuntimeFrameworkVersion') |
         ForEach-Object { $_.InnerText } | Where-Object { $_ })
     if ($runtimeVersions.Count -ne 1 -or $runtimeVersions[0] -cne '10.0.8') {
