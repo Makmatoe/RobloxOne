@@ -22,15 +22,15 @@ coverage.*
 *.coveragexml
 *.nupkg
 *.snupkg
-*.robloxone-update
+*.sessiondock-update
 
 # Local application state and machine-specific configuration
-RobloxOneLauncher/handlescope.json
-RobloxOneLauncher/*.local.json
-RobloxOneLauncher/LocalData/
+SessionDock/handlescope.json
+SessionDock/*.local.json
+SessionDock/LocalData/
 
 # Credentials and signing material. Public verification keys may be committed
-# deliberately under RobloxOneLauncher/Resources.
+# deliberately under SessionDock/Resources.
 .env
 .env.*
 !.env.example
@@ -41,7 +41,7 @@ RobloxOneLauncher/LocalData/
 *.key
 **/id_rsa*
 **/id_ed25519*
-!RobloxOneLauncher/Resources/update-public-key.pem
+!SessionDock/Resources/update-public-key.pem
 *.pfx
 *.p12
 *.jks

@@ -54,7 +54,7 @@ jobs:
       - name: Publish the descriptor signer
         shell: pwsh
         run: >-
-          dotnet publish RobloxOneLauncher/tools/ReleaseSigner/ReleaseSigner.csproj
+          dotnet publish SessionDock/tools/ReleaseSigner/ReleaseSigner.csproj
           --configuration Release --runtime win-x64 --self-contained true --no-restore
           --output artifacts/release-input/signer
           -p:ContinuousIntegrationBuild=true -p:Deterministic=true
@@ -73,14 +73,14 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          [xml] $project = Get-Content RobloxOneLauncher/RobloxOneLauncher.csproj -Raw
+          [xml] $project = Get-Content SessionDock/SessionDock.csproj -Raw
           $version = @($project.SelectNodes('/Project/PropertyGroup/Version') | ForEach-Object { $_.InnerText } | Where-Object { $_ })
           if (@($version).Count -ne 1) { throw 'Expected exactly one project version.' }
           $tag = $env:RELEASE_TAG
-          Copy-Item "RobloxOneLauncher/ReleaseNotes/$version.md" artifacts/release-input/notes.md
-          Copy-Item RobloxOneLauncher/Resources/update-public-key.pem artifacts/release-input/update-public-key.pem
-          Copy-Item RobloxOneLauncher/RobloxOneLauncher.csproj artifacts/release-input/application.csproj
-          Copy-Item RobloxOneLauncher/packages.lock.json artifacts/release-input/packages.lock.json
+          Copy-Item "SessionDock/ReleaseNotes/$version.md" artifacts/release-input/notes.md
+          Copy-Item SessionDock/Resources/update-public-key.pem artifacts/release-input/update-public-key.pem
+          Copy-Item SessionDock/SessionDock.csproj artifacts/release-input/application.csproj
+          Copy-Item SessionDock/packages.lock.json artifacts/release-input/packages.lock.json
           Copy-Item global.json artifacts/release-input/global.json
           New-Item -ItemType Directory artifacts/release-input/scripts -Force | Out-Null
           Copy-Item scripts/New-ReleaseChecksums.ps1 artifacts/release-input/scripts/New-ReleaseChecksums.ps1
@@ -130,7 +130,7 @@ jobs:
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
           if ($env:SOURCE_REPOSITORY -cne 'Makmatoe/RobloxOne') {
-            throw 'This workflow may publish only from Makmatoe/RobloxOne.'
+            throw 'This migration workflow may publish only from Makmatoe/RobloxOne.'
           }
           & ./release-input/scripts/Verify-ReleaseLicense.ps1 `
             -LicensePath ./release-input/app/LICENSE.md
@@ -176,7 +176,8 @@ jobs:
             --channel win-x64-stable `
             --version $env:RELEASE_VERSION `
             --tag $env:RELEASE_TAG `
-            --private-key-base64-env UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64
+            --private-key-base64-env UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 `
+            --identity legacy
           if ($LASTEXITCODE -ne 0) { throw "Descriptor signing failed with exit code $LASTEXITCODE." }
 
       - name: Verify the signed descriptor and assemble release metadata
@@ -223,7 +224,7 @@ jobs:
             throw "Release $tag already exists. Remove only a failed unpublished draft before rerunning."
           }
           gh release create $tag --repo $env:GITHUB_REPOSITORY --verify-tag --draft `
-            --title "Roblox One $env:RELEASE_VERSION" `
+            --title "SessionDock $env:RELEASE_VERSION" `
             --notes-file ./release-input/notes.md
           if ($LASTEXITCODE -ne 0) { throw 'Unable to create the draft release.' }
 

@@ -35,7 +35,7 @@ try {
         $projects.Add($testProject.FullName)
     }
 
-    $signerProject = Join-Path $root 'RobloxOneLauncher/tools/ReleaseSigner/ReleaseSigner.csproj'
+    $signerProject = Join-Path $root 'SessionDock/tools/ReleaseSigner/ReleaseSigner.csproj'
     if (Test-Path -LiteralPath $signerProject -PathType Leaf) {
         $projects.Add($signerProject)
     }
@@ -47,7 +47,7 @@ try {
 
     if ($CI) {
         & (Join-Path $PSScriptRoot 'Verify-NuGetSecurity.ps1') `
-            -Project (Join-Path $root 'RobloxOne.slnx')
+            -Project (Join-Path $root 'SessionDock.slnx')
     }
 
     Invoke-CheckedCommand dotnet build $project '--configuration' $Configuration '--runtime' $Runtime '--no-restore' @commonProperties

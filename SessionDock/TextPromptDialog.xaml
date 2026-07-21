@@ -1,0 +1,45 @@
+<Window x:Class="SessionDock.TextPromptDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="470" SizeToContent="Height" MinWidth="390" MinHeight="260"
+        ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BackgroundBrush}"
+        FontFamily="Segoe UI Variable Text"
+        UseLayoutRounding="True" ShowInTaskbar="False">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <Border Margin="16" Padding="22" CornerRadius="18"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="#293042" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="PromptTitle" Foreground="White"
+                           FontSize="22" FontWeight="SemiBold"
+                           TextWrapping="Wrap"/>
+                <TextBlock x:Name="PromptDetail" Grid.Row="1"
+                           Foreground="{StaticResource MutedBrush}"
+                           FontSize="12" Margin="0,6,0,0"
+                           TextWrapping="Wrap"/>
+                <Border Grid.Row="2" Height="48" Margin="0,20,0,0"
+                        Style="{StaticResource TextFieldShell}">
+                    <TextBox x:Name="ValueBox" MaxLength="80"
+                             Style="{StaticResource EmbeddedTextBox}"
+                             AutomationProperties.Name="Custom experience name"/>
+                </Border>
+                <WrapPanel Grid.Row="3" HorizontalAlignment="Right"
+                           Margin="0,20,0,0">
+                    <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
+                            Background="#252C3B" Padding="18,9" Margin="0,0,10,0"/>
+                    <Button Content="Save" Click="SaveButton_Click" IsDefault="True"
+                            Padding="22,9"/>
+                </WrapPanel>
+            </Grid>
+        </Border>
+    </ScrollViewer>
+</Window>

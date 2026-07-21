@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string] $Project = 'RobloxOne.slnx'
+    [string] $Project = 'SessionDock.slnx'
 )
 
 Set-StrictMode -Version Latest

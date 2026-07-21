@@ -1,17 +1,17 @@
 # Updates for regular users
 
-Roblox One uses a manual, one-click updater built with Velopack and backed by
+SessionDock uses a manual, one-click updater built with Velopack and backed by
 the canonical project's GitHub Releases. Updates are not silently installed.
 
 ## Normal update flow
 
-1. Select the top-right update button in Roblox One.
-2. The app contacts only the canonical Roblox One
+1. Select the top-right update button in SessionDock.
+2. The app contacts only the canonical SessionDock
    GitHub release feed.
 3. If a newer stable version exists, review its version and signed release
    notes.
 4. Confirm installation. Cancelling leaves the current version unchanged.
-5. Roblox One downloads the authorized package, checks its signed SHA-256,
+5. SessionDock downloads the authorized package, checks its signed SHA-256,
    exact contents, and version, closes, and asks Velopack to replace and reopen
    the application.
 
@@ -26,9 +26,9 @@ installations and cannot use the production self-update path.
 
 Download both `RobloxOne-win-x64-stable-Setup.exe` and `SHA256SUMS.txt` from
 the same entry on the canonical
-[GitHub Releases page](https://github.com/Makmatoe/RobloxOne/releases). For the
+[GitHub Releases page](https://github.com/Makmatoe/SessionDock/releases). For the
 latest release, the checksum file is also available through its stable
-[direct download link](https://github.com/Makmatoe/RobloxOne/releases/latest/download/SHA256SUMS.txt).
+[direct download link](https://github.com/Makmatoe/SessionDock/releases/latest/download/SHA256SUMS.txt).
 Do not combine an installer from one release with a checksum file from another.
 
 Open a normal PowerShell in the directory containing both files, then run:
@@ -69,7 +69,7 @@ or a SmartScreen warning. The signed descriptor protects the in-app release
 decision independently of GitHub asset metadata. GitHub artifact attestations
 and published checksums provide additional, manually verifiable provenance.
 
-Immediately before scheduling installation, Roblox One rechecks the downloaded
+Immediately before scheduling installation, SessionDock rechecks the downloaded
 full package against the signed size and SHA-256, extracts only its application
 executables into a locked temporary directory, rejects missing, duplicate,
 path-like, oversized, or unexpected archive entries, validates the package
@@ -88,12 +88,12 @@ descriptor, exact package hash, and package allowlist.
 ## User data
 
 Application files and local user data are separate. An update replaces the
-application, not the data under `%LOCALAPPDATA%\RobloxOne`, so account slots,
+application, not the data under `%LOCALAPPDATA%\SessionDock`, so account slots,
 isolated WebView2 profiles, favorites, recent history, labels, colors, and sound
 preferences normally remain in place.
 
 Updates never contain another user's account profiles or settings. Removing
-Roblox One does not imply that Roblox or WebView2 data was removed; use the
+SessionDock does not imply that Roblox or WebView2 data was removed; use the
 application's account removal controls first when profile deletion is desired.
 
 ## If an update fails
@@ -101,10 +101,10 @@ application's account removal controls first when profile deletion is desired.
 - Keep the existing version open if the check, signature verification, or
   download fails.
 - Retry from a stable network, then check the canonical
-  [release page](https://github.com/Makmatoe/RobloxOne/releases) for notices.
+  [release page](https://github.com/Makmatoe/SessionDock/releases) for notices.
 - Do not download a replacement executable from chat, email, file-sharing, or
   a repository fork.
 - Windows is expected to report an unknown publisher because the project does
   not buy an Authenticode certificate. Continue only for assets from the
   canonical release page whose published checksum matches. Treat any claim
-  that Roblox One currently has a verified Windows publisher as suspicious.
+  that SessionDock currently has a verified Windows publisher as suspicious.

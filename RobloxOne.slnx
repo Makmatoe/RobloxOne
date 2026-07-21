@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/RobloxOneLauncher/" />
-  <Folder Name="/RobloxOneLauncher/tools/">
-    <Project Path="RobloxOneLauncher/tools/ReleaseSigner/ReleaseSigner.csproj" />
-  </Folder>
-  <Project Path="RobloxOne.ReleaseTrust/RobloxOne.ReleaseTrust.csproj" />
-  <Project Path="RobloxOneLauncher.Tests/RobloxOneLauncher.Tests.csproj" />
-  <Project Path="RobloxOneLauncher/RobloxOneLauncher.csproj" />
-</Solution>

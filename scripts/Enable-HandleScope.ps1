@@ -12,13 +12,13 @@ if ([string]::IsNullOrWhiteSpace($localAppData)) {
     throw 'The current Windows user does not have a local application-data directory.'
 }
 
-$directory = Join-Path $localAppData 'RobloxOne'
+$directory = Join-Path $localAppData 'SessionDock'
 if (Test-Path -LiteralPath $directory) {
     $directoryInfo = Get-Item -LiteralPath $directory -Force
     if (-not $directoryInfo.PSIsContainer -or
         -not [string]::IsNullOrWhiteSpace([string] $directoryInfo.LinkType) -or
         ($directoryInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'The RobloxOne data path is not a regular directory.'
+        throw 'The SessionDock data path is not a regular directory.'
     }
 }
 else {

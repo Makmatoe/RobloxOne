@@ -15,8 +15,8 @@ try {
         'NuGet.Config',
         'LICENSE.md',
         'THIRD_PARTY_NOTICES.md',
-        'RobloxOneLauncher/RobloxOneLauncher.csproj',
-        'RobloxOneLauncher/Resources/update-public-key.pem',
+        'SessionDock/SessionDock.csproj',
+        'SessionDock/Resources/update-public-key.pem',
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
@@ -78,7 +78,7 @@ try {
         '(?i)(private|secret|credential)[^/]*\.(pem|key|pfx|p12|jks|keystore)$',
         '(?i)update-private-key\.pem$',
         '(?i)(^|/)(id_rsa|id_ed25519)(\.|$)',
-        '(?i)\.(robloxone-update|nupkg|snupkg)$'
+        '(?i)\.(robloxone-update|sessiondock-update|nupkg|snupkg)$'
     )
     foreach ($file in $trackedFiles) {
         foreach ($pattern in $forbiddenPatterns) {
@@ -207,7 +207,7 @@ try {
         }
     }
 
-    Write-Host "Repository validation passed for Roblox One $(Get-ProjectVersion)."
+    Write-Host "Repository validation passed for SessionDock $(Get-ProjectVersion)."
 }
 finally {
     Pop-Location

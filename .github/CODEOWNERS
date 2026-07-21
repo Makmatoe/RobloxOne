@@ -4,11 +4,11 @@
 # Security-sensitive release and trust boundaries
 /.github/workflows/ @Makmatoe
 /scripts/ @Makmatoe
-/RobloxOne.ReleaseTrust/ @Makmatoe
-/RobloxOneLauncher/Resources/ @Makmatoe
-/RobloxOneLauncher/RobloxOneLauncher.csproj @Makmatoe
-/RobloxOneLauncher/Services/ @Makmatoe
-/RobloxOneLauncher/tools/ReleaseSigner/ @Makmatoe
+/SessionDock.ReleaseTrust/ @Makmatoe
+/SessionDock/Resources/ @Makmatoe
+/SessionDock/SessionDock.csproj @Makmatoe
+/SessionDock/Services/ @Makmatoe
+/SessionDock/tools/ReleaseSigner/ @Makmatoe
 /licenses/ @Makmatoe
 /.config/dotnet-tools.json @Makmatoe
 /NuGet.Config @Makmatoe
