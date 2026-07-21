@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml;
+using System.Xml.Linq;
 using RobloxOne.ReleaseTrust;
 using Velopack;
 using Velopack.Locators;
@@ -261,59 +263,66 @@ internal sealed class RobloxUpdateService : IDisposable
             packageStream,
             ZipArchiveMode.Read,
             leaveOpen: true);
-        var applicationEntries = archive.Entries
-            .Where(entry => Path.GetFileName(entry.FullName).Equals(
-                "RobloxOne.exe",
-                StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (applicationEntries.Length != 1 ||
-            applicationEntries[0].Length is < 1024 * 1024 or
-            > ReleaseDescriptorPolicy.MaximumPackageSize)
-        {
-            throw new ReleaseTrustException(
-                "The downloaded package does not contain one valid Roblox One executable.");
-        }
+        ReleasePackagePolicy.ValidateEntries(archive.Entries.Select(entry =>
+            new ReleasePackageEntryIdentity(
+                entry.FullName,
+                entry.Length,
+                entry.CompressedLength)));
+        ValidatePackageMetadata(archive, release);
 
         var verificationDirectory = Path.Combine(
             Path.GetTempPath(),
             $"RobloxOne-UpdateVerify-{Guid.NewGuid():N}");
         Directory.CreateDirectory(verificationDirectory);
-        var verificationPath = Path.Combine(
-            verificationDirectory,
-            "RobloxOne.exe");
         try
         {
-            await using var input = applicationEntries[0].Open();
-            await using var output = new FileStream(
-                verificationPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.Read,
-                bufferSize: 128 * 1024,
-                FileOptions.Asynchronous | FileOptions.WriteThrough);
-            await input.CopyToAsync(output, cancellationToken);
-            await output.FlushAsync(cancellationToken);
-
-            var fileVersion = FileVersionInfo.GetVersionInfo(
-                verificationPath).FileVersion;
-            if (!Version.TryParse(fileVersion, out var executableVersion) ||
-                executableVersion.Major != release.Version.Major ||
-                executableVersion.Minor != release.Version.Minor ||
-                executableVersion.Build != release.Version.Build)
+            foreach (var entryName in ReleasePackagePolicy.ExecutableEntryNames)
             {
-                throw new ReleaseTrustException(
-                    "The downloaded executable version does not match the signed release.");
-            }
-
-            if (!WindowsExecutableTrust.TryGetTrustedSigner(
+                var entry = archive.GetEntry(entryName) ??
+                    throw new ReleaseTrustException(
+                        "The downloaded package is missing an executable payload.");
+                var verificationPath = Path.Combine(
+                    verificationDirectory,
+                    Path.GetFileName(entryName));
+                await using (var input = entry.Open())
+                await using (var output = new FileStream(
                     verificationPath,
-                    out var updateSigner) ||
-                !updateSigner.Subject.Equals(
-                    currentSigner.Subject,
-                    StringComparison.Ordinal))
-            {
-                throw new ReleaseTrustException(
-                    "The downloaded executable is not signed by the installed Roblox One publisher.");
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.Read,
+                    bufferSize: 128 * 1024,
+                    FileOptions.Asynchronous | FileOptions.WriteThrough))
+                {
+                    await input.CopyToAsync(output, cancellationToken);
+                    await output.FlushAsync(cancellationToken);
+                }
+
+                if (entryName.Equals(
+                        "lib/app/RobloxOne.exe",
+                        StringComparison.Ordinal))
+                {
+                    var fileVersion = FileVersionInfo.GetVersionInfo(
+                        verificationPath).FileVersion;
+                    if (!Version.TryParse(fileVersion, out var executableVersion) ||
+                        executableVersion.Major != release.Version.Major ||
+                        executableVersion.Minor != release.Version.Minor ||
+                        executableVersion.Build != release.Version.Build)
+                    {
+                        throw new ReleaseTrustException(
+                            "The downloaded executable version does not match the signed release.");
+                    }
+                }
+
+                if (!WindowsExecutableTrust.TryGetTrustedSigner(
+                        verificationPath,
+                        out var updateSigner) ||
+                    !updateSigner.Subject.Equals(
+                        currentSigner.Subject,
+                        StringComparison.Ordinal))
+                {
+                    throw new ReleaseTrustException(
+                        "An executable in the downloaded package is not signed by the installed Roblox One publisher.");
+                }
             }
         }
         finally
@@ -329,6 +338,132 @@ internal sealed class RobloxUpdateService : IDisposable
                     $"Update verification cleanup failed: {exception.GetType().Name}.");
             }
         }
+    }
+
+    private static void ValidatePackageMetadata(
+        ZipArchive archive,
+        VerifiedReleaseDescriptor release)
+    {
+        var nuspecBytes = ReadArchiveEntry(archive, "RobloxOne.nuspec");
+        var versionBytes = ReadArchiveEntry(archive, "lib/app/sq.version");
+        if (!CryptographicOperations.FixedTimeEquals(
+                SHA256.HashData(nuspecBytes),
+                SHA256.HashData(versionBytes)))
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package contains inconsistent application metadata.");
+        }
+
+        XDocument document;
+        try
+        {
+            using var input = new MemoryStream(nuspecBytes, writable: false);
+            using var reader = XmlReader.Create(input, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                MaxCharactersInDocument = 256 * 1024,
+                XmlResolver = null
+            });
+            document = XDocument.Load(reader, LoadOptions.None);
+        }
+        catch (XmlException exception)
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package metadata is malformed.",
+                exception);
+        }
+
+        var root = document.Root;
+        var metadataElements = root?.Elements().Where(element =>
+            element.Name.LocalName.Equals("metadata", StringComparison.Ordinal)).ToArray() ?? [];
+        var metadata = metadataElements.Length == 1 ? metadataElements[0] : null;
+        if (root is null ||
+            !root.Name.LocalName.Equals("package", StringComparison.Ordinal) ||
+            metadata is null)
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package metadata is incomplete.");
+        }
+
+        var elements = metadata.Elements().ToArray();
+        var expectedNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "id", "title", "description", "authors", "version", "channel",
+            "mainExe", "os", "rid", "shortcutLocations", "shortcutAumid",
+            "releaseNotes", "releaseNotesHtml", "machineArchitecture"
+        };
+        if (elements.Length != expectedNames.Count ||
+            elements.Any(element =>
+                element.Name.Namespace != metadata.Name.Namespace ||
+                !expectedNames.Remove(element.Name.LocalName)) ||
+            expectedNames.Count != 0)
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package metadata contains unsupported fields.");
+        }
+
+        var expectedValues = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["id"] = ReleaseDescriptorPolicy.Product,
+            ["title"] = "Roblox One",
+            ["description"] = "Roblox One",
+            ["authors"] = "Makmatoe",
+            ["version"] = release.Descriptor.Version,
+            ["channel"] = ReleaseDescriptorPolicy.Channel,
+            ["mainExe"] = "RobloxOne.exe",
+            ["os"] = "win",
+            ["rid"] = "win-x64",
+            ["shortcutLocations"] = "Desktop,StartMenuRoot",
+            ["shortcutAumid"] = "velopack.RobloxOne",
+            ["machineArchitecture"] = "x64"
+        };
+        foreach (var expected in expectedValues)
+        {
+            var value = elements.Single(element =>
+                element.Name.LocalName.Equals(expected.Key, StringComparison.Ordinal)).Value;
+            if (!value.Equals(expected.Value, StringComparison.Ordinal))
+            {
+                throw new ReleaseTrustException(
+                    "The downloaded package metadata does not match the signed release.");
+            }
+        }
+
+        var releaseNotes = elements.Single(element =>
+                element.Name.LocalName.Equals("releaseNotes", StringComparison.Ordinal))
+            .Value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Trim();
+        if (!releaseNotes.Equals(
+                release.Descriptor.ReleaseNotes,
+                StringComparison.Ordinal))
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package release notes do not match the signed release.");
+        }
+
+        var releaseNotesHtml = elements.Single(element =>
+            element.Name.LocalName.Equals("releaseNotesHtml", StringComparison.Ordinal)).Value;
+        if (releaseNotesHtml.Length > ReleaseDescriptorPolicy.MaximumReleaseNotesLength * 2 ||
+            releaseNotesHtml.Contains("<script", StringComparison.OrdinalIgnoreCase) ||
+            releaseNotesHtml.Contains("javascript:", StringComparison.OrdinalIgnoreCase) ||
+            releaseNotesHtml.Any(character =>
+                char.IsControl(character) && character is not ('\r' or '\n' or '\t')))
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package contains unsafe rendered release notes.");
+        }
+    }
+
+    private static byte[] ReadArchiveEntry(ZipArchive archive, string name)
+    {
+        var entry = archive.GetEntry(name) ??
+            throw new ReleaseTrustException(
+                "The downloaded package is missing required metadata.");
+        using var input = entry.Open();
+        using var output = new MemoryStream((int)entry.Length);
+        input.CopyTo(output);
+        return output.ToArray();
     }
 }
 

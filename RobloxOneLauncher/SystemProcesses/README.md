@@ -47,8 +47,8 @@ launch HandleScope and never requests elevation for it. To opt in:
 2. Start its official local API by the method documented by HandleScope.
 3. Copy `handlescope.example.json` to
    `%LOCALAPPDATA%\RobloxOne\handlescope.json`.
-4. Set `enabled` to `true` and replace the selector fields with the exact values
-   supplied by HandleScope.
+4. Set `enabled` to `true`. Leave the fixed selector fields unchanged; Roblox
+   One rejects broader process or handle selectors.
 
 Example:
 
@@ -72,7 +72,9 @@ that was just launched. Roblox One first performs a dry run against that PID,
 then closes only the matching handle. If `allProcesses` is enabled, it performs
 one separately dry-run-checked sweep after the launched PID succeeds.
 
-Each operation reloads `%LOCALAPPDATA%\HandleScope\connection.json`. The URL
-must resolve to the local machine. The rotating token is used directly from the
-HandleScope connection file and is not copied into Roblox One settings or logs.
-If the file, API, token, or selector is unavailable, the hook is skipped.
+Each operation reloads `%LOCALAPPDATA%\HandleScope\connection.json`. Only an
+exact v1 discovery document for `http://127.0.0.1:<port>/` and a live,
+same-session `HandleScope.Api` process are accepted. The rotating token is used
+directly from the HandleScope connection file and is not copied into Roblox One
+settings or logs. If the file, API, token, policy, or selector is unavailable,
+the hook is skipped.

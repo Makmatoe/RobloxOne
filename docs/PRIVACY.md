@@ -30,10 +30,11 @@ bug report because its WebView2 profiles may contain authenticated cookies.
 
 ## Network connections
 
-Roblox One connects to official Roblox HTTPS endpoints when the user signs in,
-verifies an account, resolves supported destinations, looks up experience
-metadata, or requests a launch ticket. Roblox receives data according to its
-own privacy policy and account settings.
+Roblox One makes its direct Roblox requests to official Roblox HTTPS endpoints
+when the user signs in, verifies an account, resolves supported destinations,
+looks up experience metadata, or requests a launch ticket. The embedded Roblox
+pages may also load subresources selected by Roblox. Roblox receives data
+according to its own privacy policy and account settings.
 
 When the user explicitly checks for an application update, Roblox One connects
 to GitHub Releases for `Makmatoe/RobloxOne`. GitHub receives ordinary request
@@ -41,8 +42,10 @@ metadata such as the source IP address and user agent under GitHub's policies.
 
 An optional post-launch HTTP hook is used only after the user configures a
 loopback URL. The connector rejects non-loopback destinations, redirects, and
-system proxies. Its bounded event payload excludes passwords, cookies, launch
-tickets, destinations, and private-server codes.
+system proxies. Its bounded event payload contains the Roblox process ID, place
+and experience, public/private classification, and selected account ID,
+username, and label. It excludes passwords, cookies, launch tickets, raw
+destinations, private-server codes, and server job IDs.
 
 The optional HandleScope integration connects only to an already-running,
 separately installed local API after the user enables and configures it.
@@ -76,5 +79,7 @@ other devices. Use Roblox account security controls when global session
 revocation is needed.
 
 Application updates replace application files and normally preserve this local
-data. Published release artifacts never include a developer's or another user's
-local data.
+data. Published release artifacts contain the application, release metadata,
+licenses/notices, checksums, and an SBOM; they never include a developer's or
+another user's local data. Repository validation rejects tracked machine-user
+paths and common credential formats before packaging.

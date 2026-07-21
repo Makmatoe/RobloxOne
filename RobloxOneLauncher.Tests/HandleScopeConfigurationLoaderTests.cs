@@ -49,10 +49,12 @@ public sealed class HandleScopeConfigurationLoaderTests
             {
               "enabled": true,
               "processName": " RobloxPlayerBeta ",
-              "handleName": " valid-handle ",
+              "handleName": "\\Sessions\\{SESSION_ID}\\BaseNamedObjects\\ROBLOX_singletonEvent",
               "handleType": " Event ",
               "access": "0x001F0003",
               "match": " EXACT ",
+              "closeAll": false,
+              "allProcesses": true,
               "retryTimeoutSeconds": 99,
               "retryIntervalMilliseconds": 99999
             }
@@ -62,12 +64,47 @@ public sealed class HandleScopeConfigurationLoaderTests
 
         Assert.NotNull(configuration);
         Assert.Equal("RobloxPlayerBeta", configuration.ProcessName);
-        Assert.Equal("valid-handle", configuration.HandleName);
+        Assert.Equal(
+            @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent",
+            configuration.HandleName);
         Assert.Equal("Event", configuration.HandleType);
         Assert.Equal("0x001F0003", configuration.Access);
         Assert.Equal("exact", configuration.Match);
         Assert.Equal(30, configuration.RetryTimeoutSeconds);
         Assert.Equal(2000, configuration.RetryIntervalMilliseconds);
+    }
+
+    [Theory]
+    [InlineData("OtherPlayer", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Event", "0x001F0003", "exact", false, true)]
+    [InlineData("RobloxPlayerBeta", "other-handle", "Event", "0x001F0003", "exact", false, true)]
+    [InlineData("RobloxPlayerBeta", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Mutant", "0x001F0003", "exact", false, true)]
+    [InlineData("RobloxPlayerBeta", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Event", "1", "exact", false, true)]
+    [InlineData("RobloxPlayerBeta", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Event", "0x001F0003", "contains", false, true)]
+    [InlineData("RobloxPlayerBeta", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Event", "0x001F0003", "exact", true, true)]
+    [InlineData("RobloxPlayerBeta", @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent", "Event", "0x001F0003", "exact", false, false)]
+    public void LoadEnabled_NonPolicySelector_ReturnsNull(
+        string processName,
+        string handleName,
+        string handleType,
+        string access,
+        string match,
+        bool closeAll,
+        bool allProcesses)
+    {
+        var json = $$"""
+            {
+              "enabled": true,
+              "processName": {{System.Text.Json.JsonSerializer.Serialize(processName)}},
+              "handleName": {{System.Text.Json.JsonSerializer.Serialize(handleName)}},
+              "handleType": {{System.Text.Json.JsonSerializer.Serialize(handleType)}},
+              "access": {{System.Text.Json.JsonSerializer.Serialize(access)}},
+              "match": {{System.Text.Json.JsonSerializer.Serialize(match)}},
+              "closeAll": {{closeAll.ToString().ToLowerInvariant()}},
+              "allProcesses": {{allProcesses.ToString().ToLowerInvariant()}}
+            }
+            """;
+
+        Assert.Null(Load(json));
     }
 
     private static HandleScopeConfiguration? Load(string json)

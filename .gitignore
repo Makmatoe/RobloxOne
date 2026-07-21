@@ -37,6 +37,11 @@ RobloxOneLauncher/LocalData/
 **/*private*.pem
 **/*private*.key
 **/update-private-key.pem
+*.pem
+*.key
+**/id_rsa*
+**/id_ed25519*
+!RobloxOneLauncher/Resources/update-public-key.pem
 *.pfx
 *.p12
 *.jks

@@ -75,6 +75,19 @@ public sealed class DestinationParserTests
     }
 
     [Theory]
+    [InlineData("https://www.roblox.com:443/games/123456")]
+    [InlineData(
+        "https://www.roblox.com/games/123456?privateServerLinkCode=")]
+    public void TryParse_OfficialPublicLinkWithBenignOptionalSyntax_IsAccepted(
+        string input)
+    {
+        var parsed = DestinationParser.TryParse(input, out var target, out var error);
+
+        Assert.True(parsed, error);
+        Assert.Equal(new LaunchTarget(123456, null, null), target);
+    }
+
+    [Theory]
     [InlineData("http://www.roblox.com/games/123456")]
     [InlineData("https://roblox.com.example.test/games/123456")]
     [InlineData("https://example.test/games/123456?code=Abc_12-Z")]
@@ -85,6 +98,62 @@ public sealed class DestinationParserTests
         Assert.False(parsed);
         Assert.Null(target);
         Assert.Equal("Only official roblox.com links are accepted.", error);
+    }
+
+    [Theory]
+    [InlineData("https://user@www.roblox.com/share?code=Abc_12-Z")]
+    [InlineData("https://www.roblox.com:444/share?code=Abc_12-Z")]
+    public void TryParse_AmbiguousOfficialUrl_IsRejected(string input)
+    {
+        var parsed = DestinationParser.TryParse(input, out var target, out var error);
+
+        Assert.False(parsed);
+        Assert.Null(target);
+        Assert.Equal("Only official roblox.com links are accepted.", error);
+    }
+
+    [Theory]
+    [InlineData("https://www.roblox.com/share?code=short")]
+    [InlineData("https://www.roblox.com/share?code=%00secret")]
+    [InlineData("https://www.roblox.com/games/123456?linkCode=bad%0Acode")]
+    public void TryParse_OfficialUrlWithMalformedCode_IsRejected(string input)
+    {
+        var parsed = DestinationParser.TryParse(input, out var target, out var error);
+
+        Assert.False(parsed);
+        Assert.Null(target);
+        Assert.Equal("That Roblox URL contains an invalid private-server code.", error);
+    }
+
+    [Fact]
+    public void TryParse_OversizedDestination_IsRejectedBeforeUriParsing()
+    {
+        var input = "https://www.roblox.com/share?code=" + new string('A', 4096);
+
+        var parsed = DestinationParser.TryParse(input, out var target, out var error);
+
+        Assert.False(parsed);
+        Assert.Null(target);
+        Assert.Equal("The destination is too long.", error);
+    }
+
+    [Fact]
+    public void TryParse_PrivateServerCodeOverCodeLimit_IsRejected()
+    {
+        var input = "https://www.roblox.com/share?code=" + new string('A', 201);
+
+        var parsed = DestinationParser.TryParse(input, out var target, out var error);
+
+        Assert.False(parsed);
+        Assert.Null(target);
+        Assert.Equal("That Roblox URL contains an invalid private-server code.", error);
+    }
+
+    [Fact]
+    public void TryParse_NullInput_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            DestinationParser.TryParse(null!, out _, out _));
     }
 
     [Theory]

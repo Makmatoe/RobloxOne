@@ -1,9 +1,9 @@
 {
   "enabled": false,
   "processName": "RobloxPlayerBeta",
-  "handleName": "REPLACE_WITH_HANDLE_NAME",
-  "handleType": null,
-  "access": null,
+  "handleName": "\\Sessions\\{SESSION_ID}\\BaseNamedObjects\\ROBLOX_singletonEvent",
+  "handleType": "Event",
+  "access": "0x001F0003",
   "match": "exact",
   "closeAll": false,
   "allProcesses": true,

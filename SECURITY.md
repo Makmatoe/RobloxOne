@@ -61,6 +61,9 @@ secret leakage, or unsafe local-API behavior.
 Use only assets attached to releases in
 `https://github.com/Makmatoe/RobloxOne`. A production release is expected to
 include signed Windows binaries, a signed release descriptor, Velopack package
-metadata, and a GitHub artifact attestation. A GitHub attestation records build
-provenance; it does not replace Windows signature or in-app descriptor
+metadata, an SPDX SBOM, complete dependency notices, checksums covering every
+other asset, and a GitHub artifact attestation. The release verifier rejects
+unexpected package files and requires the expected publisher on the installer,
+application, update stub, and updater executable. A GitHub attestation records
+build provenance; it does not replace Windows signature or in-app descriptor
 verification.

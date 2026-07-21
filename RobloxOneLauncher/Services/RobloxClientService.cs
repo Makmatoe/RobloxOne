@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace RobloxOneLauncher.Services;
 
@@ -16,37 +19,55 @@ public sealed class RobloxClientService
 
     public string? FindPlayerPath()
     {
-        var registeredPath = FindRegisteredPlayerPath();
-        if (registeredPath is not null)
-            return registeredPath;
+        try
+        {
+            var registeredPath = FindRegisteredPlayerPath();
+            if (registeredPath is not null)
+                return registeredPath;
 
-        var versionsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Roblox", "Versions");
-        if (!Directory.Exists(versionsDirectory))
+            var versionsDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Roblox", "Versions");
+            if (!Directory.Exists(versionsDirectory) ||
+                IsReparsePoint(versionsDirectory))
+            {
+                return null;
+            }
+
+            return Directory.EnumerateDirectories(
+                    versionsDirectory,
+                    "version-*",
+                    SearchOption.TopDirectoryOnly)
+                .Where(directory => !IsReparsePoint(directory))
+                .Take(256)
+                .Select(directory => Path.Combine(directory, "RobloxPlayerBeta.exe"))
+                .Where(File.Exists)
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .Select(file => file.FullName)
+                .FirstOrDefault(RobloxExecutableTrust.IsTrustedPlayerPath);
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or
+                System.Security.SecurityException or ArgumentException)
+        {
             return null;
-
-        return Directory.EnumerateFiles(
-                versionsDirectory, "RobloxPlayerBeta.exe", SearchOption.AllDirectories)
-            .Select(path => new FileInfo(path))
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .Select(file => file.FullName)
-            .FirstOrDefault(RobloxExecutableTrust.IsTrustedPlayerPath);
+        }
     }
 
     public Task<LaunchResult> LaunchAsync(string launchUri)
     {
         return Task.Run(() =>
         {
-            var playerPath = FindPlayerPath();
-            if (playerPath is null)
-            {
-                return LaunchResult.Failed(
-                    "Roblox Player was not found. Install Roblox Player, then restart Roblox One.");
-            }
-
             try
             {
+                var playerPath = FindPlayerPath();
+                if (playerPath is null)
+                {
+                    return LaunchResult.Failed(
+                        "Roblox Player was not found. Install Roblox Player, then restart Roblox One.");
+                }
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = playerPath,
@@ -98,9 +119,12 @@ public sealed class RobloxClientService
 
             try
             {
-                foreach (var process in scan.VerifiedProcesses)
+                foreach (var verifiedProcess in scan.VerifiedProcesses)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    var process = verifiedProcess.Process;
+                    if (!IsStillVerified(verifiedProcess))
+                        continue;
                     try
                     {
                         process.CloseMainWindow();
@@ -117,14 +141,17 @@ public sealed class RobloxClientService
                     closedProcessIds,
                     cancellationToken);
 
-                foreach (var process in scan.VerifiedProcesses)
+                foreach (var verifiedProcess in scan.VerifiedProcesses)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    var process = verifiedProcess.Process;
                     if (HasExited(process))
+                        continue;
+                    if (!IsStillVerified(verifiedProcess))
                         continue;
                     try
                     {
-                        process.Kill(entireProcessTree: true);
+                        process.Kill(entireProcessTree: false);
                     }
                     catch (InvalidOperationException)
                     {
@@ -145,7 +172,7 @@ public sealed class RobloxClientService
             finally
             {
                 foreach (var process in scan.VerifiedProcesses)
-                    process.Dispose();
+                    process.Process.Dispose();
             }
         }
 
@@ -166,13 +193,13 @@ public sealed class RobloxClientService
         finally
         {
             foreach (var process in remaining.VerifiedProcesses)
-                process.Dispose();
+                process.Process.Dispose();
         }
     }
 
     private static PlayerProcessScan FindRunningPlayers()
     {
-        var verified = new List<Process>();
+        var verified = new List<VerifiedPlayerProcess>();
         var allProcessIds = new List<int>();
         var backgroundProcessIds = new List<int>();
         var unverified = 0;
@@ -188,10 +215,12 @@ public sealed class RobloxClientService
                 allProcessIds.Add(process.Id);
                 var executablePath = process.MainModule?.FileName;
                 if (executablePath is not null &&
-                    RobloxExecutableTrust.IsTrustedPlayerPath(executablePath))
+                    RobloxExecutableTrust.IsTrustedPlayerPath(executablePath) &&
+                    IsOwnedStandardUserProcessInCurrentSession(process))
                 {
+                    var startTimeUtc = process.StartTime.ToUniversalTime();
                     var isBackgroundProcess = process.MainWindowHandle == IntPtr.Zero;
-                    verified.Add(process);
+                    verified.Add(new VerifiedPlayerProcess(process, startTimeUtc));
                     if (isBackgroundProcess)
                         backgroundProcessIds.Add(process.Id);
                     continue;
@@ -219,7 +248,7 @@ public sealed class RobloxClientService
     }
 
     private static void WaitForPlayersToExit(
-        IEnumerable<Process> processes,
+        IEnumerable<VerifiedPlayerProcess> processes,
         TimeSpan timeout,
         ISet<int> closedProcessIds,
         CancellationToken cancellationToken)
@@ -229,8 +258,9 @@ public sealed class RobloxClientService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var allExited = true;
-            foreach (var process in processes)
+            foreach (var verifiedProcess in processes)
             {
+                var process = verifiedProcess.Process;
                 if (HasExited(process))
                     closedProcessIds.Add(process.Id);
                 else
@@ -242,8 +272,9 @@ public sealed class RobloxClientService
             cancellationToken.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(100));
         }
 
-        foreach (var process in processes)
+        foreach (var verifiedProcess in processes)
         {
+            var process = verifiedProcess.Process;
             if (HasExited(process))
                 closedProcessIds.Add(process.Id);
         }
@@ -260,6 +291,68 @@ public sealed class RobloxClientService
             return true;
         }
     }
+
+    private static bool IsStillVerified(VerifiedPlayerProcess verifiedProcess)
+    {
+        try
+        {
+            var process = verifiedProcess.Process;
+            return !process.HasExited &&
+                   process.StartTime.ToUniversalTime() ==
+                       verifiedProcess.StartTimeUtc &&
+                   process.MainModule?.FileName is { } path &&
+                   RobloxExecutableTrust.IsTrustedPlayerPath(path) &&
+                   IsOwnedStandardUserProcessInCurrentSession(process);
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException or
+                System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsOwnedStandardUserProcessInCurrentSession(
+        Process process)
+    {
+        try
+        {
+            using var currentProcess = Process.GetCurrentProcess();
+            if (process.SessionId != currentProcess.SessionId ||
+                !OpenProcessToken(
+                    process.SafeHandle,
+                    TokenAccessLevels.Query,
+                    out var token))
+            {
+                return false;
+            }
+
+            using (token)
+            using (var currentIdentity = WindowsIdentity.GetCurrent(
+                       TokenAccessLevels.Query))
+            using (var processIdentity = new WindowsIdentity(
+                       token.DangerousGetHandle()))
+            {
+                return currentIdentity.User is not null &&
+                       processIdentity.User is not null &&
+                       currentIdentity.User.Equals(processIdentity.User) &&
+                       !RuntimeSecurityPolicy.IsTokenElevated(token);
+            }
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException or UnauthorizedAccessException or
+                System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenProcessToken(
+        SafeProcessHandle processHandle,
+        TokenAccessLevels desiredAccess,
+        out SafeAccessTokenHandle tokenHandle);
 
     private static string? FindRegisteredPlayerPath()
     {
@@ -279,6 +372,9 @@ public sealed class RobloxClientService
 
         return null;
     }
+
+    private static bool IsReparsePoint(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
     public sealed record LaunchResult(bool Success, string? Error, int? ProcessId)
     {
@@ -300,9 +396,13 @@ public sealed class RobloxClientService
     }
 
     private sealed record PlayerProcessScan(
-        IReadOnlyList<Process> VerifiedProcesses,
+        IReadOnlyList<VerifiedPlayerProcess> VerifiedProcesses,
         IReadOnlyList<int> AllProcessIds,
         IReadOnlyList<int> BackgroundProcessIds,
         int UnverifiedCount);
+
+    private sealed record VerifiedPlayerProcess(
+        Process Process,
+        DateTime StartTimeUtc);
 
 }

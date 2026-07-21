@@ -45,6 +45,46 @@ public sealed class RobloxLaunchUriBuilderTests
     }
 
     [Fact]
+    public void Build_ProtocolAndQueryDelimiters_CannotInjectLaunchFields()
+    {
+        const string ticket = "ticket+channel:untrusted";
+        const string linkCode = "private&gameId=untrusted+channel:value";
+
+        var launchUri = RobloxLaunchUriBuilder.Build(
+            new LaunchTarget(123456, linkCode, null),
+            ticket);
+
+        var parts = ParseProtocolParts(launchUri);
+        var query = ParseQuery(ParsePlaceLauncherUri(parts).Query);
+
+        Assert.Equal(ticket, Uri.UnescapeDataString(parts["gameinfo"]));
+        Assert.Equal(string.Empty, parts["channel"]);
+        Assert.Equal(linkCode, query["linkCode"]);
+        Assert.False(query.ContainsKey("gameId"));
+    }
+
+    [Theory]
+    [InlineData("ticket\rvalue")]
+    [InlineData("ticket\nvalue")]
+    [InlineData("ticket\0value")]
+    public void Build_AuthenticationTicketWithControlCharacter_Throws(string ticket)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RobloxLaunchUriBuilder.Build(
+                new LaunchTarget(123456, null, null),
+                ticket));
+    }
+
+    [Fact]
+    public void Build_OversizedAuthenticationTicket_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RobloxLaunchUriBuilder.Build(
+                new LaunchTarget(123456, null, null),
+                new string('A', (8 * 1024) + 1)));
+    }
+
+    [Fact]
     public void Build_TrackedServer_UsesNormalizedJobId()
     {
         const string inputJobId = "A18C877E-4070-4A84-A5F7-36668B46A77D";
