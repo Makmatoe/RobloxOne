@@ -115,4 +115,44 @@ public sealed class WindowOperationLifetimeTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             lifetime.RunAsync(_ => throw new InvalidOperationException("failure")));
     }
+
+    [Fact]
+    public async Task RunAsync_IOException_IsDeliveredToOperationalErrorBoundary()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        Exception? handled = null;
+
+        await lifetime.RunAsync(
+            _ => throw new IOException("disk unavailable"),
+            exception => handled = exception);
+
+        Assert.IsType<IOException>(handled);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnauthorizedAccess_IsDeliveredToOperationalErrorBoundary()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        Exception? handled = null;
+
+        await lifetime.RunAsync(
+            _ => throw new UnauthorizedAccessException("write denied"),
+            exception => handled = exception);
+
+        Assert.IsType<UnauthorizedAccessException>(handled);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnexpectedFailure_BypassesOperationalErrorBoundary()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        var handled = false;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            lifetime.RunAsync(
+                _ => throw new InvalidOperationException("programmer failure"),
+                _ => handled = true));
+
+        Assert.False(handled);
+    }
 }

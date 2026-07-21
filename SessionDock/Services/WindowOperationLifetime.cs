@@ -26,6 +26,21 @@ internal sealed class WindowOperationLifetime : IDisposable
 
     public async Task RunAsync(Func<CancellationToken, Task> operation)
     {
+        await RunCoreAsync(operation, expectedFailureHandler: null);
+    }
+
+    public async Task RunAsync(
+        Func<CancellationToken, Task> operation,
+        Action<Exception> expectedFailureHandler)
+    {
+        ArgumentNullException.ThrowIfNull(expectedFailureHandler);
+        await RunCoreAsync(operation, expectedFailureHandler);
+    }
+
+    private async Task RunCoreAsync(
+        Func<CancellationToken, Task> operation,
+        Action<Exception>? expectedFailureHandler)
+    {
         ArgumentNullException.ThrowIfNull(operation);
         var registration = TryRegister();
         if (registration is null)
@@ -46,6 +61,12 @@ internal sealed class WindowOperationLifetime : IDisposable
                 // A bounded shutdown can release a native dependency after an
                 // operation was asked to stop. Native wrappers do not consistently
                 // report that race as ObjectDisposedException.
+            }
+            catch (Exception exception) when (
+                expectedFailureHandler is not null &&
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                expectedFailureHandler(exception);
             }
         }
     }

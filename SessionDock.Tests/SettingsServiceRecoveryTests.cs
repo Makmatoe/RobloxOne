@@ -79,6 +79,232 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         Assert.NotNull(recoveryService.LoadNotice);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Load_BackupRecovery_PreservesProfileMissingFromOlderBackup(
+        bool corruptPrimary)
+    {
+        var service = new SettingsService(_storageDirectory);
+        var settings = CreateSettings("Original");
+        service.Save(settings);
+
+        var newerKey = Guid.NewGuid().ToString("N");
+        settings.Accounts.Add(new AccountProfile
+        {
+            Key = newerKey,
+            UserId = 99,
+            Username = "newer",
+            Label = "Newer",
+            SessionFolder = $@"Profiles\{newerKey}"
+        });
+        settings.ActiveAccountKey = newerKey;
+        var newerProfile = service.GetSessionDataDirectory(settings.Accounts[1]);
+        Directory.CreateDirectory(newerProfile);
+        var sentinel = Path.Combine(newerProfile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+        service.Save(settings);
+
+        var primaryPath = Path.Combine(_storageDirectory, "settings.json");
+        if (corruptPrimary)
+            File.WriteAllText(primaryPath, "{not-json");
+        else
+            File.Delete(primaryPath);
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var recovered = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            recovered);
+
+        Assert.Equal("Original", Assert.Single(recovered.Accounts).Label);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public void Load_DiscardedInvalidAccount_PreservesItsProfile()
+    {
+        var key = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(_storageDirectory);
+        File.WriteAllText(
+            Path.Combine(_storageDirectory, "settings.json"),
+            $$"""
+              {
+                "accounts": [
+                  {
+                    "key": "{{key}}",
+                    "userId": 42,
+                    "username": "",
+                    "sessionFolder": "Profiles\\{{key}}"
+                  }
+                ],
+                "recentExperiences": [],
+                "uiSoundsEnabled": true,
+                "startupSound": "soft"
+              }
+              """);
+        var profile = Path.Combine(_storageDirectory, "Profiles", key);
+        Directory.CreateDirectory(profile);
+        var sentinel = Path.Combine(profile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+
+        var service = new SettingsService(_storageDirectory);
+        var loaded = service.Load();
+        var removed = service.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.Empty(loaded.Accounts);
+        Assert.False(service.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public void Load_ProfileCleanupGuardPathAsDirectory_RemainsBlocked()
+    {
+        Directory.CreateDirectory(_storageDirectory);
+        Directory.CreateDirectory(Path.Combine(
+            _storageDirectory,
+            "profile-cleanup-paused.txt"));
+        var orphan = Path.Combine(
+            _storageDirectory,
+            "Profiles",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(orphan);
+
+        var service = new SettingsService(_storageDirectory);
+        var settings = service.Load();
+        var removed = service.CleanupOrphanedSessionDirectories(settings);
+
+        Assert.False(service.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(Directory.Exists(orphan));
+    }
+
+    [Fact]
+    public void Load_MissingOnlySettingsFile_PreservesExistingProfile()
+    {
+        var service = new SettingsService(_storageDirectory);
+        var settings = CreateSettings("Only revision");
+        service.Save(settings);
+        var profile = service.GetSessionDataDirectory(settings.Accounts[0]);
+        Directory.CreateDirectory(profile);
+        var sentinel = Path.Combine(profile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+        File.Delete(Path.Combine(_storageDirectory, "settings.json"));
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var recovered = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            recovered);
+
+        Assert.Empty(recovered.Accounts);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public void Load_InaccessibleSettingsProbe_PreservesExistingProfile()
+    {
+        var service = new SettingsService(_storageDirectory);
+        var settings = CreateSettings("Inaccessible");
+        service.Save(settings);
+        var profile = service.GetSessionDataDirectory(settings.Accounts[0]);
+        Directory.CreateDirectory(profile);
+        var sentinel = Path.Combine(profile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+        var settingsPath = Path.Combine(_storageDirectory, "settings.json");
+
+        var recoveryService = new SettingsService(
+            _storageDirectory,
+            path => path.Equals(settingsPath, StringComparison.OrdinalIgnoreCase)
+                ? throw new UnauthorizedAccessException("probe denied")
+                : File.GetAttributes(path));
+        var recovered = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            recovered);
+
+        Assert.Empty(recovered.Accounts);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public void Load_InaccessibleCleanupGuardProbe_BlocksProfileCleanup()
+    {
+        var service = new SettingsService(_storageDirectory);
+        service.Save(new());
+        var orphan = Path.Combine(
+            _storageDirectory,
+            "Profiles",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(orphan);
+        var guardPath = Path.Combine(
+            _storageDirectory,
+            "profile-cleanup-paused.txt");
+
+        var guardedService = new SettingsService(
+            _storageDirectory,
+            path => path.Equals(guardPath, StringComparison.OrdinalIgnoreCase)
+                ? throw new UnauthorizedAccessException("probe denied")
+                : File.GetAttributes(path));
+        var loaded = guardedService.Load();
+        var removed = guardedService.CleanupOrphanedSessionDirectories(loaded);
+
+        Assert.False(guardedService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(Directory.Exists(orphan));
+    }
+
+    [Fact]
+    public void Save_LockedPrimary_PreservesPrimaryBackupAndRemovesTemporaryFile()
+    {
+        var service = new SettingsService(_storageDirectory);
+        service.Save(CreateSettings("Backup"));
+        service.Save(CreateSettings("Primary"));
+        var primaryPath = Path.Combine(_storageDirectory, "settings.json");
+        var backupPath = Path.Combine(
+            _storageDirectory,
+            "settings.backup.json");
+        var primaryBefore = File.ReadAllBytes(primaryPath);
+        var backupBefore = File.ReadAllBytes(backupPath);
+
+        using (var locked = new FileStream(
+                   primaryPath,
+                   FileMode.Open,
+                   FileAccess.Read,
+                   FileShare.Read))
+        {
+            Assert.Throws<IOException>(() =>
+                service.Save(CreateSettings("Blocked")));
+        }
+
+        Assert.Equal(primaryBefore, File.ReadAllBytes(primaryPath));
+        Assert.Equal(backupBefore, File.ReadAllBytes(backupPath));
+        Assert.Empty(Directory.GetFiles(
+            _storageDirectory,
+            "settings.save.*.tmp"));
+    }
+
+    [Fact]
+    public void CleanupOrphanedSessionDirectories_NonDirectoryProfilesPath_PausesCleanup()
+    {
+        var service = new SettingsService(_storageDirectory);
+        File.WriteAllText(
+            Path.Combine(_storageDirectory, "Profiles"),
+            "unexpected-file");
+
+        var removed = service.CleanupOrphanedSessionDirectories(new());
+
+        Assert.Equal(0, removed);
+        Assert.False(service.CanReconcileProfiles);
+        Assert.True(File.Exists(Path.Combine(
+            _storageDirectory,
+            "profile-cleanup-paused.txt")));
+    }
+
     [Fact]
     public void CleanupOrphanedSessionDirectories_RemovesOnlyUnreferencedProfiles()
     {
