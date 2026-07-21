@@ -69,21 +69,63 @@ if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) {
     throw 'Restore assets are unavailable; publish notices cannot be verified.'
 }
 $assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json
-$packageRoots = @($assets.packageFolders.PSObject.Properties.Name)
-if ($packageRoots.Count -ne 1) {
-    throw 'Expected exactly one NuGet global-packages directory.'
+$packageRoots = @($assets.packageFolders.PSObject.Properties.Name |
+    ForEach-Object {
+        if (-not [IO.Path]::IsPathRooted($_)) {
+            throw "NuGet reported a non-absolute package directory: $_"
+        }
+        [IO.Path]::GetFullPath($_).TrimEnd('\', '/')
+    } | Sort-Object -Unique)
+if ($packageRoots.Count -lt 1 -or $packageRoots.Count -gt 8) {
+    throw "Expected between one and eight NuGet package directories; found $($packageRoots.Count)."
 }
-$packageRoot = [string] $packageRoots[0]
+
+function Resolve-PinnedPackageFile(
+    [string] $RelativePath,
+    [string] $ExpectedSha256) {
+    $matches = [Collections.Generic.List[string]]::new()
+    foreach ($packageRoot in $packageRoots) {
+        $candidate = Join-Path $packageRoot $RelativePath
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $candidate -Force
+        if (-not [string]::IsNullOrWhiteSpace([string] $item.LinkType)) {
+            throw "A required package notice is a symbolic link: $RelativePath"
+        }
+        $actualHash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
+        if ($actualHash -cne $ExpectedSha256) {
+            throw "A required package notice does not match its pinned upstream hash: $RelativePath"
+        }
+        $matches.Add($candidate)
+    }
+
+    if ($matches.Count -eq 0) {
+        throw "Required package notice is unavailable from every restored package directory: $RelativePath"
+    }
+    return $matches[0]
+}
 
 $sources = [ordered]@{
     'LICENSE.md' = Join-Path $root 'LICENSE.md'
     'THIRD_PARTY_NOTICES.md' = Join-Path $root 'THIRD_PARTY_NOTICES.md'
     'licenses/Velopack-LICENSE.txt' = Join-Path $root 'licenses/Velopack-LICENSE.txt'
-    'licenses/DotNet-LICENSE.txt' = Join-Path $packageRoot 'microsoft.netcore.app.runtime.win-x64/10.0.8/LICENSE.TXT'
-    'licenses/DotNet-THIRD-PARTY-NOTICES.txt' = Join-Path $packageRoot 'microsoft.netcore.app.runtime.win-x64/10.0.8/THIRD-PARTY-NOTICES.TXT'
-    'licenses/Microsoft.WindowsDesktop-LICENSE.txt' = Join-Path $packageRoot 'microsoft.windowsdesktop.app.runtime.win-x64/10.0.8/LICENSE'
-    'licenses/Microsoft.Web.WebView2-LICENSE.txt' = Join-Path $packageRoot 'microsoft.web.webview2/1.0.4078.44/LICENSE.txt'
-    'licenses/Microsoft.Web.WebView2-NOTICE.txt' = Join-Path $packageRoot 'microsoft.web.webview2/1.0.4078.44/NOTICE.txt'
+    'licenses/DotNet-LICENSE.txt' = Resolve-PinnedPackageFile `
+        'microsoft.netcore.app.runtime.win-x64/10.0.8/LICENSE.TXT' `
+        'D7A68596AB69B06F51CA278A6545148E4269A9381C26D597C13DF5D88E08CF5B'
+    'licenses/DotNet-THIRD-PARTY-NOTICES.txt' = Resolve-PinnedPackageFile `
+        'microsoft.netcore.app.runtime.win-x64/10.0.8/THIRD-PARTY-NOTICES.TXT' `
+        '6D15E10A101C6BFFF2AB4429ED061BF76C456FC4B23AD6B03E0D0F8377148A21'
+    'licenses/Microsoft.WindowsDesktop-LICENSE.txt' = Resolve-PinnedPackageFile `
+        'microsoft.windowsdesktop.app.runtime.win-x64/10.0.8/LICENSE' `
+        'A89886665765362EB77E0F8E26602C924520041D1711B2EEDC136434FE4D01AB'
+    'licenses/Microsoft.Web.WebView2-LICENSE.txt' = Resolve-PinnedPackageFile `
+        'microsoft.web.webview2/1.0.4078.44/LICENSE.txt' `
+        '0AF8F1B807512AAE39C2AC1AA4D0CAE65CABECB6FD554B8439A5162A0D6ECA55'
+    'licenses/Microsoft.Web.WebView2-NOTICE.txt' = Resolve-PinnedPackageFile `
+        'microsoft.web.webview2/1.0.4078.44/NOTICE.txt' `
+        '106423785C5B7EBA0A8E61D1837F2132E9C828E20AD530F565D981C1DF60DD90'
 }
 foreach ($entry in $sources.GetEnumerator()) {
     if (-not (Test-Path -LiteralPath $entry.Value -PathType Leaf)) {
