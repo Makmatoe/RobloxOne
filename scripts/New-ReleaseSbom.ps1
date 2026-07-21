@@ -64,11 +64,11 @@ $release = ConvertFrom-ReleaseJson (Get-Content -LiteralPath $descriptorPath -Ra
 Write-Verbose 'Parsed release descriptor.'
 if ($release.version -cnotmatch '^\d+\.\d+\.\d+$' -or
     $release.tag -cne "v$($release.version)" -or
-    $release.repository -cne 'Makmatoe/RobloxOne' -or
+    $release.repository -cne 'Makmatoe/SessionDock' -or
     $release.packageSha256 -cnotmatch '^[0-9A-F]{64}$') {
     throw 'The release descriptor is not valid SBOM input.'
 }
-if ([IO.Path]::GetFileName($outputPath) -cne "RobloxOne-$($release.version)-sbom.spdx.json") {
+if ([IO.Path]::GetFileName($outputPath) -cne "SessionDock-$($release.version)-sbom.spdx.json") {
     throw 'The SPDX SBOM filename must contain the exact release version.'
 }
 
@@ -113,9 +113,9 @@ $suppliers = @{
 $packages = [Collections.Generic.List[object]]::new()
 $releasePackage = [ordered]@{
     name = [string] $release.packageFile
-    SPDXID = 'SPDXRef-Package-RobloxOne'
+    SPDXID = 'SPDXRef-Package-SessionDock'
     versionInfo = [string] $release.version
-    downloadLocation = "https://github.com/Makmatoe/RobloxOne/releases/download/$($release.tag)/$($release.packageFile)"
+    downloadLocation = "https://github.com/Makmatoe/SessionDock/releases/download/$($release.tag)/$($release.packageFile)"
     filesAnalyzed = $false
     checksums = @(
         [ordered]@{
@@ -160,11 +160,11 @@ $relationships = [Collections.Generic.List[object]]::new()
 $relationships.Add([ordered]@{
     spdxElementId = 'SPDXRef-DOCUMENT'
     relationshipType = 'DESCRIBES'
-    relatedSpdxElement = 'SPDXRef-Package-RobloxOne'
+    relatedSpdxElement = 'SPDXRef-Package-SessionDock'
 })
-foreach ($package in @($packages.ToArray() | Where-Object { $_.SPDXID -cne 'SPDXRef-Package-RobloxOne' })) {
+foreach ($package in @($packages.ToArray() | Where-Object { $_.SPDXID -cne 'SPDXRef-Package-SessionDock' })) {
     $relationships.Add([ordered]@{
-        spdxElementId = 'SPDXRef-Package-RobloxOne'
+        spdxElementId = 'SPDXRef-Package-SessionDock'
         relationshipType = 'DEPENDS_ON'
         relatedSpdxElement = $package.SPDXID
     })
@@ -180,11 +180,11 @@ $document = [ordered]@{
     spdxVersion = 'SPDX-2.3'
     dataLicense = 'CC0-1.0'
     SPDXID = 'SPDXRef-DOCUMENT'
-    name = "RobloxOne-$($release.version)-win-x64"
-    documentNamespace = "https://spdx.org/spdxdocs/RobloxOne-$($release.version)-$($release.packageSha256.ToLowerInvariant())"
+    name = "SessionDock-$($release.version)-win-x64"
+    documentNamespace = "https://spdx.org/spdxdocs/SessionDock-$($release.version)-$($release.packageSha256.ToLowerInvariant())"
     creationInfo = [ordered]@{
         created = $publishedAt.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
-        creators = @('Tool: RobloxOne-New-ReleaseSbom.ps1')
+        creators = @('Tool: SessionDock-New-ReleaseSbom.ps1')
         licenseListVersion = '3.26'
     }
     packages = $packages.ToArray()

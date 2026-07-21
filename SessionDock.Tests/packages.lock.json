@@ -167,7 +167,7 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
-      "RobloxOne": {
+      "sessiondock": {
         "type": "Project",
         "dependencies": {
           "Microsoft.Web.WebView2": "[1.0.4078.44, )",

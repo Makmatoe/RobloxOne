@@ -19,7 +19,6 @@ public static class ReleaseDescriptorPolicy
     public const string LegacyRepository = "Makmatoe/RobloxOne";
     public const string LegacyChannel = "win-x64-stable";
     public const string LegacyKeyId = "robloxone-release-2026-01";
-    public const string LegacyDescriptorFileName = "robloxone-release.json";
     public const int MaximumDescriptorBytes = 96 * 1024;
     public const int MaximumReleaseNotesLength = 64 * 1024;
     public const long MinimumPackageSize = 1024 * 1024;
@@ -151,6 +150,13 @@ public static class ReleaseDescriptorPolicy
             asset.Version != descriptor.Version)
         {
             throw new ReleaseTrustException("The signed release version is invalid.");
+        }
+
+        if ((IsLegacyIdentity(descriptor) && version > new Version(2, 1, 5)) ||
+            (IsCurrentIdentity(descriptor) && version < new Version(2, 2, 0)))
+        {
+            throw new ReleaseTrustException(
+                "The signed release version is outside its authorized migration channel.");
         }
 
         if (!DateTimeOffset.TryParseExact(

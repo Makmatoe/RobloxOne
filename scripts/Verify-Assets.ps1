@@ -9,9 +9,9 @@ param(
     [Parameter(Mandatory)]
     [string] $PublishedApplicationDirectory,
 
-    [string] $ExpectedRepository = 'Makmatoe/RobloxOne',
+    [string] $ExpectedRepository = 'Makmatoe/SessionDock',
 
-    [string] $ExpectedChannel = 'win-x64-stable',
+    [string] $ExpectedChannel = 'win-x64-sessiondock',
 
     [string] $ExpectedTag
 )
@@ -114,10 +114,10 @@ if (-not (Test-Path -LiteralPath $directoryPath -PathType Container)) {
 if (-not (Test-Path -LiteralPath $applicationPath -PathType Container)) {
     throw "Published application directory not found: $applicationPath"
 }
-$expectedManifestPath = Join-Path $directoryPath 'robloxone-release.json'
+$expectedManifestPath = Join-Path $directoryPath 'sessiondock-release.json'
 if (-not $manifestPath.Equals($expectedManifestPath, [StringComparison]::OrdinalIgnoreCase) -or
     -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-    throw 'The release descriptor must be the top-level robloxone-release.json asset.'
+    throw 'The release descriptor must be the top-level sessiondock-release.json asset.'
 }
 $releaseItems = @(Get-ChildItem -LiteralPath $directoryPath -Force)
 if ($releaseItems | Where-Object {
@@ -135,7 +135,7 @@ if ($applicationItems | Where-Object {
 
 $expectedApplicationFiles = @(
     'LICENSE.md',
-    'RobloxOne.exe',
+    'SessionDock.exe',
     'THIRD_PARTY_NOTICES.md',
     'licenses/DotNet-LICENSE.txt',
     'licenses/DotNet-THIRD-PARTY-NOTICES.txt',
@@ -167,8 +167,8 @@ Assert-ExactSet `
     -Actual $actualDescriptorFields `
     -Description 'Release descriptor'
 if ($descriptor.schemaVersion -ne 1 -or
-    $descriptor.product -cne 'RobloxOne' -or
-    $descriptor.keyId -cne 'robloxone-release-2026-01' -or
+    $descriptor.product -cne 'SessionDock' -or
+    $descriptor.keyId -cne 'sessiondock-release-2026-01' -or
     $descriptor.repository -cne $ExpectedRepository -or
     $descriptor.channel -cne $ExpectedChannel) {
     throw 'Descriptor schema, product, repository, channel, or signing key is not recognized.'
@@ -214,9 +214,9 @@ if ($signatureBytes.Length -ne 64) {
 }
 
 $packageName = "RobloxOne-$($descriptor.version)-$ExpectedChannel-full.nupkg"
-$portableName = "RobloxOne-$ExpectedChannel-Portable.zip"
-$setupName = "RobloxOne-$ExpectedChannel-Setup.exe"
-$sbomName = "RobloxOne-$($descriptor.version)-sbom.spdx.json"
+$portableName = 'SessionDock-win-x64-Portable.zip'
+$setupName = 'SessionDock-win-x64-Setup.exe'
+$sbomName = "SessionDock-$($descriptor.version)-sbom.spdx.json"
 if ($descriptor.packageFile -cne $packageName) {
     throw 'Descriptor package filename does not match the exact release convention.'
 }
@@ -229,7 +229,7 @@ $expectedReleaseFiles = @(
     $portableName,
     $setupName,
     "releases.$ExpectedChannel.json",
-    'robloxone-release.json'
+    'sessiondock-release.json'
 )
 Assert-ExactSet `
     -Expected $expectedReleaseFiles `
@@ -310,8 +310,8 @@ $expectedPackageEntries = @(
     '_rels/.rels',
     'RobloxOne.nuspec',
     'lib/app/LICENSE.md',
-    'lib/app/RobloxOne.exe',
-    'lib/app/RobloxOne_ExecutionStub.exe',
+    'lib/app/SessionDock.exe',
+    'lib/app/SessionDock_ExecutionStub.exe',
     'lib/app/Squirrel.exe',
     'lib/app/sq.version',
     'lib/app/THIRD_PARTY_NOTICES.md',
@@ -322,7 +322,7 @@ $expectedPackageEntries = @(
     'lib/app/licenses/Microsoft.WindowsDesktop-LICENSE.txt',
     'lib/app/licenses/Velopack-LICENSE.txt'
 )
-$packageExtraction = Join-Path ([IO.Path]::GetTempPath()) ("robloxone-package-" + [Guid]::NewGuid().ToString('N'))
+$packageExtraction = Join-Path ([IO.Path]::GetTempPath()) ("sessiondock-package-" + [Guid]::NewGuid().ToString('N'))
 try {
     $packageArchive = [IO.Compression.ZipFile]::OpenRead($packagePath)
     try {
@@ -341,7 +341,7 @@ try {
             -Actual (Join-Path $packageExtraction "lib/app/$relativePath") `
             -Description "Packaged $relativePath"
     }
-    $packagedMainExecutable = Join-Path $packageExtraction 'lib/app/RobloxOne.exe'
+    $packagedMainExecutable = Join-Path $packageExtraction 'lib/app/SessionDock.exe'
     $packagedMainExecutableHash = (Get-FileHash `
         -LiteralPath $packagedMainExecutable `
         -Algorithm SHA256).Hash
@@ -360,15 +360,21 @@ try {
     if ((Get-XmlChildText $metadata 'id') -cne 'RobloxOne' -or
         (Get-XmlChildText $metadata 'version') -cne [string] $descriptor.version -or
         (Get-XmlChildText $metadata 'channel') -cne $ExpectedChannel -or
-        (Get-XmlChildText $metadata 'mainExe') -cne 'RobloxOne.exe' -or
+        (Get-XmlChildText $metadata 'title') -cne 'SessionDock' -or
+        (Get-XmlChildText $metadata 'authors') -cne 'Makmatoe' -or
+        (Get-XmlChildText $metadata 'description') -cne 'SessionDock' -or
+        (Get-XmlChildText $metadata 'mainExe') -cne 'SessionDock.exe' -or
         (Get-XmlChildText $metadata 'rid') -cne 'win-x64' -or
         (Get-XmlChildText $metadata 'machineArchitecture') -cne 'x64' -or
+        (Get-XmlChildText $metadata 'shortcutAumid') -cne 'velopack.RobloxOne' -or
+        (Get-XmlChildText $metadata 'os') -cne 'win' -or
+        (Get-XmlChildText $metadata 'shortcutLocations') -cne 'Desktop,StartMenuRoot' -or
         (Get-NormalizedNotes (Get-XmlChildText $metadata 'releaseNotes')) -cne [string] $descriptor.releaseNotes) {
         throw 'Velopack package metadata does not match the signed release.'
     }
     foreach ($relativePath in @(
-            'lib/app/RobloxOne.exe',
-            'lib/app/RobloxOne_ExecutionStub.exe',
+            'lib/app/SessionDock.exe',
+            'lib/app/SessionDock_ExecutionStub.exe',
             'lib/app/Squirrel.exe')) {
         Assert-PortableExecutable (Join-Path $packageExtraction $relativePath)
     }
@@ -381,10 +387,10 @@ finally {
 
 $expectedPortableEntries = @(
     '.portable',
-    'Roblox One.exe',
+    'SessionDock.exe',
     'Update.exe',
     'current/LICENSE.md',
-    'current/RobloxOne.exe',
+    'current/SessionDock.exe',
     'current/sq.version',
     'current/THIRD_PARTY_NOTICES.md',
     'current/licenses/DotNet-LICENSE.txt',
@@ -394,7 +400,7 @@ $expectedPortableEntries = @(
     'current/licenses/Microsoft.WindowsDesktop-LICENSE.txt',
     'current/licenses/Velopack-LICENSE.txt'
 )
-$portableExtraction = Join-Path ([IO.Path]::GetTempPath()) ("robloxone-portable-" + [Guid]::NewGuid().ToString('N'))
+$portableExtraction = Join-Path ([IO.Path]::GetTempPath()) ("sessiondock-portable-" + [Guid]::NewGuid().ToString('N'))
 try {
     $portableArchive = [IO.Compression.ZipFile]::OpenRead($portablePath)
     try {
@@ -413,12 +419,12 @@ try {
             -Actual (Join-Path $portableExtraction "current/$relativePath") `
             -Description "Portable $relativePath"
     }
-    $portableMainExecutable = Join-Path $portableExtraction 'current/RobloxOne.exe'
+    $portableMainExecutable = Join-Path $portableExtraction 'current/SessionDock.exe'
     $portableMainExecutableHash = (Get-FileHash `
         -LiteralPath $portableMainExecutable `
         -Algorithm SHA256).Hash
     if ($portableMainExecutableHash -cne $packagedMainExecutableHash) {
-        throw 'Portable RobloxOne.exe does not match the signed full package.'
+        throw 'Portable SessionDock.exe does not match the signed full package.'
     }
     Assert-ExecutableVersion `
         -Path $portableMainExecutable `
@@ -429,7 +435,7 @@ try {
     if ($portableVersionHash -cne $versionMetadataHash) {
         throw 'Portable version metadata does not match the full package.'
     }
-    foreach ($relativePath in @('current/RobloxOne.exe', 'Roblox One.exe', 'Update.exe')) {
+    foreach ($relativePath in @('current/SessionDock.exe', 'SessionDock.exe', 'Update.exe')) {
         Assert-PortableExecutable (Join-Path $portableExtraction $relativePath)
     }
 }
@@ -459,11 +465,11 @@ $sbom = ConvertFrom-ReleaseJson $sbomText
 if ($sbom.spdxVersion -cne 'SPDX-2.3' -or
     $sbom.dataLicense -cne 'CC0-1.0' -or
     $sbom.SPDXID -cne 'SPDXRef-DOCUMENT' -or
-    $sbom.name -cne "RobloxOne-$($descriptor.version)-win-x64" -or
-    $sbom.documentNamespace -cne "https://spdx.org/spdxdocs/RobloxOne-$($descriptor.version)-$($descriptor.packageSha256.ToLowerInvariant())") {
+    $sbom.name -cne "SessionDock-$($descriptor.version)-win-x64" -or
+    $sbom.documentNamespace -cne "https://spdx.org/spdxdocs/SessionDock-$($descriptor.version)-$($descriptor.packageSha256.ToLowerInvariant())") {
     throw 'Release SBOM identity does not match the signed release.'
 }
-$sbomPackage = @($sbom.packages | Where-Object { $_.SPDXID -ceq 'SPDXRef-Package-RobloxOne' })
+$sbomPackage = @($sbom.packages | Where-Object { $_.SPDXID -ceq 'SPDXRef-Package-SessionDock' })
 if ($sbomPackage.Count -ne 1 -or
     $sbomPackage[0].name -cne $packageName -or
     $sbomPackage[0].versionInfo -cne [string] $descriptor.version -or

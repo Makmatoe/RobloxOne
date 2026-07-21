@@ -24,7 +24,7 @@ installations and cannot use the production self-update path.
 
 ## Verify a manual installer download
 
-Download both `RobloxOne-win-x64-stable-Setup.exe` and `SHA256SUMS.txt` from
+Download both `SessionDock-win-x64-Setup.exe` and `SHA256SUMS.txt` from
 the same entry on the canonical
 [GitHub Releases page](https://github.com/Makmatoe/SessionDock/releases). For the
 latest release, the checksum file is also available through its stable
@@ -34,7 +34,7 @@ Do not combine an installer from one release with a checksum file from another.
 Open a normal PowerShell in the directory containing both files, then run:
 
 ```powershell
-$asset = 'RobloxOne-win-x64-stable-Setup.exe'
+$asset = 'SessionDock-win-x64-Setup.exe'
 $checksumFile = '.\SHA256SUMS.txt'
 $pattern = '^(?<hash>[0-9a-fA-F]{64})  ' + [Regex]::Escape($asset) + '$'
 $matchingLines = @(Get-Content -LiteralPath $checksumFile |

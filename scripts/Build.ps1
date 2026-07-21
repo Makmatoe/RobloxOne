@@ -69,8 +69,8 @@ try {
         New-Item -ItemType Directory -Path $output -Force | Out-Null
         Invoke-CheckedCommand dotnet publish $project '--configuration' $Configuration '--runtime' $Runtime `
             '--self-contained' 'true' '--no-restore' '--output' $output @commonProperties
-        if (-not (Test-Path -LiteralPath (Join-Path $output 'RobloxOne.exe') -PathType Leaf)) {
-            throw "Publish completed without the expected RobloxOne.exe in $output."
+        if (-not (Test-Path -LiteralPath (Join-Path $output 'SessionDock.exe') -PathType Leaf)) {
+            throw "Publish completed without the expected SessionDock.exe in $output."
         }
         & (Join-Path $PSScriptRoot 'Verify-Publish.ps1') -Directory $output
     }

@@ -42,13 +42,17 @@ try {
         '--packId' 'RobloxOne' `
         '--packVersion' $version `
         '--packDir' $appOutput `
-        '--mainExe' 'RobloxOne.exe' `
-        '--packTitle' 'Roblox One' `
+        '--mainExe' 'SessionDock.exe' `
+        '--packTitle' 'SessionDock' `
         '--packAuthors' 'Makmatoe' `
         '--releaseNotes' (Join-Path $root "SessionDock/ReleaseNotes/$version.md") `
         '--runtime' 'win-x64' `
-        '--channel' 'win-x64-stable' `
+        '--channel' 'win-x64-sessiondock' `
         '--outputDir' $output
+
+    & (Join-Path $PSScriptRoot 'Rename-SessionDockReleaseAssets.ps1') `
+        -Directory $output `
+        -Channel 'win-x64-sessiondock'
 
     $fullPackages = @(Get-ChildItem -LiteralPath $output -File -Filter '*-full.nupkg')
     if ($fullPackages.Count -ne 1) {
@@ -57,20 +61,20 @@ try {
 
     $signerProject = Join-Path $root 'SessionDock/tools/ReleaseSigner/ReleaseSigner.csproj'
     $notesPath = Join-Path $root "SessionDock/ReleaseNotes/$version.md"
-    $descriptorPath = Join-Path $output 'robloxone-release.json'
+    $descriptorPath = Join-Path $output 'sessiondock-release.json'
     Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
         '--no-restore' '--' `
         'sign' '--package' $fullPackages[0].FullName '--notes' $notesPath '--output' $descriptorPath `
-        '--repository' 'Makmatoe/RobloxOne' '--channel' 'win-x64-stable' '--version' $version `
+        '--repository' 'Makmatoe/SessionDock' '--channel' 'win-x64-sessiondock' '--version' $version `
         '--tag' $Tag '--private-key-base64-env' 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64' `
-        '--identity' 'legacy'
+        '--identity' 'current'
 
     $publicKeyPath = Join-Path $root 'SessionDock/Resources/update-public-key.pem'
     Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
         '--no-restore' '--' `
         'verify' '--manifest' $descriptorPath '--package' $fullPackages[0].FullName '--public-key' $publicKeyPath
 
-    $sbomPath = Join-Path $output "RobloxOne-$version-sbom.spdx.json"
+    $sbomPath = Join-Path $output "SessionDock-$version-sbom.spdx.json"
     & (Join-Path $PSScriptRoot 'New-ReleaseSbom.ps1') `
         -Descriptor $descriptorPath `
         -Project $project `

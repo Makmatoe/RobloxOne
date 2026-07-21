@@ -124,7 +124,7 @@ foreach ($line in $lines) {
     $actual = (Get-FileHash (Join-Path $directory $Matches[2]) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -cne $Matches[1]) { throw "Checksum mismatch: $($Matches[2])" }
 }
-Get-AuthenticodeSignature (Join-Path $directory 'RobloxOne-win-x64-stable-Setup.exe') |
+Get-AuthenticodeSignature (Join-Path $directory 'SessionDock-win-x64-Setup.exe') |
     Format-List Status,StatusMessage
 ```
 

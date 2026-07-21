@@ -85,6 +85,7 @@ jobs:
           New-Item -ItemType Directory artifacts/release-input/scripts -Force | Out-Null
           Copy-Item scripts/New-ReleaseChecksums.ps1 artifacts/release-input/scripts/New-ReleaseChecksums.ps1
           Copy-Item scripts/New-ReleaseSbom.ps1 artifacts/release-input/scripts/New-ReleaseSbom.ps1
+          Copy-Item scripts/Rename-SessionDockReleaseAssets.ps1 artifacts/release-input/scripts/Rename-SessionDockReleaseAssets.ps1
           Copy-Item scripts/ReleaseJson.ps1 artifacts/release-input/scripts/ReleaseJson.ps1
           Copy-Item scripts/Verify-Assets.ps1 artifacts/release-input/scripts/Verify-Assets.ps1
           Copy-Item scripts/Verify-ReleaseLicense.ps1 artifacts/release-input/scripts/Verify-ReleaseLicense.ps1
@@ -129,8 +130,8 @@ jobs:
         env:
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          if ($env:SOURCE_REPOSITORY -cne 'Makmatoe/RobloxOne') {
-            throw 'This migration workflow may publish only from Makmatoe/RobloxOne.'
+          if ($env:SOURCE_REPOSITORY -cne 'Makmatoe/SessionDock') {
+            throw 'This workflow may publish only from Makmatoe/SessionDock.'
           }
           & ./release-input/scripts/Verify-ReleaseLicense.ps1 `
             -LicensePath ./release-input/app/LICENSE.md
@@ -145,14 +146,17 @@ jobs:
             --packId RobloxOne `
             --packVersion $env:RELEASE_VERSION `
             --packDir ./release-input/app `
-            --mainExe RobloxOne.exe `
-            --packTitle 'Roblox One' `
+            --mainExe SessionDock.exe `
+            --packTitle SessionDock `
             --packAuthors Makmatoe `
             --releaseNotes ./release-input/notes.md `
             --runtime win-x64 `
-            --channel win-x64-stable `
+            --channel win-x64-sessiondock `
             --outputDir ./release-output
           if ($LASTEXITCODE -ne 0) { throw "Velopack packaging failed with exit code $LASTEXITCODE." }
+          & ./release-input/scripts/Rename-SessionDockReleaseAssets.ps1 `
+            -Directory ./release-output `
+            -Channel win-x64-sessiondock
 
       - name: Sign the release descriptor
         shell: pwsh
@@ -171,13 +175,13 @@ jobs:
           & ./release-input/signer/ReleaseSigner.exe sign `
             --package $package[0].FullName `
             --notes ./release-input/notes.md `
-            --output ./release-output/robloxone-release.json `
-            --repository Makmatoe/RobloxOne `
-            --channel win-x64-stable `
+            --output ./release-output/sessiondock-release.json `
+            --repository Makmatoe/SessionDock `
+            --channel win-x64-sessiondock `
             --version $env:RELEASE_VERSION `
             --tag $env:RELEASE_TAG `
             --private-key-base64-env UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 `
-            --identity legacy
+            --identity current
           if ($LASTEXITCODE -ne 0) { throw "Descriptor signing failed with exit code $LASTEXITCODE." }
 
       - name: Verify the signed descriptor and assemble release metadata
@@ -187,17 +191,17 @@ jobs:
         run: |
           $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
           & ./release-input/signer/ReleaseSigner.exe verify `
-            --manifest ./release-output/robloxone-release.json `
+            --manifest ./release-output/sessiondock-release.json `
             --package $package[0].FullName `
             --public-key ./release-input/update-public-key.pem
           if ($LASTEXITCODE -ne 0) { throw "Descriptor verification failed with exit code $LASTEXITCODE." }
 
           & ./release-input/scripts/New-ReleaseSbom.ps1 `
-            -Descriptor ./release-output/robloxone-release.json `
+            -Descriptor ./release-output/sessiondock-release.json `
             -Project ./release-input/application.csproj `
             -LockFile ./release-input/packages.lock.json `
             -License ./release-input/app/LICENSE.md `
-            -Output "./release-output/RobloxOne-$env:RELEASE_VERSION-sbom.spdx.json"
+            -Output "./release-output/SessionDock-$env:RELEASE_VERSION-sbom.spdx.json"
           & ./release-input/scripts/New-ReleaseChecksums.ps1 -Directory ./release-output
 
       - name: Verify the final release asset set
@@ -207,7 +211,7 @@ jobs:
         run: |
           & ./release-input/scripts/Verify-Assets.ps1 `
             -Directory ./release-output `
-            -Manifest ./release-output/robloxone-release.json `
+            -Manifest ./release-output/sessiondock-release.json `
             -PublishedApplicationDirectory ./release-input/app `
             -ExpectedTag $env:RELEASE_TAG
 
