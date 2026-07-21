@@ -29,6 +29,25 @@ public sealed class HandleScopeConfigurationLoaderTests
     }
 
     [Fact]
+    public void LoadEnabled_MinimalOptIn_UsesFixedPolicyDefaults()
+    {
+        var configuration = Load("""
+            { "enabled": true }
+            """);
+
+        Assert.NotNull(configuration);
+        Assert.Equal("RobloxPlayerBeta", configuration.ProcessName);
+        Assert.Equal(
+            @"\Sessions\{SESSION_ID}\BaseNamedObjects\ROBLOX_singletonEvent",
+            configuration.HandleName);
+        Assert.Equal("Event", configuration.HandleType);
+        Assert.Equal("0x001F0003", configuration.Access);
+        Assert.Equal("exact", configuration.Match);
+        Assert.False(configuration.CloseAll);
+        Assert.True(configuration.AllProcesses);
+    }
+
+    [Fact]
     public void LoadEnabled_PlaceholderSelector_ReturnsNull()
     {
         const string json = """
@@ -39,6 +58,15 @@ public sealed class HandleScopeConfigurationLoaderTests
             }
             """;
 
+        Assert.Null(Load(json));
+    }
+
+    [Theory]
+    [InlineData("{\"enabled\":true,\"unknownSelector\":\"anything\"}")]
+    [InlineData("{\"enabled\":true,\"enabled\":true}")]
+    [InlineData("{\"enabled\":true,\"ProcessName\":\"OtherPlayer\"}")]
+    public void LoadEnabled_AmbiguousOrUnknownConfiguration_ReturnsNull(string json)
+    {
         Assert.Null(Load(json));
     }
 

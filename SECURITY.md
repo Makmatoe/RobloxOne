@@ -42,9 +42,9 @@ Roblox One is designed around these boundaries:
   logged or persisted.
 - Only trusted Roblox installation paths and Roblox-signed Player executables
   may be launched or closed.
-- Application updates come only from this repository and require a valid pinned
-  release descriptor. Production binaries also require the expected Windows
-  Authenticode publisher.
+- Application updates come only from this repository and require a valid
+  descriptor signed by the release key pinned in the app, an exact package
+  hash, bounded metadata, and an exact package-content allowlist.
 - Optional HTTP hooks and HandleScope communication are loopback-only. The
   HandleScope API is separately installed, explicitly enabled, and never
   elevated, installed, or bundled by Roblox One.
@@ -60,10 +60,10 @@ secret leakage, or unsafe local-API behavior.
 
 Use only assets attached to releases in
 `https://github.com/Makmatoe/RobloxOne`. A production release is expected to
-include signed Windows binaries, a signed release descriptor, Velopack package
-metadata, an SPDX SBOM, complete dependency notices, checksums covering every
-other asset, and a GitHub artifact attestation. The release verifier rejects
-unexpected package files and requires the expected publisher on the installer,
-application, update stub, and updater executable. A GitHub attestation records
-build provenance; it does not replace Windows signature or in-app descriptor
-verification.
+include a signed release descriptor, Velopack package metadata, an SPDX SBOM,
+complete dependency notices, checksums covering every other asset, and a GitHub
+artifact attestation. The release verifier rejects unexpected package files and
+checks every expected executable's structure. The no-cost releases are not
+Authenticode code-signed, so Windows reports an unknown publisher. A GitHub
+attestation records build provenance; it does not replace in-app descriptor and
+package-hash verification.

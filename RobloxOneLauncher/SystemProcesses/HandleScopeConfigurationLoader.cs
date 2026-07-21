@@ -15,7 +15,9 @@ public sealed class HandleScopeConfigurationLoader
     private const string PlaceholderHandleName = "REPLACE_WITH_HANDLE_NAME";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+        MaxDepth = 8
     };
     private readonly string _configurationPath;
 
@@ -34,6 +36,15 @@ public sealed class HandleScopeConfigurationLoader
             var json = ReadConfiguration();
             if (json is null)
                 return null;
+            using var document = JsonDocument.Parse(
+                json,
+                new JsonDocumentOptions { MaxDepth = 8 });
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !HasUniqueProperties(document.RootElement))
+            {
+                throw new JsonException(
+                    "The HandleScope configuration must be one unambiguous object.");
+            }
             var configuration = JsonSerializer.Deserialize<HandleScopeConfiguration>(
                 json,
                 JsonOptions);
@@ -134,6 +145,12 @@ public sealed class HandleScopeConfigurationLoader
             Math.Clamp(configuration.RetryIntervalMilliseconds, 100, 2000),
             configuration.RetryTimeoutSeconds * 1000);
         return configuration;
+    }
+
+    private static bool HasUniqueProperties(JsonElement root)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return root.EnumerateObject().All(property => names.Add(property.Name));
     }
 
 }

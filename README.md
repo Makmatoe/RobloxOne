@@ -7,8 +7,12 @@ so you can choose the account and destination before opening Roblox Player.
 
 [View Windows downloads](https://github.com/Makmatoe/RobloxOne/releases)
 
-Signed installers are published only on the canonical GitHub Releases page. If
-that page has no release yet, a production installer is not currently available.
+Release installers are published only on the canonical GitHub Releases page.
+If that page has no release yet, a production installer is not currently
+available. The project uses a no-cost release model: its update descriptor is
+cryptographically signed, but its Windows executables are not Authenticode
+code-signed and Windows may display **Unknown publisher** or a SmartScreen
+warning.
 
 > Roblox One is an independent project. It is not affiliated with, endorsed by,
 > or sponsored by Roblox Corporation. Roblox and the Roblox logo are trademarks
@@ -21,9 +25,12 @@ that page has no release yet, a production installer is not currently available.
    install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
 2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/RobloxOne/releases)
    page and download the Setup executable from the latest release.
-3. Add an account, then sign in on the official Roblox page shown in its
+3. Confirm the download came from `Makmatoe/RobloxOne`. If Windows warns about
+   the unknown publisher, continue only when the filename and published
+   SHA-256 checksum match that release.
+4. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
-4. Choose a destination and select **Launch Roblox**.
+5. Choose a destination and select **Launch Roblox**.
 
 The installer is the recommended edition and supports in-app updates. A
 portable ZIP is also published for temporary use, but it does not update
@@ -59,6 +66,14 @@ Optional post-launch integrations accept loopback addresses only and are off
 until the user configures them. HandleScope is never bundled, installed,
 elevated, or started by Roblox One.
 
+To use the optional connector, install
+[HandleScope from its canonical repository](https://github.com/Makmatoe/HandleScope),
+run its released `./api/Enable-SessionDockIntegration.ps1` helper, and start its
+documented v1 local API. A SessionDock source checkout can use the equivalent
+`./scripts/Enable-HandleScope.ps1` helper. SessionDock stores only
+`{"enabled":true}`; its narrow Roblox handle policy remains compiled into the
+app.
+
 The embedded sign-in view intentionally does not load extensions or password
 manager integrations. It supports normal clipboard paste and its context menu,
 while keeping each Roblox account in its own isolated local browser profile.
@@ -69,14 +84,15 @@ Read [Privacy](docs/PRIVACY.md) for the complete data/network summary and
 ## Updates
 
 The top-right update button checks this repository's stable GitHub Releases
-feed. Roblox One shows the version and signed release notes before it downloads
-anything, and installs only after confirmation.
+feed. Roblox One shows the version and cryptographically signed release notes
+before it downloads anything, and installs only after confirmation.
 
-Production updates require both a release descriptor authorized by the public
-key pinned in the app and an Authenticode-signed Windows application from the
-same publisher as the installed copy. Source, debug, raw publish, and portable
-builds cannot replace themselves. See [Updates](docs/UPDATES.md) for the
-regular-user flow.
+Production updates require a release descriptor authorized by the public key
+pinned in the app. The descriptor binds the version, notes, exact package name,
+size, and SHA-256; the app then enforces an exact package-content allowlist.
+The free release pipeline does not claim Windows publisher identity. Source,
+debug, raw publish, and portable builds cannot replace themselves. See
+[Updates](docs/UPDATES.md) for the regular-user flow.
 
 ## Build and verify
 
@@ -95,16 +111,13 @@ dotnet run --project ./RobloxOneLauncher/RobloxOneLauncher.csproj
 ```
 
 Local builds are development artifacts, not official Roblox One releases.
-Release packages include the project license, pinned upstream licenses and
-notices, an SPDX SBOM, and checksums. Publication remains disabled until the
-copyright holder adopts and hash-approves terms that permit binary distribution.
+Release packages include the MIT license, pinned upstream licenses and notices,
+an SPDX SBOM, checksums, and GitHub artifact attestations.
 Maintainer setup and the tag-driven release checklist are in
 [Releasing](docs/RELEASING.md). Optional local hook configuration is documented
 under [SystemProcesses](RobloxOneLauncher/SystemProcesses/README.md).
 
 ## License and contributions
 
-This repository is source-visible, not open source. No permission to use,
-copy, modify, or redistribute the code is granted without written permission
-from the copyright holder; see [LICENSE.md](LICENSE.md). Read
+Roblox One is open source under the [MIT License](LICENSE.md). Read
 [CONTRIBUTING.md](CONTRIBUTING.md) before proposing code changes.

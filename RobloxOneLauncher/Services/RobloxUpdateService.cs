@@ -20,6 +20,7 @@ internal sealed class RobloxUpdateService : IDisposable
     private const string RepositoryUrl = "https://github.com/Makmatoe/RobloxOne";
     private const string PublicKeyResourceName =
         "RobloxOneLauncher.Embedded.ReleasePublicKey.pem";
+    private const int MaximumManifestRedirects = 3;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly UpdateManager _manager;
     private readonly HttpClient _httpClient;
@@ -41,8 +42,7 @@ internal sealed class RobloxUpdateService : IDisposable
 
         var handler = new SocketsHttpHandler
         {
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 3,
+            AllowAutoRedirect = false,
             AutomaticDecompression =
                 DecompressionMethods.GZip | DecompressionMethods.Deflate,
             UseCookies = false
@@ -129,15 +129,13 @@ internal sealed class RobloxUpdateService : IDisposable
         var descriptorUrl = new Uri(
             $"{RepositoryUrl}/releases/download/{Uri.EscapeDataString(tag)}/" +
             ReleaseDescriptorPolicy.DescriptorFileName);
-        using var request = new HttpRequestMessage(HttpMethod.Get, descriptorUrl);
-        using var response = await _httpClient.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
+        using var response = await SendManifestRequestAsync(
+            descriptorUrl,
             cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        if (response.StatusCode != HttpStatusCode.OK)
         {
             throw new ReleaseTrustException(
-                "The signed release details could not be retrieved from GitHub.");
+                "The signed release descriptor could not be retrieved from GitHub.");
         }
 
         if (response.Content.Headers.ContentLength is <= 0 or
@@ -157,6 +155,73 @@ internal sealed class RobloxUpdateService : IDisposable
             json,
             identity,
             ReadEmbeddedPublicKey());
+    }
+
+    private async Task<HttpResponseMessage> SendManifestRequestAsync(
+        Uri initialUri,
+        CancellationToken cancellationToken)
+    {
+        var currentUri = initialUri;
+        for (var redirect = 0; redirect <= MaximumManifestRedirects; redirect++)
+        {
+            if (!IsAllowedManifestUri(currentUri, initialUri))
+            {
+                throw new ReleaseTrustException(
+                    "GitHub redirected the release manifest to an untrusted address.");
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+            var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (response.StatusCode is not (
+                    HttpStatusCode.MovedPermanently or
+                    HttpStatusCode.Redirect or
+                    HttpStatusCode.RedirectMethod or
+                    HttpStatusCode.TemporaryRedirect or
+                    HttpStatusCode.PermanentRedirect))
+            {
+                return response;
+            }
+
+            var location = response.Headers.Location;
+            response.Dispose();
+            if (location is null || redirect == MaximumManifestRedirects)
+            {
+                throw new ReleaseTrustException(
+                    "GitHub returned an invalid release-manifest redirect.");
+            }
+
+            currentUri = location.IsAbsoluteUri
+                ? location
+                : new Uri(currentUri, location);
+        }
+
+        throw new ReleaseTrustException(
+            "GitHub returned too many release-manifest redirects.");
+    }
+
+    internal static bool IsAllowedManifestUri(Uri value, Uri initialUri)
+    {
+        if (!value.IsAbsoluteUri ||
+            value.Scheme != Uri.UriSchemeHttps ||
+            !value.IsDefaultPort ||
+            !string.IsNullOrEmpty(value.UserInfo) ||
+            !string.IsNullOrEmpty(value.Fragment))
+        {
+            return false;
+        }
+
+        if (value.Equals(initialUri))
+            return true;
+
+        return value.Host.Equals(
+                "release-assets.githubusercontent.com",
+                StringComparison.OrdinalIgnoreCase) ||
+            value.Host.Equals(
+                "objects.githubusercontent.com",
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<string> ReadBoundedUtf8Async(
@@ -204,16 +269,6 @@ internal sealed class RobloxUpdateService : IDisposable
         VerifiedReleaseDescriptor release,
         CancellationToken cancellationToken)
     {
-        var currentExecutable = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(currentExecutable) ||
-            !WindowsExecutableTrust.TryGetTrustedSigner(
-                currentExecutable,
-                out var currentSigner))
-        {
-            throw new ReleaseTrustException(
-                "The installed Roblox One publisher signature could not be verified.");
-        }
-
         var locator = VelopackLocator.Current;
         if (string.IsNullOrWhiteSpace(locator.PackagesDir))
         {
@@ -313,16 +368,7 @@ internal sealed class RobloxUpdateService : IDisposable
                     }
                 }
 
-                if (!WindowsExecutableTrust.TryGetTrustedSigner(
-                        verificationPath,
-                        out var updateSigner) ||
-                    !updateSigner.Subject.Equals(
-                        currentSigner.Subject,
-                        StringComparison.Ordinal))
-                {
-                    throw new ReleaseTrustException(
-                        "An executable in the downloaded package is not signed by the installed Roblox One publisher.");
-                }
+                ValidatePortableExecutable(verificationPath);
             }
         }
         finally
@@ -337,6 +383,44 @@ internal sealed class RobloxUpdateService : IDisposable
                 Trace.WriteLine(
                     $"Update verification cleanup failed: {exception.GetType().Name}.");
             }
+        }
+    }
+
+    private static void ValidatePortableExecutable(string path)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            FileOptions.SequentialScan);
+        Span<byte> header = stackalloc byte[64];
+        if (stream.Read(header) != header.Length ||
+            header[0] != (byte)'M' ||
+            header[1] != (byte)'Z')
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package contains an invalid executable payload.");
+        }
+
+        var peOffset = BitConverter.ToInt32(header[60..64]);
+        if (peOffset < header.Length || peOffset > stream.Length - 4)
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package contains an invalid executable payload.");
+        }
+
+        stream.Position = peOffset;
+        Span<byte> signature = stackalloc byte[4];
+        if (stream.Read(signature) != signature.Length ||
+            signature[0] != (byte)'P' ||
+            signature[1] != (byte)'E' ||
+            signature[2] != 0 ||
+            signature[3] != 0)
+        {
+            throw new ReleaseTrustException(
+                "The downloaded package contains an invalid executable payload.");
         }
     }
 

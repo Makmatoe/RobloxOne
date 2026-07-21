@@ -12,8 +12,10 @@ dotnet run --project .\RobloxOneLauncher\RobloxOneLauncher.csproj
 ```
 
 Development and raw `dotnet publish` builds are intentionally not self-updating.
-Only an Authenticode-signed Velopack Setup installation from the canonical
-GitHub Releases page enables the production update path.
+Only a Velopack Setup installation from the canonical GitHub Releases page
+enables the production update path. Release executables are intentionally not
+Authenticode code-signed; the updater instead requires the independently
+signed release descriptor and exact package integrity checks.
 
 ## Local data
 
@@ -41,7 +43,7 @@ Roblox pages and are not read or stored by Roblox One.
 
 Roblox One can notify a user-configured loopback endpoint after a successful
 launch. It can also use a separately installed HandleScope local API when the
-user explicitly enables a selector. Roblox One never bundles, installs,
+user explicitly enables the fixed Roblox policy. Roblox One never bundles, installs,
 elevates, or starts HandleScope. See
 [SystemProcesses/README.md](SystemProcesses/README.md).
 

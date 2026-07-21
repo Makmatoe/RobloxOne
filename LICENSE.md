@@ -1,23 +1,21 @@
-# Copyright and license
+MIT License
 
-Copyright (c) 2026 Makmatoe. All rights reserved.
+Copyright (c) 2026 Makmatoe
 
-The source code, documentation, artwork, and other original material in this
-repository are publicly viewable for inspection. No license or permission is
-granted to use, copy, modify, merge, publish, distribute, sublicense, sell,
-reverse engineer, or create derivative works from that original material,
-except where the copyright holder gives prior written permission or applicable
-law expressly permits the activity despite this notice.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Third-party components remain subject to their own licenses. Those components
-and notices are identified in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-and in the licenses shipped with release artifacts where required.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-THE ORIGINAL MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED
-BY LAW, THE COPYRIGHT HOLDER IS NOT LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
-LIABILITY ARISING FROM THE MATERIAL OR ITS USE.
-
-Roblox One is not affiliated with, endorsed by, or sponsored by Roblox
-Corporation. Roblox and associated marks belong to their respective owner.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
