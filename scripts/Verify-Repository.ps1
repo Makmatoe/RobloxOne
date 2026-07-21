@@ -22,7 +22,13 @@ try {
         }
     }
 
-    $expectedSdk = (Get-Content -LiteralPath (Join-Path $root 'global.json') -Raw | ConvertFrom-Json).sdk.version
+    $globalJson = Get-Content -LiteralPath (Join-Path $root 'global.json') -Raw |
+        ConvertFrom-Json
+    $expectedSdk = $globalJson.sdk.version
+    if ($globalJson.sdk.rollForward -cne 'disable' -or
+        $globalJson.sdk.allowPrerelease -ne $false) {
+        throw 'global.json must disable SDK roll-forward and prerelease selection.'
+    }
     $actualSdk = (& dotnet --version).Trim()
     if ($LASTEXITCODE -ne 0 -or $actualSdk -ne $expectedSdk) {
         throw "The repository requires .NET SDK $expectedSdk; dotnet selected '$actualSdk'."
