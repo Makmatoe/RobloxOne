@@ -24,7 +24,7 @@
             <StackPanel>
                 <TextBlock Text="Batch launch" Foreground="White"
                            FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock Text="Launch the same destination through several isolated account sessions."
+                <TextBlock Text="Each account uses its own saved destination. A blank account uses the first selected account's destination."
                            Foreground="{StaticResource MutedBrush}" FontSize="13"
                            Margin="0,6,0,0" TextWrapping="Wrap"/>
                 <TextBlock Text="Starting the batch closes every currently running verified Roblox Player instance."
@@ -74,7 +74,7 @@
                                         <ColumnDefinition Width="12"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="8" Height="34" CornerRadius="4"
+                                    <Border Width="8" Height="46" CornerRadius="4"
                                             Background="{Binding ColorHex}"
                                             VerticalAlignment="Center"/>
                                     <StackPanel Grid.Column="1" Margin="12,0,0,0">
@@ -83,6 +83,11 @@
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Text="{Binding Identity}" Foreground="#7F8BA0"
                                                    FontSize="11" Margin="0,3,0,0"/>
+                                        <TextBlock Text="{Binding DestinationSummary}"
+                                                   ToolTip="{Binding DestinationToolTip}"
+                                                   Foreground="#9A89FF" FontSize="11"
+                                                   Margin="0,3,0,0"
+                                                   TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                 </Grid>
                             </CheckBox>

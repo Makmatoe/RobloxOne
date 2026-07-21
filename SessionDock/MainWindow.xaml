@@ -392,7 +392,7 @@
                                                 IsEnabled="False" Margin="0,0,10,0"
                                                 Background="#252C3B"
                                                 AutomationProperties.Name="Batch launch"
-                                                ToolTip="Launch this destination sequentially with multiple accounts">
+                                                ToolTip="Launch each account's saved destination; blanks use the first selected account">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Style="{StaticResource ButtonIcon}"
                                                       Data="{StaticResource IconBatch}" Margin="0,0,8,0"/>

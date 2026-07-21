@@ -1021,8 +1021,7 @@ public partial class MainWindow : Window
             !_operationBusy &&
             !_launchInProgress &&
             _pendingProfile is null &&
-            _settings.Accounts.Count >= 2 &&
-            destinationIsValid;
+            _settings.Accounts.Count >= 2;
     }
 
     private void SetOperationBusy(bool busy)

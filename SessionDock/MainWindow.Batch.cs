@@ -11,22 +11,23 @@ public partial class MainWindow
     {
         if (_operationBusy || _pendingProfile is not null)
             return;
-        var accountDestination = PlaceIdBox.Text.Trim();
-        if (!TryResolveLaunchInput(
-                accountDestination,
-                out var destination,
-                out var parsedTarget,
-                out var serverJobId,
-                out var trackedPlaceId,
-                out var parseError))
-        {
-            SetStatus("Destination is not valid", parseError, "INVALID DESTINATION");
-            return;
-        }
 
+        TrackDestinationForActiveProfile();
         var dialog = new BatchLaunchDialog(_settings.Accounts) { Owner = this };
         if (dialog.ShowDialog() != true)
             return;
+        if (!BatchDestinationPlanner.TryCreate(
+                dialog.SelectedAccounts,
+                _settings.RecentExperiences,
+                out var launchPlans,
+                out var planningError))
+        {
+            SetStatus(
+                "Batch destinations are not ready",
+                planningError,
+                "INVALID DESTINATION");
+            return;
+        }
 
         var originalProfile = _activeProfile;
         _batchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -39,12 +40,7 @@ public partial class MainWindow
         try
         {
             result = await RunBatchLaunchAsync(
-                dialog.SelectedAccounts,
-                accountDestination,
-                destination,
-                parsedTarget!,
-                serverJobId,
-                trackedPlaceId,
+                launchPlans,
                 dialog.Delay,
                 _batchCancellation.Token);
         }
@@ -98,25 +94,18 @@ public partial class MainWindow
     }
 
     private async Task<BatchLaunchResult> RunBatchLaunchAsync(
-        IReadOnlyList<AccountProfile> accounts,
-        string accountDestination,
-        string destination,
-        LaunchTarget parsedTarget,
-        string? serverJobId,
-        long? trackedPlaceId,
+        IReadOnlyList<BatchLaunchPlan> launchPlans,
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
         var unavailableAccounts = await PreflightBatchAccountsAsync(
-            accounts,
-            parsedTarget,
-            trackedPlaceId,
+            launchPlans,
             cancellationToken);
         if (unavailableAccounts.Count > 0)
         {
             return new BatchLaunchResult(
                 0,
-                accounts.Count,
+                launchPlans.Count,
                 unavailableAccounts,
                 ClientsWereClosed: false,
                 Cancelled: false);
@@ -146,7 +135,7 @@ public partial class MainWindow
                 "BATCH ERROR");
             return new BatchLaunchResult(
                 0,
-                accounts.Count,
+                launchPlans.Count,
                 ["Existing Roblox clients could not be verified as closed"],
                 ClientsWereClosed: false,
                 Cancelled: false);
@@ -163,7 +152,7 @@ public partial class MainWindow
                 "BATCH ERROR");
             return new BatchLaunchResult(
                 0,
-                accounts.Count,
+                launchPlans.Count,
                 [detail],
                 ClientsWereClosed: false,
                 Cancelled: false);
@@ -178,17 +167,14 @@ public partial class MainWindow
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
 
-        foreach (var account in accounts)
-            account.Destination = accountDestination;
-        _settingsService.Save(_settings);
-
         var started = 0;
         var failures = new List<string>();
-        for (var index = 0; index < accounts.Count; index++)
+        for (var index = 0; index < launchPlans.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var account = accounts[index];
-            var position = $"{index + 1} of {accounts.Count}";
+            var plan = launchPlans[index];
+            var account = plan.Account;
+            var position = $"{index + 1} of {launchPlans.Count}";
             SetStatus(
                 $"Batch {position}: {GetAccountDisplayName(account)}",
                 "Loading this account's isolated Roblox session…",
@@ -205,10 +191,10 @@ public partial class MainWindow
 
                 launched = await LaunchBatchAccountAsync(
                     account,
-                    destination,
-                    parsedTarget,
-                    serverJobId,
-                    trackedPlaceId,
+                    plan.LaunchInput.Destination,
+                    plan.LaunchInput.Target,
+                    plan.LaunchInput.ServerJobId,
+                    plan.LaunchInput.TrackedPlaceId,
                     position,
                     cancellationToken);
             }
@@ -227,7 +213,7 @@ public partial class MainWindow
             else
                 failures.Add($"@{account.Username}: launch failed");
 
-            if (launched && index < accounts.Count - 1)
+            if (launched && index < launchPlans.Count - 1)
             {
                 SetStatus(
                     $"Batch {position}: @{account.Username} started",
@@ -239,25 +225,24 @@ public partial class MainWindow
 
         return new BatchLaunchResult(
             started,
-            accounts.Count,
+            launchPlans.Count,
             failures,
             ClientsWereClosed: true,
             Cancelled: false);
     }
 
     private async Task<List<string>> PreflightBatchAccountsAsync(
-        IReadOnlyList<AccountProfile> accounts,
-        LaunchTarget parsedTarget,
-        long? trackedPlaceId,
+        IReadOnlyList<BatchLaunchPlan> launchPlans,
         CancellationToken cancellationToken)
     {
         var unavailable = new List<string>();
-        for (var index = 0; index < accounts.Count; index++)
+        for (var index = 0; index < launchPlans.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var account = accounts[index];
+            var plan = launchPlans[index];
+            var account = plan.Account;
             SetStatus(
-                $"Checking account {index + 1} of {accounts.Count}",
+                $"Checking account {index + 1} of {launchPlans.Count}",
                 $"Verifying {GetAccountDisplayName(account)} before any running client is closed…",
                 "BATCH CHECK");
             try
@@ -268,14 +253,14 @@ public partial class MainWindow
                     continue;
                 }
 
-                if (parsedTarget.ShareCode is not null)
+                if (plan.LaunchInput.Target.ShareCode is not null)
                 {
                     var resolvedTarget = await _webSession.ResolvePrivateServerAsync(
-                        parsedTarget.ShareCode,
+                        plan.LaunchInput.Target.ShareCode,
                         cancellationToken);
                     if (resolvedTarget is null ||
-                        trackedPlaceId is not null &&
-                        resolvedTarget.PlaceId != trackedPlaceId)
+                        plan.LaunchInput.TrackedPlaceId is not null &&
+                        resolvedTarget.PlaceId != plan.LaunchInput.TrackedPlaceId)
                     {
                         unavailable.Add(
                             $"@{account.Username}: private server unavailable");
