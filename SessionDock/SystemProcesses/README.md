@@ -62,14 +62,17 @@ publisher of an unsigned executable stored in a user-writable directory, so
 install it only from the official release page and verify the published
 checksum. The panel checks the exact standard path, rejects reparse points,
 requires a structurally valid Windows executable, and checks the running
-process identity before testing the connection; these are local safety checks,
-not cryptographic publisher verification.
+process path, session, owner, and non-elevated token before testing the
+connection; these are local safety checks, not cryptographic publisher
+verification.
 
 The panel reports **Not installed**, **Installed - connection not tested**,
 **API start requested**, **API running - connection not tested**,
 **API running - integration disabled**, **Ready**, **Update required**, or a
 configuration warning. A bounded start-pending state prevents rapid or
 concurrent requests from spawning another API before discovery is published.
+After that window, SessionDock verifies the process ID returned by the explicit
+start request before it will allow another API process to be launched.
 An invalid or nonminimal existing configuration is preserved. Only after
 displaying that warning does the panel offer an explicit **Repair integration**
 action, which replaces the SessionDock opt-in with the fixed minimal policy.

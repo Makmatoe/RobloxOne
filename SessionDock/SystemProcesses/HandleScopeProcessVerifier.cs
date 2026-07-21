@@ -1,12 +1,15 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using SessionDock.Services;
 
 namespace SessionDock.SystemProcesses;
 
 internal interface IHandleScopeProcessVerifier
 {
     bool IsExpected(HandleScopeConnection connection);
+
+    bool IsExpectedStartedProcess(int processId);
 }
 
 internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
@@ -53,28 +56,12 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
 
         try
         {
-            if (!HandleScopePathSecurity.IsSafeExistingPath(
-                    _localAppDataRoot,
-                    _expectedExecutablePath,
-                    targetMustExist: true,
-                    _isReparsePoint))
-            {
+            if (!TryGetExpectedProcessSnapshot(
+                    connection.ApiProcessId,
+                    out var snapshot))
                 return false;
-            }
 
-            using var process = Process.GetProcessById(connection.ApiProcessId);
             using var current = Process.GetCurrentProcess();
-            var actualPath = process.MainModule?.FileName;
-            if (actualPath is null)
-                return false;
-
-            var snapshot = new HandleScopeProcessSnapshot(
-                process.Id,
-                process.HasExited,
-                process.ProcessName,
-                process.SessionId,
-                Path.GetFullPath(actualPath),
-                new DateTimeOffset(process.StartTime.ToUniversalTime()));
             return MatchesExpectedProcess(
                 connection,
                 _expectedExecutablePath,
@@ -91,6 +78,65 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         }
     }
 
+    public bool IsExpectedStartedProcess(int processId)
+    {
+        if (processId <= 0)
+            return false;
+
+        try
+        {
+            if (!TryGetExpectedProcessSnapshot(processId, out var snapshot))
+                return false;
+
+            using var current = Process.GetCurrentProcess();
+            return MatchesExpectedIdentity(
+                processId,
+                _expectedExecutablePath,
+                current.SessionId,
+                snapshot);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or
+                Win32Exception or NotSupportedException or IOException or
+                UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetExpectedProcessSnapshot(
+        int processId,
+        out HandleScopeProcessSnapshot snapshot)
+    {
+        snapshot = default;
+        if (!HandleScopePathSecurity.IsSafeExistingPath(
+                _localAppDataRoot,
+                _expectedExecutablePath,
+                targetMustExist: true,
+                _isReparsePoint))
+        {
+            return false;
+        }
+
+        using var process = Process.GetProcessById(processId);
+        var actualPath = process.MainModule?.FileName;
+        if (actualPath is null ||
+            !WindowsProcessSecurity.IsOwnedStandardUserProcessInCurrentSession(
+                process))
+        {
+            return false;
+        }
+
+        snapshot = new HandleScopeProcessSnapshot(
+            process.Id,
+            process.HasExited,
+            process.ProcessName,
+            process.SessionId,
+            Path.GetFullPath(actualPath),
+            new DateTimeOffset(process.StartTime.ToUniversalTime()));
+        return true;
+    }
+
     internal static bool MatchesExpectedProcess(
         HandleScopeConnection connection,
         string expectedExecutablePath,
@@ -101,15 +147,11 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedExecutablePath);
 
-        if (process.HasExited ||
-            process.ProcessId != connection.ApiProcessId ||
-            process.SessionId != currentSessionId ||
-            !process.ProcessName.Equals(
-                ExpectedProcessName,
-                StringComparison.OrdinalIgnoreCase) ||
-            !Path.GetFullPath(process.ExecutablePath).Equals(
-                Path.GetFullPath(expectedExecutablePath),
-                StringComparison.OrdinalIgnoreCase))
+        if (!MatchesExpectedIdentity(
+                connection.ApiProcessId,
+                expectedExecutablePath,
+                currentSessionId,
+                process))
         {
             return false;
         }
@@ -119,6 +161,21 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         return discoveryStartedAtUtc >= processStartedAtUtc - AllowedClockSkew &&
             discoveryStartedAtUtc <= utcNow.ToUniversalTime() + AllowedClockSkew;
     }
+
+    private static bool MatchesExpectedIdentity(
+        int expectedProcessId,
+        string expectedExecutablePath,
+        int currentSessionId,
+        HandleScopeProcessSnapshot process) =>
+        !process.HasExited &&
+        process.ProcessId == expectedProcessId &&
+        process.SessionId == currentSessionId &&
+        process.ProcessName.Equals(
+            ExpectedProcessName,
+            StringComparison.OrdinalIgnoreCase) &&
+        Path.GetFullPath(process.ExecutablePath).Equals(
+            Path.GetFullPath(expectedExecutablePath),
+            StringComparison.OrdinalIgnoreCase);
 }
 
 internal readonly record struct HandleScopeProcessSnapshot(

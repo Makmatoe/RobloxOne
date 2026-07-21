@@ -77,7 +77,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             });
 
         var first = await service.StartAsync(TestContext.Current.CancellationToken);
@@ -110,7 +110,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 Interlocked.Increment(ref startCount);
-                return true;
+                return ApiProcessId;
             });
 
         var starts = Enumerable.Range(0, 8)
@@ -123,6 +123,43 @@ public sealed class HandleScopeIntegrationServiceTests
             HandleScopeIntegrationState.StartPending,
             result.State));
         Assert.Equal(1, startCount);
+    }
+
+    [Fact]
+    public async Task StartAsync_AfterPendingWindow_TracksLiveStartedProcess()
+    {
+        using var environment = new TestEnvironment();
+        environment.InstallApi();
+        var startCount = 0;
+        var clock = new ManualTimeProvider(
+            new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+        using var handler = new RecordingHandler(_ => ValidHealthResponse());
+        using var service = environment.CreateService(
+            handler,
+            isExpectedProcess: (_, _) => false,
+            isExpectedStartedProcess: processId => processId == ApiProcessId,
+            startProcess: _ =>
+            {
+                startCount++;
+                return ApiProcessId;
+            },
+            timeProvider: clock);
+
+        var first = await service.StartAsync(
+            TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(6));
+        var second = await service.StartAsync(
+            TestContext.Current.CancellationToken);
+        var connection = await service.TestConnectionAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HandleScopeIntegrationState.StartPending, first.State);
+        Assert.Equal(HandleScopeIntegrationState.RunningUntested, second.State);
+        Assert.Equal(
+            HandleScopeIntegrationState.RunningUntested,
+            connection.State);
+        Assert.Equal(1, startCount);
+        Assert.Equal(0, handler.RequestCount);
     }
 
     [Fact]
@@ -320,7 +357,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             },
             isReparsePoint: path => path.Equals(
                 environment.InstallRoot,
@@ -453,7 +490,7 @@ public sealed class HandleScopeIntegrationServiceTests
                     startInfo.UseShellExecute,
                     startInfo.Verb,
                     startInfo.ErrorDialog);
-                return true;
+                return ApiProcessId;
             });
 
         var result = await service.StartAsync(TestContext.Current.CancellationToken);
@@ -486,7 +523,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             });
 
         var result = await service.StartAsync(TestContext.Current.CancellationToken);
@@ -510,7 +547,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             });
 
         var result = await service.StartAsync(TestContext.Current.CancellationToken);
@@ -534,7 +571,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             },
             isReparsePoint: path =>
             {
@@ -567,7 +604,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             });
 
         var enabled = await service.EnableAsync(
@@ -691,7 +728,7 @@ public sealed class HandleScopeIntegrationServiceTests
             startProcess: _ =>
             {
                 startCount++;
-                return true;
+                return ApiProcessId;
             });
 
         var result = await service.DisableAsync(
@@ -891,22 +928,26 @@ public sealed class HandleScopeIntegrationServiceTests
         internal HandleScopeIntegrationService CreateService(
             HttpMessageHandler handler,
             Func<HandleScopeConnection, string, bool>? isExpectedProcess = null,
-            Func<ProcessStartInfo, bool>? startProcess = null,
-            Func<string, bool>? isReparsePoint = null)
+            Func<int, bool>? isExpectedStartedProcess = null,
+            Func<ProcessStartInfo, int?>? startProcess = null,
+            Func<string, bool>? isReparsePoint = null,
+            TimeProvider? timeProvider = null)
         {
             var processVerifier = new TestProcessVerifier(
                 connection => (isExpectedProcess ?? ((_, path) => path.Equals(
                     ExecutablePath,
                     StringComparison.OrdinalIgnoreCase)))(
                         connection,
-                        ExecutablePath));
+                        ExecutablePath),
+                isExpectedStartedProcess ?? (_ => false));
             return new HandleScopeIntegrationService(
                 LocalAppDataRoot,
                 SessionDockDataRoot,
                 handler,
                 processVerifier,
-                startProcess ?? (_ => false),
-                isReparsePoint);
+                startProcess ?? (_ => null),
+                isReparsePoint,
+                timeProvider);
         }
 
         public void Dispose()
@@ -924,13 +965,29 @@ public sealed class HandleScopeIntegrationServiceTests
     }
 
     private sealed class TestProcessVerifier(
-        Func<HandleScopeConnection, bool> verifier)
+        Func<HandleScopeConnection, bool> connectionVerifier,
+        Func<int, bool> startedProcessVerifier)
         : IHandleScopeProcessVerifier
     {
-        private readonly Func<HandleScopeConnection, bool> _verifier = verifier;
+        private readonly Func<HandleScopeConnection, bool> _connectionVerifier =
+            connectionVerifier;
+        private readonly Func<int, bool> _startedProcessVerifier =
+            startedProcessVerifier;
 
         public bool IsExpected(HandleScopeConnection connection) =>
-            _verifier(connection);
+            _connectionVerifier(connection);
+
+        public bool IsExpectedStartedProcess(int processId) =>
+            _startedProcessVerifier(processId);
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        internal void Advance(TimeSpan duration) => _utcNow += duration;
     }
 
     private sealed class RecordingHandler(

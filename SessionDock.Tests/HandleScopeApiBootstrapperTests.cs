@@ -66,6 +66,8 @@ public sealed class HandleScopeApiBootstrapperTests
     {
         public bool IsExpected(HandleScopeConnection connection) =>
             verifier(connection);
+
+        public bool IsExpectedStartedProcess(int processId) => false;
     }
 
     private sealed class FailIfCalledHandler : HttpMessageHandler
