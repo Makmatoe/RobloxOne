@@ -50,7 +50,7 @@ public partial class HandleScopeIntegrationDialog : Window
     private async void StartApiButton_Click(object sender, RoutedEventArgs e) =>
         await RunActionAsync(
             cancellationToken => _integrationService.StartAsync(cancellationToken),
-            "Start requested. Select Test connection to confirm the local API is ready.",
+            "Start checked. A validated running API was left unchanged; otherwise a start was requested. Select Test connection to confirm readiness.",
             repairEnablesIntegration: true);
 
     private async void EnableButton_Click(object sender, RoutedEventArgs e) =>

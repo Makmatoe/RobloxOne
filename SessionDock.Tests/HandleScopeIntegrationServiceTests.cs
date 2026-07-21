@@ -412,6 +412,32 @@ public sealed class HandleScopeIntegrationServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_ValidatedRunningApi_DoesNotStartDuplicateProcess()
+    {
+        using var environment = new TestEnvironment();
+        environment.InstallApi();
+        environment.WriteConnection();
+        var startCount = 0;
+        using var handler = new RecordingHandler(_ => ValidHealthResponse());
+        using var service = environment.CreateService(
+            handler,
+            isExpectedProcess: (_, _) => true,
+            startProcess: _ =>
+            {
+                startCount++;
+                return true;
+            });
+
+        var result = await service.StartAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            HandleScopeIntegrationState.InstalledStopped,
+            result.State);
+        Assert.Equal(0, startCount);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task StartAsync_MalformedExecutableNeverReachesProcessStarter()
     {
         using var environment = new TestEnvironment();
@@ -640,6 +666,7 @@ public sealed class HandleScopeIntegrationServiceTests
         using var unusedHandler = new RecordingHandler(_ => ValidHealthResponse());
         using var startService = environment.CreateService(
             unusedHandler,
+            isExpectedProcess: (_, _) => false,
             startProcess: _ => throw new Win32Exception("isolated"));
 
         var startResult = await startService.StartAsync(
@@ -802,17 +829,21 @@ public sealed class HandleScopeIntegrationServiceTests
 
         internal HandleScopeIntegrationService CreateService(
             HttpMessageHandler handler,
-            Func<int, string, bool>? isExpectedProcess = null,
+            Func<HandleScopeConnection, string, bool>? isExpectedProcess = null,
             Func<ProcessStartInfo, bool>? startProcess = null,
             Func<string, bool>? isReparsePoint = null)
         {
+            var processVerifier = new TestProcessVerifier(
+                connection => (isExpectedProcess ?? ((_, path) => path.Equals(
+                    ExecutablePath,
+                    StringComparison.OrdinalIgnoreCase)))(
+                        connection,
+                        ExecutablePath));
             return new HandleScopeIntegrationService(
                 LocalAppDataRoot,
                 SessionDockDataRoot,
                 handler,
-                isExpectedProcess ?? ((_, path) => path.Equals(
-                    ExecutablePath,
-                    StringComparison.OrdinalIgnoreCase)),
+                processVerifier,
                 startProcess ?? (_ => false),
                 isReparsePoint);
         }
@@ -829,6 +860,16 @@ public sealed class HandleScopeIntegrationServiceTests
                 // Test cleanup is best effort.
             }
         }
+    }
+
+    private sealed class TestProcessVerifier(
+        Func<HandleScopeConnection, bool> verifier)
+        : IHandleScopeProcessVerifier
+    {
+        private readonly Func<HandleScopeConnection, bool> _verifier = verifier;
+
+        public bool IsExpected(HandleScopeConnection connection) =>
+            _verifier(connection);
     }
 
     private sealed class RecordingHandler(

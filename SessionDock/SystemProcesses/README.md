@@ -114,7 +114,9 @@ one separately dry-run-checked sweep after the launched PID succeeds.
 
 Each operation reloads `%LOCALAPPDATA%\HandleScope\connection.json`. Only an
 exact v1 discovery document for `http://127.0.0.1:<port>/` and a live,
-same-session `HandleScope.Api` process are accepted. The rotating token is used
-directly from the HandleScope connection file and is not copied into SessionDock
-settings or logs. If the file, API, token, policy, or selector is unavailable,
-the hook is skipped.
+same-session `HandleScope.Api` process at the exact expected executable path are
+accepted. The process start time must also match the bounded discovery time so a
+stale file or reused PID is rejected. The rotating token is used directly from
+the HandleScope connection file and is not copied into SessionDock settings or
+logs. If the file, API, token, policy, or selector is unavailable, the hook is
+skipped.

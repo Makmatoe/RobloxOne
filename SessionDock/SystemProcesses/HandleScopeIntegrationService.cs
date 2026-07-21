@@ -19,7 +19,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private readonly string _executablePath;
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HandleScopeIntegrationConfigurationStore _configurationStore;
-    private readonly Func<int, string, bool> _isExpectedProcess;
+    private readonly IHandleScopeProcessVerifier _processVerifier;
     private readonly Func<ProcessStartInfo, bool> _startProcess;
     private readonly Func<string, bool>? _isReparsePoint;
     private readonly HttpClient _client;
@@ -31,7 +31,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
                 Environment.SpecialFolder.LocalApplicationData),
             AppDataPaths.RootDirectory,
             CreateSecureHandler(),
-            isExpectedProcess: null,
+            processVerifier: null,
             startProcess: null,
             isReparsePoint: null)
     {
@@ -41,7 +41,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
         string localAppDataRoot,
         string sessionDockDataRoot,
         HttpMessageHandler handler,
-        Func<int, string, bool>? isExpectedProcess,
+        IHandleScopeProcessVerifier? processVerifier,
         Func<ProcessStartInfo, bool>? startProcess,
         Func<string, bool>? isReparsePoint)
     {
@@ -72,7 +72,10 @@ public sealed class HandleScopeIntegrationService : IDisposable
             _localAppDataRoot,
             configurationPath,
             isReparsePoint);
-        _isExpectedProcess = isExpectedProcess ?? IsExpectedProcess;
+        _processVerifier = processVerifier ?? new HandleScopeProcessVerifier(
+            _localAppDataRoot,
+            _executablePath,
+            isReparsePoint);
         _startProcess = startProcess ?? StartProcess;
         _isReparsePoint = isReparsePoint;
         _client = new HttpClient(handler, disposeHandler: true)
@@ -103,9 +106,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
         {
             var connection = _connectionLoader.Load();
             if (connection is null ||
-                !_isExpectedProcess(
-                    connection.ApiProcessId,
-                    _executablePath))
+                !_processVerifier.IsExpected(connection))
             {
                 return Result(HandleScopeIntegrationState.InstalledStopped);
             }
@@ -182,6 +183,13 @@ public sealed class HandleScopeIntegrationService : IDisposable
             if (InspectInstall() is not InstallInspection.Valid)
                 return Task.FromResult(Result(
                     HandleScopeIntegrationState.ConfigurationError));
+
+            var existing = _connectionLoader.Load();
+            if (existing is not null && _processVerifier.IsExpected(existing))
+            {
+                return Task.FromResult(Result(
+                    HandleScopeIntegrationState.InstalledStopped));
+            }
 
             var startInfo = new ProcessStartInfo
             {
@@ -482,31 +490,6 @@ public sealed class HandleScopeIntegrationService : IDisposable
             exception is FileNotFoundException or DirectoryNotFoundException)
         {
             attributes = default;
-            return false;
-        }
-    }
-
-    private static bool IsExpectedProcess(int processId, string executablePath)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(processId);
-            using var current = Process.GetCurrentProcess();
-            var actualPath = process.MainModule?.FileName;
-            return !process.HasExited &&
-                process.SessionId == current.SessionId &&
-                process.ProcessName.Equals(
-                    "HandleScope.Api",
-                    StringComparison.OrdinalIgnoreCase) &&
-                actualPath is not null &&
-                Path.GetFullPath(actualPath).Equals(
-                    Path.GetFullPath(executablePath),
-                    StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or InvalidOperationException or
-                Win32Exception or NotSupportedException)
-        {
             return false;
         }
     }
