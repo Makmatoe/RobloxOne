@@ -17,6 +17,7 @@ public sealed class SettingsService
     }
 
     private const int MaximumSettingsBytes = 4 * 1024 * 1024;
+    private const int MaximumRecoveryNoticeStateBytes = 64 * 1024;
     internal const int MaximumPendingProfileDeletions = 256;
     private const string ProfileDeletionMarkerExtension = ".delete";
     internal const string RecoveryNoticeAcknowledgementFileName =
@@ -35,6 +36,7 @@ public sealed class SettingsService
     private readonly Func<string, CancellationToken, bool> _deleteDirectoryTree;
     private bool _primaryIsUnreadable;
     private bool _profileCleanupGuardRequiredButUnavailable;
+    private string? _loadNoticeFingerprint;
 
     public SettingsService(string? storageDirectory = null)
         : this(
@@ -83,8 +85,8 @@ public sealed class SettingsService
 
     internal void AcknowledgeLoadNotice()
     {
-        var notice = LoadNotice;
-        if (string.IsNullOrWhiteSpace(notice))
+        var fingerprint = _loadNoticeFingerprint;
+        if (string.IsNullOrWhiteSpace(fingerprint))
             return;
 
         lock (_saveLock)
@@ -101,8 +103,9 @@ public sealed class SettingsService
                     ThrowIfReparsePoint(_recoveryNoticeAcknowledgementPath);
                 File.WriteAllText(
                     _recoveryNoticeAcknowledgementPath,
-                    GetNoticeFingerprint(notice),
+                    fingerprint,
                     new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                _loadNoticeFingerprint = null;
             }
             catch (Exception exception) when (
                 LocalDataException.IsExpectedPersistenceFailure(exception))
@@ -131,6 +134,7 @@ public sealed class SettingsService
     public AppSettings Load()
     {
         LoadNotice = null;
+        _loadNoticeFingerprint = null;
         RefreshProfileCleanupState();
         _primaryIsUnreadable = false;
         var primaryState = ProbePath(_settingsPath);
@@ -1002,27 +1006,40 @@ public sealed class SettingsService
     {
         if (string.IsNullOrWhiteSpace(LoadNotice))
         {
+            _loadNoticeFingerprint = null;
             DeleteTemporaryFileBestEffort(_recoveryNoticeAcknowledgementPath);
             return;
         }
 
         try
         {
+            var currentFingerprint = GetNoticeFingerprint(LoadNotice);
             if (ProbePath(_recoveryNoticeAcknowledgementPath) != PathProbeResult.File)
+            {
+                _loadNoticeFingerprint = currentFingerprint;
                 return;
+            }
             ThrowIfReparsePoint(_recoveryNoticeAcknowledgementPath);
             var info = new FileInfo(_recoveryNoticeAcknowledgementPath);
             if (info.Length <= 0 || info.Length > SHA256.HashSizeInBytes * 2 + 2)
+            {
+                _loadNoticeFingerprint = currentFingerprint;
                 return;
+            }
             var acknowledged = File.ReadAllText(
                     _recoveryNoticeAcknowledgementPath,
                     Encoding.UTF8)
                 .Trim();
             if (acknowledged.Equals(
-                    GetNoticeFingerprint(LoadNotice),
+                    currentFingerprint,
                     StringComparison.Ordinal))
             {
                 LoadNotice = null;
+                _loadNoticeFingerprint = null;
+            }
+            else
+            {
+                _loadNoticeFingerprint = currentFingerprint;
             }
         }
         catch (Exception exception) when (
@@ -1034,8 +1051,58 @@ public sealed class SettingsService
         }
     }
 
-    private static string GetNoticeFingerprint(string notice) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(notice)));
+    private string GetNoticeFingerprint(string notice)
+    {
+        var state = new StringBuilder(notice.Length + 512);
+        state.AppendLine(notice);
+        foreach (var fileName in new[]
+                 {
+                     "profile-cleanup-paused.txt",
+                     AppDataPaths.MigrationConflictFileName,
+                     AppDataPaths.MigrationInProgressFileName,
+                     AppDataPaths.LegacyInstallMigrationReceiptFileName,
+                     AppDataPaths.LegacyOptionalDataNoticeFileName
+                 })
+        {
+            var path = Path.Combine(_rootDirectory, fileName);
+            var pathState = ProbePath(path);
+            state.Append(fileName).Append('=').Append(pathState);
+            if (pathState == PathProbeResult.File)
+            {
+                ThrowIfReparsePoint(path);
+                var info = new FileInfo(path);
+                state.Append('|')
+                    .Append(info.CreationTimeUtc.Ticks)
+                    .Append('|')
+                    .Append(info.LastWriteTimeUtc.Ticks)
+                    .Append('|')
+                    .Append(info.Length);
+                if (info.Length is > 0 and <= MaximumRecoveryNoticeStateBytes)
+                {
+                    using var stream = new FileStream(
+                        path,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read);
+                    state.Append('|')
+                        .Append(Convert.ToHexString(SHA256.HashData(stream)));
+                }
+            }
+            else if (pathState == PathProbeResult.Directory)
+            {
+                ThrowIfReparsePoint(path);
+                var info = new DirectoryInfo(path);
+                state.Append('|')
+                    .Append(info.CreationTimeUtc.Ticks)
+                    .Append('|')
+                    .Append(info.LastWriteTimeUtc.Ticks);
+            }
+            state.AppendLine();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(state.ToString())));
+    }
 
     private void AppendLoadNotice(string notice) =>
         LoadNotice = string.IsNullOrWhiteSpace(LoadNotice)

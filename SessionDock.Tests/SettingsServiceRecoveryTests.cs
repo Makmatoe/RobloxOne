@@ -115,17 +115,10 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
             _storageDirectory,
             SettingsService.RecoveryNoticeAcknowledgementFileName)));
 
+        // Clearing and recreating the protected state before another Load is
+        // still a new recovery event, even though its user-facing text matches.
         File.Delete(cleanupGuard);
         File.Delete(receipt);
-        var cleanService = new SettingsService(_storageDirectory);
-        _ = cleanService.Load();
-
-        Assert.Null(cleanService.LoadNotice);
-        Assert.True(cleanService.CanReconcileProfiles);
-        Assert.False(File.Exists(Path.Combine(
-            _storageDirectory,
-            SettingsService.RecoveryNoticeAcknowledgementFileName)));
-
         File.WriteAllText(cleanupGuard, "new recovery state");
         File.WriteAllText(receipt, "new completed recovery");
         var repeatedStateService = new SettingsService(_storageDirectory);
@@ -133,6 +126,36 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
 
         Assert.NotNull(repeatedStateService.LoadNotice);
         Assert.False(repeatedStateService.CanReconcileProfiles);
+        repeatedStateService.AcknowledgeLoadNotice();
+
+        // A locked stale acknowledgement may survive a clean Load. Its old
+        // state fingerprint must not suppress a later recovery instance.
+        File.Delete(cleanupGuard);
+        File.Delete(receipt);
+        var acknowledgement = Path.Combine(
+            _storageDirectory,
+            SettingsService.RecoveryNoticeAcknowledgementFileName);
+        using (new FileStream(
+                   acknowledgement,
+                   FileMode.Open,
+                   FileAccess.Read,
+                   FileShare.None))
+        {
+            var cleanService = new SettingsService(_storageDirectory);
+            _ = cleanService.Load();
+
+            Assert.Null(cleanService.LoadNotice);
+            Assert.True(cleanService.CanReconcileProfiles);
+            Assert.True(File.Exists(acknowledgement));
+        }
+
+        File.WriteAllText(cleanupGuard, "third recovery state");
+        File.WriteAllText(receipt, "third completed recovery");
+        var afterFailedDeleteService = new SettingsService(_storageDirectory);
+        _ = afterFailedDeleteService.Load();
+
+        Assert.NotNull(afterFailedDeleteService.LoadNotice);
+        Assert.False(afterFailedDeleteService.CanReconcileProfiles);
     }
 
     [Theory]
