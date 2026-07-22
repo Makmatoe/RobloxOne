@@ -513,6 +513,31 @@ public sealed class SettingsService
         AppSettings settings,
         CancellationToken cancellationToken = default)
     {
+        return await DeletePendingProfileCoreAsync(
+            accountKey,
+            settings,
+            maximumAttempts: 10,
+            cancellationToken);
+    }
+
+    internal async Task<bool> DeletePendingProfileOnceAsync(
+        string accountKey,
+        AppSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        return await DeletePendingProfileCoreAsync(
+            accountKey,
+            settings,
+            maximumAttempts: 1,
+            cancellationToken);
+    }
+
+    private async Task<bool> DeletePendingProfileCoreAsync(
+        string accountKey,
+        AppSettings settings,
+        int maximumAttempts,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(settings);
         if (!TryGetCanonicalSessionFolder(accountKey, out var sessionFolder) ||
             !IsProfileDeletionJournaled(accountKey) ||
@@ -539,13 +564,26 @@ public sealed class SettingsService
                 Key = accountKey,
                 SessionFolder = sessionFolder
             },
+            maximumAttempts,
             cancellationToken);
     }
 
-    public async Task<bool> DeleteSessionDataAsync(
+    public Task<bool> DeleteSessionDataAsync(
         AccountProfile profile,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        DeleteSessionDataAsync(
+            profile,
+            maximumAttempts: 10,
+            cancellationToken);
+
+    private async Task<bool> DeleteSessionDataAsync(
+        AccountProfile profile,
+        int maximumAttempts,
+        CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            maximumAttempts,
+            1);
         if (!TryGetCanonicalSessionFolder(
                 profile.Key,
                 out var canonicalSessionFolder) ||
@@ -569,7 +607,7 @@ public sealed class SettingsService
             return false;
         }
 
-        for (var attempt = 0; attempt < 10; attempt++)
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -596,7 +634,7 @@ public sealed class SettingsService
             catch (Exception ex) when (
                 ex is IOException or UnauthorizedAccessException)
             {
-                if (attempt == 9)
+                if (attempt == maximumAttempts - 1)
                     return false;
                 await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken);
             }

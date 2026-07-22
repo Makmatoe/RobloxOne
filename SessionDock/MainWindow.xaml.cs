@@ -15,6 +15,8 @@ public partial class MainWindow : Window
 {
     private static readonly TimeSpan ShutdownTimeout =
         TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartupProfileDeletionTimeout =
+        TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DestinationPersistenceDelay =
         TimeSpan.FromMilliseconds(450);
     private readonly SettingsService _settingsService = new();
@@ -29,6 +31,8 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim _accountCheckLock = new(1, 1);
     private readonly HashSet<string> _sessionImportedSoundFileNames = new(
         StringComparer.OrdinalIgnoreCase);
+    private readonly TaskCompletionSource<Exception?> _startupCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly AppSettings _settings;
     private readonly SerializedSettingsWriter _settingsWriter;
     private readonly SettingsMutationCoordinator _settingsMutations;
@@ -52,6 +56,10 @@ public partial class MainWindow : Window
     private bool _destinationDraftDirty;
     private bool _destinationDraftValid = true;
     private bool _shutdownComplete;
+
+    internal Task<Exception?> StartupCompletion => _startupCompletion.Task;
+
+    internal event Action<Exception?>? ShutdownCompleted;
 
     public MainWindow()
     {
@@ -117,13 +125,21 @@ public partial class MainWindow : Window
             if (_activeProfile is null)
             {
                 SetSignedOutState();
-                return;
+            }
+            else
+            {
+                await InitializeBrowserAsync(
+                    _activeProfile,
+                    showLogin: false,
+                    cancellationToken);
             }
 
-            await InitializeBrowserAsync(
-                _activeProfile,
-                showLogin: false,
-                cancellationToken);
+            _startupCompletion.TrySetResult(null);
+        }
+        catch (Exception exception)
+        {
+            _startupCompletion.TrySetResult(exception);
+            throw;
         }
         finally
         {
@@ -199,18 +215,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        var deletedKeys = new List<string>();
-        foreach (var accountKey in journaledKeys)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (await _settingsService.DeletePendingProfileAsync(
+        var replayResult = await new PendingProfileDeletionReplay().ReplayAsync(
+            journaledKeys,
+            (accountKey, replayCancellationToken) =>
+                _settingsService.DeletePendingProfileOnceAsync(
                     accountKey,
                     _settings,
-                    cancellationToken))
-            {
-                deletedKeys.Add(accountKey);
-            }
-        }
+                    replayCancellationToken),
+            StartupProfileDeletionTimeout,
+            cancellationToken);
+        var deletedKeys = replayResult.DeletedKeys;
 
         var journalClearFailed = false;
         if (deletedKeys.Count > 0 &&
@@ -234,8 +248,9 @@ public partial class MainWindow : Window
         if (deletedKeys.Count < journaledKeys.Count || journalClearFailed ||
             _settings.PendingProfileDeletionKeys.Count > 0)
         {
-            AppendStartupNotice(
-                "Some isolated browser data from a removed account is still locked or its cleanup acknowledgement could not be saved. SessionDock will retry on the next start.");
+            AppendStartupNotice(replayResult.BudgetExpired
+                ? "SessionDock limited account-profile cleanup during startup so the window could remain responsive. Unfinished removals were preserved and will be retried on the next start."
+                : "Some isolated browser data from a removed account is still locked or its cleanup acknowledgement could not be saved. SessionDock will retry on the next start.");
         }
     }
 
@@ -270,12 +285,9 @@ public partial class MainWindow : Window
                 _settings.CustomStartupSoundFileName),
             cancellationToken);
         await Task.Run(
-            () => _soundService.CleanupOrphanedImportedSounds(
-                retention.FileNames,
-                retention.CanReconcile,
-                retention.ReferencesAreComplete
-                    ? _sessionImportedSoundFileNames.ToArray()
-                    : [],
+            () => _soundService.ReconcileImportedSounds(
+                retention,
+                _sessionImportedSoundFileNames.ToArray(),
                 cancellationToken),
             cancellationToken);
     }
@@ -2076,6 +2088,7 @@ public partial class MainWindow : Window
             return;
 
         var destinationRequest = CaptureShutdownDestinationRequest();
+        var shutdownFailures = new List<Exception>();
         var settingsCompletion = _settingsMutations.CompleteAsync(() =>
             ShutdownSettingsSnapshot.Create(
                 _settings,
@@ -2092,25 +2105,39 @@ public partial class MainWindow : Window
         {
             await CompleteShutdownAsync(
                 shutdownBudget,
-                settingsCompletion);
+                settingsCompletion,
+                shutdownFailures);
         }
         catch (Exception exception)
         {
             // A shutdown failure must not keep the process and mutex alive.
+            shutdownFailures.Add(exception);
             System.Diagnostics.Trace.WriteLine(
                 $"Window shutdown failed safely: {exception.GetType().Name}.");
         }
         finally
         {
             _shutdownComplete = true;
+            try
+            {
+                ShutdownCompleted?.Invoke(shutdownFailures.FirstOrDefault());
+            }
+            catch (Exception exception)
+            {
+                // A smoke observer must not keep the production window open.
+                System.Diagnostics.Trace.WriteLine(
+                    $"Shutdown completion observer failed: {exception.GetType().Name}.");
+            }
             Close();
         }
     }
 
     private async Task CompleteShutdownAsync(
         ShutdownTimeBudget shutdownBudget,
-        Task settingsCompletion)
+        Task settingsCompletion,
+        ICollection<Exception> shutdownFailures)
     {
+        ArgumentNullException.ThrowIfNull(shutdownFailures);
         var browserCancellation =
             CancelScopedOperation(_browserSwitchCancellation);
         var batchCancellation =
@@ -2119,6 +2146,11 @@ public partial class MainWindow : Window
         var operationsDrained =
             shutdownBudget.TryGetRemaining(out var drainTimeout) &&
             await _operationLifetime.DrainAsync(drainTimeout);
+        if (!operationsDrained)
+        {
+            shutdownFailures.Add(new TimeoutException(
+                "Active window operations did not drain before shutdown."));
+        }
         var incompleteProfile = _pendingProfile;
         var finalSettingsSaved = false;
 
@@ -2139,8 +2171,14 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             // Closing must continue even if local settings are unavailable.
+            shutdownFailures.Add(exception);
             System.Diagnostics.Trace.WriteLine(
                 $"Shutdown settings persistence failed: {exception.GetType().Name}.");
+        }
+        if (!finalSettingsSaved)
+        {
+            shutdownFailures.Add(new TimeoutException(
+                "Final settings persistence did not finish before shutdown."));
         }
 
         _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;
@@ -2152,10 +2190,11 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             // Native browser teardown continues below.
+            shutdownFailures.Add(exception);
             System.Diagnostics.Trace.WriteLine(
                 $"Browser host teardown failed: {exception.GetType().Name}.");
         }
-        DisposeDuringShutdown(_webSession);
+        DisposeDuringShutdown(_webSession, shutdownFailures);
         _webSessionToken = null;
         if (PendingProfileCleanup.CanDelete(
                 operationsDrained,
@@ -2180,10 +2219,10 @@ public partial class MainWindow : Window
         DisposeCancellationAfterCallbacks(
             _batchCancellation,
             batchCancellation);
-        DisposeDuringShutdown(_launchHook);
-        DisposeDuringShutdown(_updateService);
-        DisposeDuringShutdown(_destinationPersistence);
-        DisposeDuringShutdown(_operationLifetime);
+        DisposeDuringShutdown(_launchHook, shutdownFailures);
+        DisposeDuringShutdown(_updateService, shutdownFailures);
+        DisposeDuringShutdown(_destinationPersistence, shutdownFailures);
+        DisposeDuringShutdown(_operationLifetime, shutdownFailures);
     }
 
     private static void ObserveShutdownSettingsCompletion(Task completion)
@@ -2241,7 +2280,9 @@ public partial class MainWindow : Window
             TaskScheduler.Default);
     }
 
-    private static void DisposeDuringShutdown(IDisposable? disposable)
+    private static void DisposeDuringShutdown(
+        IDisposable? disposable,
+        ICollection<Exception>? shutdownFailures = null)
     {
         try
         {
@@ -2250,6 +2291,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             // One teardown failure must not prevent the remaining releases.
+            shutdownFailures?.Add(exception);
             System.Diagnostics.Trace.WriteLine(
                 $"Shutdown disposal failed: {exception.GetType().Name}.");
         }

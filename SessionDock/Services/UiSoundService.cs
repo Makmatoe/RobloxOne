@@ -198,6 +198,31 @@ public sealed class UiSoundService : IDisposable
             ownedFileNames,
             cancellationToken);
 
+    internal int ReconcileImportedSounds(
+        ImportedSoundRetention retention,
+        IReadOnlyCollection<string> ownedFileNames,
+        CancellationToken cancellationToken = default) =>
+        ReconcileImportedSounds(
+            _soundsDirectory,
+            retention,
+            ownedFileNames,
+            cancellationToken);
+
+    internal static int ReconcileImportedSounds(
+        string soundsDirectory,
+        ImportedSoundRetention retention,
+        IReadOnlyCollection<string> ownedFileNames,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ownedFileNames);
+        return CleanupOrphanedImportedSounds(
+            soundsDirectory,
+            retention.FileNames,
+            retention.CanReconcile,
+            ownedFileNames,
+            cancellationToken);
+    }
+
     internal static int CleanupOrphanedImportedSounds(
         string soundsDirectory,
         IReadOnlyCollection<string> retainedFileNames,

@@ -13,6 +13,9 @@ internal static class AppDataPaths
     private static readonly HashSet<string> ActiveIncompleteMigrations =
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly object MigrationConflictLock = new();
+    private static readonly object RootConfigurationLock = new();
+    private static string? IsolatedRuntimeRoot;
+    private static bool RootResolutionStarted;
 
     private static readonly Lazy<string> DefaultRoot = new(() =>
     {
@@ -23,7 +26,55 @@ internal static class AppDataPaths
             Path.Combine(localAppData, LegacyDirectoryName));
     });
 
-    public static string RootDirectory => DefaultRoot.Value;
+    public static string RootDirectory
+    {
+        get
+        {
+            lock (RootConfigurationLock)
+            {
+                RootResolutionStarted = true;
+                if (IsolatedRuntimeRoot is not null)
+                    return IsolatedRuntimeRoot;
+            }
+
+            return DefaultRoot.Value;
+        }
+    }
+
+    internal static void ConfigureIsolatedRuntimeRoot(string rootDirectory)
+    {
+        lock (RootConfigurationLock)
+        {
+            if (RootResolutionStarted || IsolatedRuntimeRoot is not null)
+            {
+                throw new InvalidOperationException(
+                    "The application data root has already been configured or used.");
+            }
+
+            if (!RuntimeSmokeTestOptions.TryValidateRoot(
+                    rootDirectory,
+                    out var validatedRoot,
+                    out _,
+                    out var error))
+            {
+                throw new ArgumentException(error, nameof(rootDirectory));
+            }
+
+            Directory.CreateDirectory(validatedRoot!);
+            var attributes = File.GetAttributes(validatedRoot!);
+            if ((attributes & FileAttributes.Directory) == 0 ||
+                (attributes & FileAttributes.ReparsePoint) != 0 ||
+                Directory.EnumerateFileSystemEntries(validatedRoot!).Any())
+            {
+                throw new IOException(
+                    "The isolated runtime smoke-test root could not be created safely.");
+            }
+
+            // This path intentionally bypasses ResolveForDirectories: a smoke
+            // run must never inspect or migrate the user's legacy data root.
+            IsolatedRuntimeRoot = validatedRoot;
+        }
+    }
 
     internal static bool HasMigrationConflict(string directory)
     {

@@ -289,6 +289,35 @@ public sealed class PendingProfileDeletionIntentTests : IDisposable
         Assert.True(await deletion);
     }
 
+    [Fact]
+    public async Task DeletePendingProfileOnce_LockedProfileDoesNotRetry()
+    {
+        var attempts = 0;
+        var key = Guid.NewGuid().ToString("N");
+        var service = new SettingsService(
+            _storageDirectory,
+            File.GetAttributes,
+            (_, _) =>
+            {
+                attempts++;
+                throw new IOException("profile is locked");
+            });
+        _ = CreateProfileDirectory(key);
+        var settings = new AppSettings
+        {
+            PendingProfileDeletionKeys = [key]
+        };
+        service.StageProfileDeletion(key);
+
+        var deleted = await service.DeletePendingProfileOnceAsync(
+            key,
+            settings,
+            TestContext.Current.CancellationToken);
+
+        Assert.False(deleted);
+        Assert.Equal(1, attempts);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_storageDirectory))

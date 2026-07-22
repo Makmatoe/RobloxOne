@@ -41,12 +41,26 @@ manual reinstall.
 4. Add `SessionDock/ReleaseNotes/<version>.md`. Keep notes user-focused,
    displayable, and free of secrets or untrusted HTML.
 5. Restore, build, test, and run repository validation locally.
-6. Confirm the publish inventory contains only the application, MIT license,
+6. Publish and execute the isolated runtime smoke before tagging:
+
+   ```powershell
+   ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 `
+       -OutputDirectory artifacts/runtime-smoke -CI
+   ./scripts/Test-RuntimeSmoke.ps1
+   ```
+
+   The smoke starts the published executable hidden with a unique, previously
+   nonexistent directory directly under the current user's temporary folder.
+   It never uses the normal SessionDock or legacy RobloxOne data roots. It
+   requires a clean signed-out startup, isolated settings and sound storage,
+   the production window-closing path, and a zero exit code within 20 seconds,
+   then removes only that validated temporary directory.
+7. Confirm the publish inventory contains only the application, MIT license,
    dependency notices, and pinned upstream license files.
-7. Review dependency vulnerability output, the SPDX SBOM, and the complete
+8. Review dependency vulnerability output, the SPDX SBOM, and the complete
    release diff.
-8. Confirm no release or draft already exists for the version.
-9. Merge through the protected branch after required checks pass.
+9. Confirm no release or draft already exists for the version.
+10. Merge through the protected branch after required checks pass.
 
 The project version, notes filename, tag, package version, descriptor version,
 and Velopack version must agree. Every mismatch fails closed.

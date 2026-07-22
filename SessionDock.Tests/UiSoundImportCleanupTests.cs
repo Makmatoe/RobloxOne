@@ -126,6 +126,35 @@ public sealed class UiSoundImportCleanupTests : IDisposable
     }
 
     [Fact]
+    public void ReconcileImportedSounds_IncompleteReferencesStillCleansOwnedOrphan()
+    {
+        Directory.CreateDirectory(_soundsDirectory);
+        var retainedOwned = $"startup-custom-{Guid.NewGuid():N}.wav";
+        var orphanedOwned = $"startup-custom-{Guid.NewGuid():N}.mp3";
+        var unknownOrphan = $"startup-custom-{Guid.NewGuid():N}.m4a";
+        WriteFile(retainedOwned);
+        WriteFile(orphanedOwned);
+        WriteFile(unknownOrphan);
+        var retention = new ImportedSoundRetention(
+            CanReconcile: false,
+            ReferencesAreComplete: false,
+            FileNames: new HashSet<string>(
+                [retainedOwned],
+                StringComparer.OrdinalIgnoreCase));
+
+        var removed = UiSoundService.ReconcileImportedSounds(
+            _soundsDirectory,
+            retention,
+            [retainedOwned, orphanedOwned],
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, removed);
+        Assert.True(File.Exists(Path.Combine(_soundsDirectory, retainedOwned)));
+        Assert.False(File.Exists(Path.Combine(_soundsDirectory, orphanedOwned)));
+        Assert.True(File.Exists(Path.Combine(_soundsDirectory, unknownOrphan)));
+    }
+
+    [Fact]
     public void SoundImportFailureClassifier_ContainsValidationButNotProgrammerFaults()
     {
         Assert.True(MainWindow.IsExpectedSoundImportFailure(

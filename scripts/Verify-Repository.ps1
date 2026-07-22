@@ -22,6 +22,7 @@ try {
         'scripts/New-ReleaseSbom.ps1',
         'scripts/Rename-SessionDockReleaseAssets.ps1',
         'scripts/ReleaseJson.ps1',
+        'scripts/Test-RuntimeSmoke.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
