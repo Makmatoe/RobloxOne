@@ -18,6 +18,7 @@ public partial class App : Application
     private AppThemeService? _themeService;
     public UiSoundService SoundService { get; private set; } = null!;
     public bool UiSoundsEnabled { get; set; } = true;
+    private bool IsRuntimeSmokeTest => _runtimeSmokeTest is not null;
     internal AppThemeService ThemeService => _themeService ??
         throw new InvalidOperationException(
             "The application theme service has not started.");
@@ -100,11 +101,7 @@ public partial class App : Application
                             _runtimeSmokeTest);
                     }
                 },
-                message => MessageBox.Show(
-                    message,
-                    "SessionDock cannot start",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error)))
+                ReportStartupFailure))
         {
             _singleInstance.Dispose();
             _singleInstance = null;
@@ -117,6 +114,24 @@ public partial class App : Application
             Dispatcher.BeginInvoke(
                 DispatcherPriority.ApplicationIdle,
                 ActivateExistingWindow));
+    }
+
+    private void ReportStartupFailure(string message)
+    {
+        if (IsRuntimeSmokeTest)
+        {
+            // A non-interactive harness must fail by exit code rather than
+            // wait forever behind an invisible modal dialog.
+            System.Diagnostics.Trace.WriteLine(
+                $"Isolated runtime-smoke startup failed safely: {message}");
+            return;
+        }
+
+        MessageBox.Show(
+            message,
+            "SessionDock cannot start",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
     }
 
     protected override void OnExit(ExitEventArgs e)

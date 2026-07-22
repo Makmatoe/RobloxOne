@@ -43,7 +43,13 @@ public static class Program
             }
         }
 
-        if (!RuntimeSecurityPolicy.IsCurrentProcessSupported(out var reason))
+        // GitHub-hosted Windows runners intentionally run elevated. The
+        // strictly parsed smoke harness has already been confined to a fresh,
+        // non-redirected Temp child and cannot resolve production user data,
+        // so only that harness skips the production user-context admission
+        // check. Every ordinary invocation retains the full policy.
+        if (RequiresProductionSecurityContext(runtimeSmokeTest) &&
+            !RuntimeSecurityPolicy.IsCurrentProcessSupported(out var reason))
         {
             MessageBox.Show(
                 reason,
@@ -60,4 +66,8 @@ public static class Program
         application.InitializeComponent();
         Environment.ExitCode = application.Run();
     }
+
+    internal static bool RequiresProductionSecurityContext(
+        RuntimeSmokeTestOptions? runtimeSmokeTest) =>
+        runtimeSmokeTest is null;
 }
