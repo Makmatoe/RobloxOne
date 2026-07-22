@@ -252,7 +252,9 @@ public sealed class SettingsService
                 }
                 try
                 {
-                    if (TryDeleteDirectoryTree(directory))
+                    if (TryDeleteDirectoryTree(
+                            directory,
+                            CancellationToken.None))
                         removed++;
                 }
                 catch (Exception exception) when (
@@ -302,7 +304,7 @@ public sealed class SettingsService
                         throw new IOException("The browser profile could not be inspected.");
                     return false;
                 }
-                return TryDeleteDirectoryTree(path);
+                return TryDeleteDirectoryTree(path, cancellationToken);
             }
             catch (Exception ex) when (
                 ex is IOException or UnauthorizedAccessException)
@@ -815,7 +817,9 @@ public sealed class SettingsService
         }
     }
 
-    private static bool TryDeleteDirectoryTree(string root)
+    private static bool TryDeleteDirectoryTree(
+        string root,
+        CancellationToken cancellationToken)
     {
         if (!Directory.Exists(root) || IsReparsePoint(root))
             return false;
@@ -824,6 +828,7 @@ public sealed class SettingsService
         pending.Push((root, false));
         while (pending.TryPop(out var item))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (item.ChildrenVisited)
             {
                 if (IsReparsePoint(item.Path))
@@ -840,6 +845,7 @@ public sealed class SettingsService
                          "*",
                          SearchOption.TopDirectoryOnly))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var attributes = File.GetAttributes(entry);
                 if ((attributes & FileAttributes.Directory) != 0)
                 {

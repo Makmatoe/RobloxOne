@@ -5,6 +5,7 @@ internal sealed class WindowOperationLifetime : IDisposable
     private readonly object _sync = new();
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly HashSet<OperationRegistration> _operations = [];
+    private Task? _cancellationTask;
     private bool _isShuttingDown;
     private bool _disposed;
 
@@ -26,7 +27,10 @@ internal sealed class WindowOperationLifetime : IDisposable
 
     public async Task RunAsync(Func<CancellationToken, Task> operation)
     {
-        await RunCoreAsync(operation, expectedFailureHandler: null);
+        await RunCoreAsync(
+            operation,
+            expectedFailureFilter: null,
+            expectedFailureHandler: null);
     }
 
     public async Task RunAsync(
@@ -34,11 +38,28 @@ internal sealed class WindowOperationLifetime : IDisposable
         Action<Exception> expectedFailureHandler)
     {
         ArgumentNullException.ThrowIfNull(expectedFailureHandler);
-        await RunCoreAsync(operation, expectedFailureHandler);
+        await RunCoreAsync(
+            operation,
+            LocalDataException.IsExpectedPersistenceFailure,
+            expectedFailureHandler);
+    }
+
+    public async Task RunAsync(
+        Func<CancellationToken, Task> operation,
+        Func<Exception, bool> expectedFailureFilter,
+        Action<Exception> expectedFailureHandler)
+    {
+        ArgumentNullException.ThrowIfNull(expectedFailureFilter);
+        ArgumentNullException.ThrowIfNull(expectedFailureHandler);
+        await RunCoreAsync(
+            operation,
+            expectedFailureFilter,
+            expectedFailureHandler);
     }
 
     private async Task RunCoreAsync(
         Func<CancellationToken, Task> operation,
+        Func<Exception, bool>? expectedFailureFilter,
         Action<Exception>? expectedFailureHandler)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -56,15 +77,19 @@ internal sealed class WindowOperationLifetime : IDisposable
             {
                 // Window shutdown owns this cancellation.
             }
-            catch (Exception) when (IsShuttingDown)
+            catch (ObjectDisposedException) when (IsShuttingDown)
             {
                 // A bounded shutdown can release a native dependency after an
-                // operation was asked to stop. Native wrappers do not consistently
-                // report that race as ObjectDisposedException.
+                // operation was asked to stop.
+            }
+            catch (WebSessionUnavailableException) when (IsShuttingDown)
+            {
+                // A browser replacement or process exit is expected during teardown.
             }
             catch (Exception exception) when (
+                expectedFailureFilter is not null &&
                 expectedFailureHandler is not null &&
-                LocalDataException.IsExpectedPersistenceFailure(exception))
+                expectedFailureFilter(exception))
             {
                 expectedFailureHandler(exception);
             }
@@ -81,7 +106,7 @@ internal sealed class WindowOperationLifetime : IDisposable
             _isShuttingDown = true;
         }
 
-        CancelWithoutEscapingCallbacks();
+        _ = RequestCancellationWithoutBlocking();
         return true;
     }
 
@@ -128,8 +153,19 @@ internal sealed class WindowOperationLifetime : IDisposable
             _isShuttingDown = true;
         }
 
-        CancelWithoutEscapingCallbacks();
-        _shutdownCancellation.Dispose();
+        var cancellationTask = RequestCancellationWithoutBlocking();
+        if (cancellationTask.IsCompleted)
+        {
+            _shutdownCancellation.Dispose();
+        }
+        else
+        {
+            _ = cancellationTask.ContinueWith(
+                _ => _shutdownCancellation.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
     }
 
     private OperationRegistration? TryRegister()
@@ -151,17 +187,32 @@ internal sealed class WindowOperationLifetime : IDisposable
         registration.SignalCompletion();
     }
 
-    private void CancelWithoutEscapingCallbacks()
+    private Task RequestCancellationWithoutBlocking()
     {
-        try
+        Task cancellationTask;
+        lock (_sync)
         {
-            _shutdownCancellation.Cancel();
+            if (_cancellationTask is not null)
+                return _cancellationTask;
+            try
+            {
+                _cancellationTask = _shutdownCancellation.CancelAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                _cancellationTask = Task.CompletedTask;
+            }
+            cancellationTask = _cancellationTask;
         }
-        catch (Exception ex) when (
-            ex is AggregateException or ObjectDisposedException)
-        {
-            // Cancellation callback failures cannot be allowed to strand shutdown.
-        }
+
+        _ = cancellationTask.ContinueWith(
+            completed => System.Diagnostics.Trace.WriteLine(
+                $"A shutdown cancellation callback failed: {completed.Exception?.GetBaseException().GetType().Name}."),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously |
+                TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+        return cancellationTask;
     }
 
     private sealed class OperationRegistration(WindowOperationLifetime owner) :

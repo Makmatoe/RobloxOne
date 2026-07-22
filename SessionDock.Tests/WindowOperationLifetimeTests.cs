@@ -108,6 +108,29 @@ public sealed class WindowOperationLifetimeTests
     }
 
     [Fact]
+    public async Task BeginShutdown_BlockingCancellationCallbackDoesNotBlockCaller()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        using var release = new ManualResetEventSlim();
+        using var registration = lifetime.Token.Register(release.Wait);
+
+        var beginShutdown = Task.Run(
+            lifetime.BeginShutdown,
+            TestContext.Current.CancellationToken);
+        var winner = await Task.WhenAny(
+            beginShutdown,
+            Task.Delay(
+                TimeSpan.FromMilliseconds(250),
+                TestContext.Current.CancellationToken));
+
+        release.Set();
+        Assert.Same(beginShutdown, winner);
+        Assert.True(await beginShutdown.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task RunAsync_NonShutdownFailure_RemainsObservable()
     {
         using var lifetime = new WindowOperationLifetime();
@@ -154,5 +177,42 @@ public sealed class WindowOperationLifetimeTests
                 _ => handled = true));
 
         Assert.False(handled);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnexpectedFailureDuringShutdown_RemainsObservable()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = lifetime.RunAsync(async _ =>
+        {
+            started.TrySetResult();
+            await release.Task;
+            throw new InvalidOperationException("programmer failure");
+        });
+        await started.Task;
+        lifetime.BeginShutdown();
+        release.TrySetResult();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
+    }
+
+    [Fact]
+    public async Task RunAsync_CustomExpectedFailureFilter_HandlesTypedWebFailure()
+    {
+        using var lifetime = new WindowOperationLifetime();
+        Exception? handled = null;
+
+        await lifetime.RunAsync(
+            _ => throw new WebSessionUnavailableException(
+                WebSessionUnavailableReason.ProcessExited,
+                "browser exited"),
+            WebSessionException.IsExpectedLifecycleFailure,
+            exception => handled = exception);
+
+        Assert.IsType<WebSessionUnavailableException>(handled);
     }
 }

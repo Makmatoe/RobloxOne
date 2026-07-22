@@ -186,6 +186,83 @@ public sealed class UiSoundService : IDisposable
         }
     }
 
+    internal int CleanupOrphanedImportedSounds(
+        string? referencedFileName,
+        bool reconciliationIsSafe,
+        CancellationToken cancellationToken = default) =>
+        CleanupOrphanedImportedSounds(
+            _soundsDirectory,
+            referencedFileName,
+            reconciliationIsSafe,
+            cancellationToken);
+
+    internal static int CleanupOrphanedImportedSounds(
+        string soundsDirectory,
+        string? referencedFileName,
+        bool reconciliationIsSafe,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(soundsDirectory);
+        if (!reconciliationIsSafe)
+            return 0;
+        var removed = 0;
+        try
+        {
+            var fullDirectory = Path.GetFullPath(soundsDirectory);
+            if (!Directory.Exists(fullDirectory))
+                return 0;
+            ThrowIfReparsePoint(fullDirectory);
+
+            foreach (var path in Directory.EnumerateFiles(
+                         fullDirectory,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var fileName = Path.GetFileName(path);
+                var isImportedSound = IsManagedImportedFileName(fileName);
+                if (!isImportedSound &&
+                    !IsManagedImportedTemporaryFileName(fileName))
+                {
+                    continue;
+                }
+                if (isImportedSound &&
+                    fileName.Equals(
+                        referencedFileName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if ((File.GetAttributes(path) &
+                         FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+                    File.Delete(path);
+                    if (!File.Exists(path))
+                        removed++;
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    Trace.WriteLine(
+                        $"Orphaned startup sound cleanup failed: {exception.GetType().Name}.");
+                }
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+                ArgumentException)
+        {
+            Trace.WriteLine(
+                $"Imported startup sound reconciliation failed: {exception.GetType().Name}.");
+        }
+        return removed;
+    }
+
     public void StopPreview()
     {
         if (!_disposed)
@@ -336,6 +413,24 @@ public sealed class UiSoundService : IDisposable
         const string prefix = "startup-custom-";
         return stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
             Guid.TryParseExact(stem[prefix.Length..], "N", out _);
+    }
+
+    private static bool IsManagedImportedTemporaryFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) ||
+            !Path.GetFileName(fileName).Equals(fileName, StringComparison.Ordinal) ||
+            !Path.GetExtension(fileName).Equals(
+                ".tmp",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var stagedName = Path.GetFileNameWithoutExtension(fileName);
+        var separator = stagedName.LastIndexOf('.');
+        return separator > 0 &&
+            Guid.TryParseExact(stagedName[(separator + 1)..], "N", out _) &&
+            IsManagedImportedFileName(stagedName[..separator]);
     }
 
     private static void ThrowIfReparsePoint(string path)

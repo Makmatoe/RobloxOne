@@ -4,6 +4,44 @@ namespace SessionDock.Services;
 
 internal static class SettingsMutation
 {
+    internal static async Task<SettingsMutationResult> TryCommitAsync(
+        AppSettings settings,
+        Action mutation,
+        Func<AppSettings, Task> saveAsync)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(mutation);
+        ArgumentNullException.ThrowIfNull(saveAsync);
+
+        var checkpoint = SettingsCheckpoint.Capture(settings);
+        try
+        {
+            mutation();
+        }
+        catch
+        {
+            checkpoint.Restore(settings);
+            throw;
+        }
+
+        try
+        {
+            await saveAsync(settings);
+            return new SettingsMutationResult(true, null);
+        }
+        catch (Exception exception) when (
+            LocalDataException.IsExpectedPersistenceFailure(exception))
+        {
+            checkpoint.Restore(settings);
+            return new SettingsMutationResult(false, exception);
+        }
+        catch
+        {
+            checkpoint.Restore(settings);
+            throw;
+        }
+    }
+
     internal static bool TryCommit(
         AppSettings settings,
         Action mutation,
@@ -116,4 +154,13 @@ internal static class SettingsMutation
             RecentExperience Target,
             RecentExperience State);
     }
+}
+
+internal readonly record struct SettingsMutationResult(
+    bool Committed,
+    Exception? Failure,
+    bool Closed = false)
+{
+    internal static SettingsMutationResult ClosedResult =>
+        new(false, null, true);
 }

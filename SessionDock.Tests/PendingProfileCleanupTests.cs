@@ -90,6 +90,61 @@ public sealed class PendingProfileCleanupTests : IDisposable
             TestContext.Current.CancellationToken);
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public void CanDelete_IndeterminateShutdownPreservesProfile(
+        bool operationsDrained,
+        bool finalSettingsSaved)
+    {
+        var profile = CreateProfile();
+
+        var canDelete = PendingProfileCleanup.CanDelete(
+            operationsDrained,
+            finalSettingsSaved,
+            profile,
+            profile,
+            new AppSettings());
+
+        Assert.False(canDelete);
+    }
+
+    [Fact]
+    public void CanDelete_DurableOrReplacedPendingProfileIsPreserved()
+    {
+        var profile = CreateProfile();
+        var settings = new AppSettings { Accounts = [profile] };
+
+        Assert.False(PendingProfileCleanup.CanDelete(
+            operationsDrained: true,
+            finalSettingsSaved: true,
+            profile,
+            profile,
+            settings));
+        Assert.False(PendingProfileCleanup.CanDelete(
+            operationsDrained: true,
+            finalSettingsSaved: true,
+            profile,
+            CreateProfile(),
+            new AppSettings()));
+    }
+
+    [Fact]
+    public void CanDelete_DrainedDurableIncompleteProfileCanBeRemoved()
+    {
+        var profile = CreateProfile();
+
+        var canDelete = PendingProfileCleanup.CanDelete(
+            operationsDrained: true,
+            finalSettingsSaved: true,
+            profile,
+            profile,
+            new AppSettings());
+
+        Assert.True(canDelete);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_storageDirectory))

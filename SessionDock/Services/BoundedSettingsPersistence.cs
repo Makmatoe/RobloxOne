@@ -11,7 +11,25 @@ internal static class BoundedSettingsPersistence
             timeout,
             TimeSpan.Zero);
 
-        var saveTask = Task.Run(save);
+        return await TrySaveAsync(
+            () =>
+            {
+                save();
+                return Task.CompletedTask;
+            },
+            timeout);
+    }
+
+    internal static async Task<bool> TrySaveAsync(
+        Func<Task> saveAsync,
+        TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(saveAsync);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
+            timeout,
+            TimeSpan.Zero);
+
+        var saveTask = Task.Run(saveAsync);
         try
         {
             await saveTask.WaitAsync(timeout);
