@@ -11,9 +11,9 @@ public enum StatusTone
 public static class StatusToneClassifier
 {
     private static readonly string[] ErrorTerms =
-        ["ERROR", "BLOCKED", "INVALID", "REQUIRED"];
+        ["ERROR", "BLOCKED", "INVALID", "REQUIRED", "REJECTED", "DENIED", "TIMEOUT"];
     private static readonly string[] WarningTerms =
-        ["PARTIAL", "FULL", "DUPLICATE", "UNAVAILABLE", "CANCEL"];
+        ["PARTIAL", "FULL", "DUPLICATE", "UNAVAILABLE", "CANCEL", "BUSY"];
     private static readonly string[] SuccessTerms =
         ["VERIFIED", "READY", "STARTED", "CLOSED", "COMPLETE", "SAVED", "UP TO DATE"];
 

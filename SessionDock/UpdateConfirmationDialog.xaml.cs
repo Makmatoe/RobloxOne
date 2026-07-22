@@ -19,7 +19,8 @@ public partial class UpdateConfirmationDialog : Window
             : $"Install SessionDock {update.Version.ToString(3)}?";
         PublishedText.Text = $"Published {update.PublishedAt.ToLocalTime():g}";
         SizeText.Text = $"{update.Descriptor.PackageSize / (1024d * 1024d):0.0} MB";
-        ReleaseNotesBox.Text = update.Descriptor.ReleaseNotes;
+        ReleaseNotesBox.Text = ReleaseNotesTextFormatter.Format(
+            update.Descriptor.ReleaseNotes);
         IntegrityText.Text = alreadyDownloaded
             ? $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Signed package bytes, contents, and version verified."
             : $"SHA-256 {update.Descriptor.PackageSha256[..16]}…  •  Signed package identity authorized; bytes, contents, and version are checked after download. Windows binaries are not code-signed.";

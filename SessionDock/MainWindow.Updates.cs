@@ -108,22 +108,24 @@ public partial class MainWindow
         {
             // Window shutdown owns this cancellation.
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
         {
             SetStatus(
                 "Update cancelled",
                 "The installed version was left unchanged.",
                 "UPDATE CANCELLED");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            UpdateFailurePresentation.TryCreate(ex, out _))
         {
-            Trace.WriteLine($"Update failed safely: {ex.GetType().Name}.");
+            var failure = UpdateFailurePresentation.Create(ex);
+            Trace.WriteLine(
+                $"Expected update failure: {ex.GetType().FullName}.");
             SetStatus(
-                "Update was rejected",
-                ex is ReleaseTrustException
-                    ? ex.Message
-                    : "The update could not be checked or installed safely. The current version was left unchanged.",
-                "UPDATE ERROR");
+                failure.Title,
+                failure.Detail,
+                failure.Badge);
         }
         finally
         {

@@ -38,6 +38,25 @@ try {
         throw 'Release notes contain unsupported control characters.'
     }
 
+    # Version 2.3.0 displays signed notes in a plain TextBox and can update
+    # directly to any later release. Keep every future notes file readable in
+    # that legacy dialog even though newer clients also apply local formatting.
+    $plainTextCompatibilityPatterns = [ordered] @{
+        'ATX heading markers' = '(?m)^[ \t]{0,3}#{1,6}(?:[ \t]+|$)'
+        'indented continuation or code lines' = '(?m)^[ \t]+\S'
+        'block quote markers' = '(?m)^[ \t]{0,3}>'
+        'fenced code or horizontal rules' = '(?m)^[ \t]{0,3}(?:`{3,}|~{3,}|-{3,}|\*{3,}|_{3,})[ \t]*$'
+        'inline code markers' = '`'
+        'emphasis markers' = '(?:\*\*|\*[^*\r\n]+\*|__|(?<!\w)_[^_\r\n]+_(?!\w))'
+        'Markdown links or images' = '!?\[[^\]\r\n]*\]\([^\)\r\n]+\)'
+        'raw HTML' = '<[!/A-Za-z][^>\r\n]*>'
+    }
+    foreach ($entry in $plainTextCompatibilityPatterns.GetEnumerator()) {
+        if ($notes -match $entry.Value) {
+            throw "Release notes contain $($entry.Key), which are not readable in the 2.3.0 plain-text update dialog. Use plain headings and single-line '- ' bullets."
+        }
+    }
+
     $head = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $head -cnotmatch '^[0-9a-f]{40}$') {
         throw 'Unable to resolve the current Git commit.'
