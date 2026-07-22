@@ -12,31 +12,48 @@ did or did not launch.
 ## Generic local API hook
 
 `LocalApiLaunchHook` sends one JSON `POST` when
-`SESSIONDOCK_LAUNCH_HOOK_URL` is an HTTP or HTTPS loopback URL. Redirects,
-cookies, and system proxies are disabled.
+`SESSIONDOCK_LAUNCH_HOOK_URL` is an HTTPS URL for a numeric loopback address
+and `SESSIONDOCK_LAUNCH_HOOK_BEARER_TOKEN` contains a valid bearer token.
+Windows must trust the endpoint certificate, and the certificate must be valid
+for the configured IP address. SessionDock does not bypass normal TLS
+certificate validation. Redirects, cookies, and system proxies are disabled.
 
 Configure it for the current Windows user, then restart SessionDock:
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
     "SESSIONDOCK_LAUNCH_HOOK_URL",
-    "http://127.0.0.1:3000/roblox-launch",
+    "https://127.0.0.1:3443/roblox-launch",
     "User")
-```
-
-If the endpoint requires bearer authentication:
-
-```powershell
 [Environment]::SetEnvironmentVariable(
     "SESSIONDOCK_LAUNCH_HOOK_BEARER_TOKEN",
     "replace-with-your-token",
     "User")
 ```
 
+SessionDock captures one coherent current-variable pair at startup. It uses the
+legacy pair only when neither current variable exists; a partial current pair
+fails closed instead of borrowing its missing value from the legacy pair. The
+four current and legacy variables are then removed from SessionDock's process
+environment before WebView2 or launch-integration child processes start. The
+captured configuration remains in effect until SessionDock restarts.
+
+Plain HTTP, hostnames such as `localhost`, and missing or invalid bearer tokens
+make the generic hook unconfigured, so SessionDock does not create or send its
+launch payload. An untrusted or mismatched certificate fails the bounded HTTPS
+attempt before the HTTP request is transmitted and cannot turn a successful
+Roblox launch into a failed launch. Existing HTTP hook users must add a locally
+trusted HTTPS certificate to their listener or clear both environment
+variables.
+
 The payload contains an event ID and time, the launched PID, place ID,
 experience name, public/private classification, and local account identity.
 It deliberately excludes destinations, server codes, cookies, passwords,
 authentication tickets, and WebView2 data.
+
+This boundary applies only to the generic hook. HandleScope uses its separate,
+locally verified discovery-file, process-identity, and rotating-token flow and
+continues to use the exact HTTP loopback endpoint described below.
 
 ## HandleScope connector
 

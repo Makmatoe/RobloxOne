@@ -45,9 +45,11 @@ SessionDock is designed around these boundaries:
 - Application updates come only from this repository and require a valid
   descriptor signed by the release key pinned in the app, an exact package
   hash, bounded metadata, and an exact package-content allowlist.
-- Optional HTTP hooks and HandleScope communication are loopback-only. The
-  HandleScope API is separately installed, explicitly enabled, and never
-  elevated, installed, or bundled by SessionDock.
+- The optional generic launch hook requires a Windows-trusted HTTPS certificate
+  for a numeric loopback address and a valid bearer token. Plain HTTP generic
+  hooks are rejected. HandleScope uses a separate verified loopback process,
+  discovery-file, and rotating-token boundary; its API is separately installed,
+  explicitly enabled, and never elevated, installed, or bundled by SessionDock.
 - Account/history settings under `%LOCALAPPDATA%\SessionDock` are private local
   data, not portable release content.
 
