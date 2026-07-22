@@ -23,8 +23,6 @@ public partial class App : Application
             return;
         }
 
-        SoundService = new UiSoundService();
-
         EventManager.RegisterClassHandler(
             typeof(Button),
             Button.ClickEvent,
@@ -35,6 +33,28 @@ public partial class App : Application
             new RoutedEventHandler(Window_Loaded),
             handledEventsToo: true);
         base.OnStartup(e);
+
+        if (!ApplicationStartup.TryStart(
+                () =>
+                {
+                    SoundService = new UiSoundService();
+                    var mainWindow = new MainWindow();
+                    MainWindow = mainWindow;
+                    mainWindow.Show();
+                },
+                message => MessageBox.Show(
+                    message,
+                    "SessionDock cannot start",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error)))
+        {
+            _singleInstance.Dispose();
+            _singleInstance = null;
+            SoundService?.Dispose();
+            Shutdown(1);
+            return;
+        }
+
         _singleInstance.ListenForActivationRequests(() =>
             Dispatcher.BeginInvoke(
                 DispatcherPriority.ApplicationIdle,
