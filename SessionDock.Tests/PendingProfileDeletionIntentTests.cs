@@ -257,36 +257,34 @@ public sealed class PendingProfileDeletionIntentTests : IDisposable
     public async Task DeleteSessionData_RecursiveTraversalRunsOffCallerThread()
     {
         var key = Guid.NewGuid().ToString("N");
-        using var releaseDeletion = new ManualResetEventSlim();
-        var deletionStarted = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callerThreadId = 0;
+        var deletionThreadId = 0;
         var service = new SettingsService(
             _storageDirectory,
             File.GetAttributes,
-            (_, cancellationToken) =>
+            (_, _) =>
             {
-                deletionStarted.TrySetResult();
-                releaseDeletion.Wait(cancellationToken);
+                deletionThreadId = Environment.CurrentManagedThreadId;
                 return true;
             });
         _ = CreateProfileDirectory(key);
 
-        var deletion = service.DeleteSessionDataAsync(
-            CreateAccount(key),
-            TestContext.Current.CancellationToken);
-        try
-        {
-            await deletionStarted.Task.WaitAsync(
-                TimeSpan.FromSeconds(1),
-                TestContext.Current.CancellationToken);
-            Assert.False(deletion.IsCompleted);
-        }
-        finally
-        {
-            releaseDeletion.Set();
-        }
+        var deleted = await Task.Factory.StartNew(
+            () =>
+            {
+                callerThreadId = Environment.CurrentManagedThreadId;
+                return service.DeleteSessionDataAsync(
+                        CreateAccount(key),
+                        TestContext.Current.CancellationToken)
+                    .GetAwaiter()
+                    .GetResult();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
-        Assert.True(await deletion);
+        Assert.True(deleted);
+        Assert.NotEqual(callerThreadId, deletionThreadId);
     }
 
     [Fact]
