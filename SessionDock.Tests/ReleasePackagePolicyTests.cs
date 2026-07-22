@@ -35,6 +35,7 @@ public sealed class ReleasePackagePolicyTests
             entries,
             "lib/app/RobloxOne_ExecutionStub.exe",
             "lib/app/SessionDock_ExecutionStub.exe");
+        ReplaceName(entries, "RobloxOne.nuspec", "SessionDockApp.nuspec");
 
         ReleasePackagePolicy.ValidateEntries(entries, useCurrentLayout: true);
         Assert.Throws<ReleaseTrustException>(() =>

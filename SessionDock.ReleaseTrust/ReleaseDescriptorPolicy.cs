@@ -14,7 +14,8 @@ public static class ReleaseDescriptorPolicy
     public const string Channel = "win-x64-sessiondock";
     public const string KeyId = "sessiondock-release-2026-01";
     public const string DescriptorFileName = "sessiondock-release.json";
-    public const string VelopackPackageId = "RobloxOne";
+    public const string VelopackPackageId = "SessionDockApp";
+    public const string LegacyVelopackPackageId = "RobloxOne";
     public const string LegacyProduct = "RobloxOne";
     public const string LegacyRepository = "Makmatoe/RobloxOne";
     public const string LegacyChannel = "win-x64-stable";
@@ -153,7 +154,7 @@ public static class ReleaseDescriptorPolicy
         }
 
         if ((IsLegacyIdentity(descriptor) && version > new Version(2, 1, 5)) ||
-            (IsCurrentIdentity(descriptor) && version < new Version(2, 2, 0)))
+            (IsCurrentIdentity(descriptor) && version < new Version(2, 3, 1)))
         {
             throw new ReleaseTrustException(
                 "The signed release version is outside its authorized migration channel.");
@@ -171,8 +172,11 @@ public static class ReleaseDescriptorPolicy
             throw new ReleaseTrustException("The signed publication time is invalid.");
         }
 
+        var packageId = IsLegacyIdentity(descriptor)
+            ? LegacyVelopackPackageId
+            : VelopackPackageId;
         var expectedPackageFile =
-            $"{VelopackPackageId}-{descriptor.Version}-{descriptor.Channel}-full.nupkg";
+            $"{packageId}-{descriptor.Version}-{descriptor.Channel}-full.nupkg";
         if (descriptor.PackageFile != expectedPackageFile ||
             descriptor.PackageFile != asset.FileName ||
             Path.GetFileName(descriptor.PackageFile) != descriptor.PackageFile ||

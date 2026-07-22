@@ -32,6 +32,15 @@ Roblox Player logs, server IP addresses, HandleScope bearer tokens, or raw
 handle values. Never send the `%LOCALAPPDATA%\SessionDock` directory in a public
 bug report because its WebView2 profiles may contain authenticated cookies.
 
+When upgrading from the historic Roblox One package identity, SessionDock may
+copy recognized settings, browser profiles, sounds, and local integration
+configuration from `%LOCALAPPDATA%\RobloxOne` into
+`%LOCALAPPDATA%\SessionDock`. It rejects reparse points and conflicting files,
+copies settings last, records a recovery receipt, and leaves the entire source
+tree unchanged. Installer files and unknown entries are not copied. Automatic
+orphan-profile cleanup remains paused after profile recovery until the user has
+confirmed the expected accounts and sign-ins.
+
 ## Network connections
 
 SessionDock makes its direct Roblox requests to official Roblox HTTPS endpoints

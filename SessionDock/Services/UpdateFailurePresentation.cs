@@ -39,15 +39,15 @@ internal sealed record UpdateFailurePresentation(
                 "UPDATE BUSY"),
             ChecksumFailedException => new(
                 "Downloaded update was rejected",
-                "The downloaded package did not match the release feed and was not installed. Try again; if this repeats, use the official Setup installer over the existing installation.",
+                "The downloaded package did not match the release feed and was not installed. Try again; if this repeats, keep both local data directories unchanged and download the current Setup and checksum from the canonical GitHub release page.",
                 "UPDATE REJECTED"),
             InvalidDataException => new(
                 "Downloaded update was rejected",
-                "The downloaded package did not pass integrity checks and was not installed. Try again; if this repeats, use the official Setup installer over the existing installation.",
+                "The downloaded package did not pass integrity checks and was not installed. Try again; if this repeats, keep both local data directories unchanged and download the current Setup and checksum from the canonical GitHub release page.",
                 "UPDATE REJECTED"),
             NotInstalledException => new(
                 "Setup is required",
-                "This copy is no longer recognized as an installed app. Run the official SessionDock Setup installer over the existing installation; do not uninstall first.",
+                "This copy is no longer recognized as an installed app. Keep the SessionDock and RobloxOne local data directories unchanged, then run the current verified SessionDock Setup from the canonical GitHub release page. Do not uninstall or delete local data first.",
                 "SETUP REQUIRED"),
             TaskCanceledException => new(
                 "GitHub did not respond in time",
@@ -79,7 +79,7 @@ internal sealed record UpdateFailurePresentation(
                 "UPDATE FILE ERROR"),
             Win32Exception => new(
                 "Updater could not start",
-                "Windows could not start the SessionDock updater. Close the app and run the official Setup installer over the existing installation; do not uninstall first.",
+                "Windows could not start the SessionDock updater. Close the app, keep both local data directories unchanged, and run the current verified SessionDock Setup from the canonical GitHub release page. Do not uninstall or delete local data first.",
                 "UPDATER ERROR"),
             _ => null!
         };

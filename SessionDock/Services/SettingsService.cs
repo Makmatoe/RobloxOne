@@ -921,26 +921,38 @@ public sealed class SettingsService
 
     private void AddProfileCleanupNotice()
     {
-        if (CanReconcileProfiles)
-            return;
+        if (!CanReconcileProfiles)
+        {
+            var cleanupNotice = ProbePath(Path.Combine(
+                                     _rootDirectory,
+                                     AppDataPaths.MigrationConflictFileName)) !=
+                                 PathProbeResult.Missing ||
+                                 AppDataPaths.HasMigrationConflict(_rootDirectory)
+                ? "SessionDock found separate or conflicting current and legacy RobloxOne data. Conflicting files were left untouched, and automatic browser-profile cleanup is paused. Resolve the preserved legacy data before deleting migration-conflict.txt."
+                : ProbePath(Path.Combine(
+                        _rootDirectory,
+                        AppDataPaths.MigrationInProgressFileName)) !=
+                    PathProbeResult.Missing ||
+                    AppDataPaths.HasIncompleteMigration(_rootDirectory)
+                    ? "A legacy RobloxOne data migration did not finish cleanly. Some files may exist in either data directory, so automatic browser-profile cleanup is paused. Reconcile both directories before deleting migration-in-progress.txt."
+                    : "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
+            AppendLoadNotice(cleanupNotice);
+        }
 
-        var notice = ProbePath(Path.Combine(
-                         _rootDirectory,
-                         AppDataPaths.MigrationConflictFileName)) !=
-                     PathProbeResult.Missing ||
-                     AppDataPaths.HasMigrationConflict(_rootDirectory)
-            ? "SessionDock found separate current and legacy RobloxOne account settings. The legacy data was left untouched, and automatic browser-profile cleanup is paused. Recover or intentionally remove the legacy RobloxOne data before deleting migration-conflict.txt."
-            : ProbePath(Path.Combine(
-                    _rootDirectory,
-                    AppDataPaths.MigrationInProgressFileName)) !=
-                PathProbeResult.Missing ||
-                AppDataPaths.HasIncompleteMigration(_rootDirectory)
-                ? "A legacy RobloxOne data migration did not finish cleanly. Some files may exist in either data directory, so automatic browser-profile cleanup is paused. Reconcile both directories before deleting migration-in-progress.txt."
-                : "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
+        if (ProbePath(Path.Combine(
+                _rootDirectory,
+                AppDataPaths.LegacyOptionalDataNoticeFileName)) !=
+            PathProbeResult.Missing)
+        {
+            AppendLoadNotice(
+                "Your accounts and browser profiles were recovered, but a conflicting optional sound or local integration file remains only in the preserved RobloxOne folder. Keep that folder until any optional configuration you still need has been reviewed.");
+        }
+    }
+
+    private void AppendLoadNotice(string notice) =>
         LoadNotice = string.IsNullOrWhiteSpace(LoadNotice)
             ? notice
             : $"{LoadNotice}{Environment.NewLine}{Environment.NewLine}{notice}";
-    }
 
     private static bool Normalize(
         AppSettings settings,

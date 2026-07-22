@@ -437,7 +437,9 @@ internal sealed class SessionDockUpdateService : IDisposable
         VerifiedReleaseDescriptor release,
         bool useCurrentLayout)
     {
-        var nuspecBytes = ReadArchiveEntry(archive, "RobloxOne.nuspec");
+        var nuspecBytes = ReadArchiveEntry(
+            archive,
+            useCurrentLayout ? "SessionDockApp.nuspec" : "RobloxOne.nuspec");
         var versionBytes = ReadArchiveEntry(archive, "lib/app/sq.version");
         if (!CryptographicOperations.FixedTimeEquals(
                 SHA256.HashData(nuspecBytes),
@@ -497,7 +499,9 @@ internal sealed class SessionDockUpdateService : IDisposable
 
         var expectedValues = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["id"] = ReleaseDescriptorPolicy.VelopackPackageId,
+            ["id"] = useCurrentLayout
+                ? ReleaseDescriptorPolicy.VelopackPackageId
+                : ReleaseDescriptorPolicy.LegacyVelopackPackageId,
             ["title"] = useCurrentLayout ? "SessionDock" : "Roblox One",
             ["description"] = useCurrentLayout ? "SessionDock" : "Roblox One",
             ["authors"] = "Makmatoe",
@@ -509,7 +513,9 @@ internal sealed class SessionDockUpdateService : IDisposable
             ["os"] = "win",
             ["rid"] = "win-x64",
             ["shortcutLocations"] = "Desktop,StartMenuRoot",
-            ["shortcutAumid"] = "velopack.RobloxOne",
+            ["shortcutAumid"] = useCurrentLayout
+                ? "velopack.SessionDockApp"
+                : "velopack.RobloxOne",
             ["machineArchitecture"] = "x64"
         };
         foreach (var expected in expectedValues)

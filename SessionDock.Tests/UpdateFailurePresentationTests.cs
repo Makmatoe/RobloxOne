@@ -62,6 +62,30 @@ public sealed class UpdateFailurePresentationTests
         Assert.False(classified);
     }
 
+    [Theory]
+    [InlineData(typeof(InvalidDataException))]
+    [InlineData(typeof(NotInstalledException))]
+    [InlineData(typeof(Win32Exception))]
+    public void SetupRecoveryGuidance_PreservesLocalDataAndDoesNotRecommendOverwrite(
+        Type exceptionType)
+    {
+        Exception exception;
+        if (exceptionType == typeof(InvalidDataException))
+            exception = new InvalidDataException("invalid package");
+        else if (exceptionType == typeof(Win32Exception))
+            exception = new Win32Exception(2, "updater missing");
+        else
+            exception = CreateWithoutConstructor<NotInstalledException>();
+
+        var result = UpdateFailurePresentation.Create(exception);
+
+        Assert.Contains("data", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "over the existing installation",
+            result.Detail,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     public static TheoryData<Exception, string, string> ExpectedFailures => new()
     {
         {

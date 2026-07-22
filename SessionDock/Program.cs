@@ -1,6 +1,7 @@
 using System.Windows;
 using SessionDock.Services;
 using Velopack;
+using Velopack.Locators;
 
 namespace SessionDock;
 
@@ -23,6 +24,8 @@ public static class Program
             .SetArgs(velopackArguments)
             .SetAutoApplyOnStartup(false)
             .Run();
+        AppDataPaths.ConfigureProtectedInstallRoot(
+            VelopackLocator.Current.RootAppDir);
 
         if (runtimeSmokeTest is not null)
         {

@@ -65,6 +65,10 @@ manual reinstall.
 The project version, notes filename, tag, package version, descriptor version,
 and Velopack version must agree. Every mismatch fails closed.
 
+The Velopack package ID is `SessionDockApp`. It must never equal the current
+data directory name `SessionDock` or the historic combined install/data name
+`RobloxOne`. Changing this invariant is a data-loss-sensitive release change.
+
 ## Publish
 
 Create and push an annotated version tag only after the reviewed commit is the
@@ -118,7 +122,14 @@ Before announcing a release:
   parsing, single launch, Recent, cancellation, and optional integrations;
 - confirm the top-right update button reports no newer version;
 - from the preceding installed version, verify update discovery, signed notes,
-  download, restart, retained local data, and final version; and
+  download, restart, retained local data, and final version, except at the
+  deliberate 2.3.0-to-2.3.1 package-ID boundary, which must use the
+  side-by-side corrective-install test below;
+- for the 2.3.1 corrective boundary, install side-by-side with a disposable
+  Roblox One 2.1.4/SessionDock 2.3.0 fixture whose legacy root contains
+  `current`, `packages`, `Update.exe`, settings, and browser profiles; verify
+  that only allowlisted user data is copied, both accounts remain visible, and
+  every legacy source and installer file remains byte-identical; and
 - verify the checksums and GitHub attestation for every asset.
 
 ```powershell
