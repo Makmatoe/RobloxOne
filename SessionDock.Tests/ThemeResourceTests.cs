@@ -30,6 +30,12 @@ public sealed class ThemeResourceTests
         "AccentSurfaceBrush",
         "FocusBrush",
         "OnAccentTextBrush",
+        "CaptionButtonHoverBrush",
+        "CaptionButtonPressedBrush",
+        "CaptionButtonHoverTextBrush",
+        "CaptionCloseHoverBrush",
+        "CaptionClosePressedBrush",
+        "CaptionCloseHoverTextBrush",
         "FieldBackgroundBrush",
         "FieldBorderBrush",
         "FieldHoverBorderBrush",
@@ -239,7 +245,11 @@ public sealed class ThemeResourceTests
             ("WarningMutedTextBrush", "WarningSurfaceBrush"),
             ("ErrorTextBrush", "ErrorSurfaceBrush"),
             ("ErrorMutedTextBrush", "ErrorSurfaceBrush"),
-            ("VioletTextBrush", "VioletSurfaceBrush")
+            ("VioletTextBrush", "VioletSurfaceBrush"),
+            ("CaptionButtonHoverTextBrush", "CaptionButtonHoverBrush"),
+            ("CaptionButtonHoverTextBrush", "CaptionButtonPressedBrush"),
+            ("CaptionCloseHoverTextBrush", "CaptionCloseHoverBrush"),
+            ("CaptionCloseHoverTextBrush", "CaptionClosePressedBrush")
         };
 
         foreach (var (foregroundKey, backgroundKey) in pairs)
@@ -283,6 +293,37 @@ public sealed class ThemeResourceTests
                 $"{themeFileName} {foregroundKey} on {backgroundKey} " +
                 $"has only {contrast:0.00}:1 contrast.");
         }
+    }
+
+    [Fact]
+    public void HighContrastCaptionStates_UseMatchingSystemHighlightColors()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "SessionDock",
+            "Themes",
+            "HighContrastTheme.xaml");
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var colors = XDocument.Load(path).Root!
+            .Elements()
+            .Where(element => element.Name.LocalName == "SolidColorBrush")
+            .ToDictionary(
+                element => (string)element.Attribute(xaml + "Key")!,
+                element => (string)element.Attribute("Color")!,
+                StringComparer.Ordinal);
+
+        Assert.Contains(
+            "SystemColors.HighlightColor",
+            colors["CaptionButtonHoverBrush"],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SystemColors.HighlightColor",
+            colors["CaptionButtonPressedBrush"],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SystemColors.HighlightTextColor",
+            colors["CaptionButtonHoverTextBrush"],
+            StringComparison.Ordinal);
     }
 
     [Fact]

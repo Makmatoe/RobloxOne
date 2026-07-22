@@ -123,6 +123,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        CaptionControls.AttachToWindow(this);
         WindowLayoutService.FitToWorkArea(this);
         var app = (App)Application.Current;
         _soundService = app.SoundService;

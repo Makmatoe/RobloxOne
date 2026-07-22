@@ -15,6 +15,12 @@
     <SolidColorBrush x:Key="AccentSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
     <SolidColorBrush x:Key="FocusBrush" Color="{x:Static SystemColors.HighlightColor}"/>
     <SolidColorBrush x:Key="OnAccentTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonPressedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionClosePressedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
 
     <SolidColorBrush x:Key="FieldBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
     <SolidColorBrush x:Key="FieldBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>

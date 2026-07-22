@@ -15,6 +15,12 @@
     <SolidColorBrush x:Key="AccentSurfaceBrush" Color="#E7EFFB"/>
     <SolidColorBrush x:Key="FocusBrush" Color="#174B94"/>
     <SolidColorBrush x:Key="OnAccentTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverBrush" Color="#E5EAF1"/>
+    <SolidColorBrush x:Key="CaptionButtonPressedBrush" Color="#D7DEE8"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverTextBrush" Color="#17202B"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverBrush" Color="#C42B1C"/>
+    <SolidColorBrush x:Key="CaptionClosePressedBrush" Color="#A62016"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverTextBrush" Color="#FFFFFF"/>
 
     <!-- Fields, scrolling, menus, and general controls. -->
     <SolidColorBrush x:Key="FieldBackgroundBrush" Color="#FFFFFF"/>

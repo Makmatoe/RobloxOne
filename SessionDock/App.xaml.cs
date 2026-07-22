@@ -2,6 +2,8 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Shell;
+using System.Windows.Media;
 using System.Windows.Threading;
 using SessionDock.Services;
 
@@ -69,6 +71,7 @@ public partial class App : Application
             handledEventsToo: true);
         base.OnStartup(e);
         _themeService = new AppThemeService(this);
+        _themeService.ThemeChanged += ThemeService_ThemeChanged;
 
         if (!ApplicationStartup.TryStart(
                 () =>
@@ -83,7 +86,6 @@ public partial class App : Application
                         // a window on the maintainer's desktop.
                         mainWindow.ShowActivated = false;
                         mainWindow.ShowInTaskbar = false;
-                        mainWindow.WindowStyle = WindowStyle.None;
                         mainWindow.Opacity = 0;
                         mainWindow.WindowStartupLocation =
                             WindowStartupLocation.Manual;
@@ -120,18 +122,62 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _singleInstance?.Dispose();
+        if (_themeService is not null)
+            _themeService.ThemeChanged -= ThemeService_ThemeChanged;
         _themeService?.Dispose();
         SoundService?.Dispose();
         base.OnExit(e);
     }
 
-    private void Button_Click(object sender, RoutedEventArgs e) =>
+    private void Button_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is DependencyObject element &&
+            IsInsideCaptionControls(element))
+        {
+            return;
+        }
+
         SoundService?.PlayUiClick(UiSoundsEnabled);
+    }
+
+    private static bool IsInsideCaptionControls(DependencyObject element)
+    {
+        for (var current = element;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is WindowCaptionControls)
+                return true;
+        }
+
+        return false;
+    }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        if (_runtimeSmokeTest is null && sender is Window window)
+        if (sender is not Window window)
+            return;
+
+        ApplyNativeWindowTheme(window);
+        if (_runtimeSmokeTest is null)
             WindowLayoutService.FitToWorkArea(window);
+    }
+
+    private void ThemeService_ThemeChanged(object? sender, EventArgs e)
+    {
+        foreach (Window window in Windows)
+            ApplyNativeWindowTheme(window);
+    }
+
+    private void ApplyNativeWindowTheme(Window window)
+    {
+        if (_themeService is null)
+            return;
+
+        NativeWindowFrameService.ApplyTheme(
+            window,
+            _themeService.UseLightThemePreference,
+            _themeService.IsHighContrastActive);
     }
 
     private void ActivateExistingWindow()
@@ -163,6 +209,7 @@ public partial class App : Application
                     "The isolated runtime smoke-test startup failed.",
                     startupFailure);
             }
+            VerifyIntegratedWindowChrome(mainWindow);
             mainWindow.VerifyThemeSwitchForRuntimeSmoke();
 
             void HandleShutdownCompleted(Exception? shutdownFailure)
@@ -190,7 +237,7 @@ public partial class App : Application
             // This deliberately takes the normal Closing path so the smoke
             // validates bounded persistence and teardown before process exit.
             mainWindow.ShutdownCompleted += HandleShutdownCompleted;
-            mainWindow.Close();
+            mainWindow.CaptionControls.CloseForRuntimeSmoke();
         }
         catch (Exception exception)
         {
@@ -200,6 +247,23 @@ public partial class App : Application
                 $"Isolated runtime smoke failed: {exception.GetType().Name}.");
             Shutdown(1);
         }
+    }
+
+    private static void VerifyIntegratedWindowChrome(MainWindow mainWindow)
+    {
+        var chrome = WindowChrome.GetWindowChrome(mainWindow);
+        if (mainWindow.WindowStyle != WindowStyle.None ||
+            mainWindow.AllowsTransparency ||
+            chrome is null ||
+            chrome.CaptionHeight != 64 ||
+            chrome.GlassFrameThickness != new Thickness(0) ||
+            chrome.UseAeroCaptionButtons)
+        {
+            throw new InvalidOperationException(
+                "The integrated native window chrome was not initialized.");
+        }
+
+        mainWindow.CaptionControls.VerifyForRuntimeSmoke();
     }
 
     private static void WriteRuntimeSmokeSuccessMarker(string resultPath)
