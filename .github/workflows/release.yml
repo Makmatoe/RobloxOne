@@ -51,6 +51,10 @@ jobs:
         shell: pwsh
         run: ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 -OutputDirectory artifacts/release-input/app -CI
 
+      - name: Run the isolated published-executable smoke
+        shell: pwsh
+        run: ./scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/release-input/app/SessionDock.exe -TimeoutSeconds 30
+
       - name: Publish the descriptor signer
         shell: pwsh
         run: >-
@@ -102,8 +106,8 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  sign-attest-and-publish:
-    name: Sign descriptor, attest, and publish
+  sign-attest-and-stage:
+    name: Sign, attest, and stage verified draft
     needs: validate-and-build
     runs-on: windows-latest
     timeout-minutes: 30
@@ -262,13 +266,110 @@ jobs:
         with:
           subject-path: verified-assets/*
 
-      - name: Publish the verified draft
+  publish-verified-release:
+    name: Approve and publish verified release
+    needs:
+      - validate-and-build
+      - sign-attest-and-stage
+    runs-on: windows-latest
+    timeout-minutes: 15
+    environment: release-publication
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - name: Re-download and verify the approved draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-and-build.outputs.version }}
+          EXPECTED_SIGNER_WORKFLOW: Makmatoe/SessionDock/.github/workflows/release.yml
+          EXPECTED_SOURCE_REF: ${{ github.ref }}
+          EXPECTED_SOURCE_DIGEST: ${{ github.sha }}
+        run: |
+          if ($env:GITHUB_REPOSITORY -cne 'Makmatoe/SessionDock') {
+            throw 'This workflow may publish only from Makmatoe/SessionDock.'
+          }
+          if ($env:EXPECTED_SOURCE_REF -cne "refs/tags/$env:RELEASE_TAG" -or
+              $env:EXPECTED_SOURCE_DIGEST -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'The approved release provenance does not identify the expected tag commit.'
+          }
+
+          $releaseJson = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json isDraft,tagName,name
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect the approved draft release.' }
+          $release = $releaseJson | ConvertFrom-Json
+          if (-not $release.isDraft -or
+              $release.tagName -cne $env:RELEASE_TAG -or
+              $release.name -cne "SessionDock $env:RELEASE_VERSION") {
+            throw 'The approved release is not the expected verified draft.'
+          }
+
+          New-Item -ItemType Directory approved-assets -Force | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --dir approved-assets --pattern '*'
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to download the approved draft assets.' }
+
+          $expectedNames = @(
+            'assets.win-x64-sessiondock.json'
+            'RELEASES-win-x64-sessiondock'
+            'releases.win-x64-sessiondock.json'
+            "SessionDock-$env:RELEASE_VERSION-sbom.spdx.json"
+            'sessiondock-release.json'
+            'SessionDock-win-x64-Portable.zip'
+            'SessionDock-win-x64-Setup.exe'
+            "SessionDockApp-$env:RELEASE_VERSION-win-x64-sessiondock-full.nupkg"
+            'SHA256SUMS.txt'
+          ) | Sort-Object
+          $assets = @(Get-ChildItem approved-assets -File | Sort-Object Name)
+          $actualNames = @($assets.Name | Sort-Object)
+          if (Compare-Object $expectedNames $actualNames -CaseSensitive) {
+            throw 'The approved draft asset inventory is not exact.'
+          }
+
+          $checksumPath = Join-Path approved-assets 'SHA256SUMS.txt'
+          $checksumEntries = [Collections.Generic.Dictionary[string, string]]::new(
+            [StringComparer]::Ordinal)
+          foreach ($line in Get-Content -LiteralPath $checksumPath) {
+            if ($line -cnotmatch '^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)$') {
+              throw 'The approved draft checksum file is malformed.'
+            }
+            if ($checksumEntries.ContainsKey($Matches[2])) {
+              throw "The approved draft checksum file repeats $($Matches[2])."
+            }
+            $checksumEntries.Add($Matches[2], $Matches[1])
+          }
+          $expectedChecksumNames = @($actualNames | Where-Object { $_ -cne 'SHA256SUMS.txt' })
+          if (Compare-Object `
+              $expectedChecksumNames `
+              @($checksumEntries.Keys | Sort-Object) `
+              -CaseSensitive) {
+            throw 'The approved draft checksums do not cover the exact asset set.'
+          }
+          foreach ($name in $expectedChecksumNames) {
+            $actualHash = (Get-FileHash -LiteralPath (Join-Path approved-assets $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -cne $checksumEntries[$name]) {
+              throw "Approved draft checksum mismatch: $name"
+            }
+          }
+
+          foreach ($asset in $assets) {
+            gh attestation verify $asset.FullName `
+              --repo $env:GITHUB_REPOSITORY `
+              --signer-workflow $env:EXPECTED_SIGNER_WORKFLOW `
+              --source-ref $env:EXPECTED_SOURCE_REF `
+              --source-digest $env:EXPECTED_SOURCE_DIGEST
+            if ($LASTEXITCODE -ne 0) {
+              throw "Approved draft attestation verification failed: $($asset.Name)"
+            }
+          }
+
+      - name: Publish the reverified draft
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
         run: |
           $draftState = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json isDraft --jq .isDraft
-          if ($LASTEXITCODE -ne 0 -or $draftState -ne 'true') { throw 'The verified release is no longer a draft.' }
+          if ($LASTEXITCODE -ne 0 -or $draftState -ne 'true') { throw 'The reverified release is no longer a draft.' }
           gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Unable to publish the verified draft release.' }

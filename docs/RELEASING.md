@@ -3,7 +3,8 @@
 SessionDock uses a no-cost, tag-triggered Windows release pipeline. It combines
 an independently ECDSA-signed release descriptor, exact SHA-256/package
 validation, GitHub's protected release environment, immutable GitHub Releases,
-and GitHub artifact attestations. The Windows executables are intentionally not
+GitHub artifact attestations, and a separate final-publication approval. The
+Windows executables are intentionally not
 Authenticode code-signed, so the project does not claim a verified Windows
 publisher and users may see **Unknown publisher** or SmartScreen warnings.
 
@@ -17,15 +18,28 @@ Keep these controls enabled before publishing:
    linear history, and no force pushes or deletion.
 3. Protect tags matching `v*` from updates and deletion.
 4. Keep GitHub Actions' default token read-only. The release workflow grants
-   write permissions only to its protected publication job.
+   write permissions only to its two bounded protected jobs.
 5. Keep private vulnerability reporting, Dependabot alerts, secret scanning,
    push protection, CodeQL, and immutable releases enabled where available.
-6. Keep the `release` environment approval-protected and limited to tags
-   matching `v*`.
-7. Store the single-line base64 of the P-256 PKCS#8 private key matching
-   `SessionDock/Resources/update-public-key.pem` only in the protected
-   environment secret `UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64`. Never commit, print,
-   upload as an artifact, or copy that private key into application data.
+6. Create a `release` environment for signing and staging the verified draft.
+   Require a reviewer, select **Selected branches and tags**, add only the
+   deployment tag rule `v*`, and disable administrator bypass. Store the
+   single-line base64 of the P-256 PKCS#8 private key matching
+   `SessionDock/Resources/update-public-key.pem` only in this environment's
+   secret `UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64`.
+7. Create a separate `release-publication` environment for the final approval.
+   Require a reviewer, select **Selected branches and tags**, add only the
+   deployment tag rule `v*`, and disable administrator bypass. Do not add any
+   secrets to this environment. The final job receives only release-write and
+   attestation-read permissions, and it starts only after a verified draft
+   exists.
+8. When the repository has only one maintainer able to review deployments,
+   leave **Prevent self-review** disabled or the release will deadlock. When a
+   second trusted maintainer is available, enable it and require that person to
+   approve both environments.
+
+Never commit, print, upload as an artifact, or copy the descriptor private key
+into application data.
 
 There are no Azure, certificate-authority, or paid-signing requirements. The
 descriptor key is the only protected release secret. If it is lost, publish a
@@ -94,51 +108,44 @@ The protected workflow then:
 1. verifies that the annotated tag is the current protected `main` tip;
 2. restores locked dependencies and runs the full Release build/test suite;
 3. publishes the self-contained Windows x64 application;
-4. uses the exact pinned Velopack CLI to create Setup, full-package, and
+4. runs `Test-RuntimeSmoke.ps1` against that exact published executable in an
+   isolated, disposable data root;
+5. uses the exact pinned Velopack CLI to create Setup, full-package, and
    portable assets without Authenticode signing;
-5. signs a bounded descriptor containing the final package filename, size,
+6. signs a bounded descriptor containing the final package filename, size,
    SHA-256, channel, key ID, version, timestamp, and release notes;
-6. verifies that signature with the public key embedded in the application;
-7. enforces exact release, package, portable-ZIP, license, and feed inventories;
-8. publishes an SPDX 2.3 SBOM and `SHA256SUMS.txt` covering every other asset;
-9. creates a fresh draft, uploads it, downloads every asset again, and compares
+7. verifies that signature with the public key embedded in the application;
+8. enforces exact release, package, portable-ZIP, license, and feed inventories;
+9. publishes an SPDX 2.3 SBOM and `SHA256SUMS.txt` covering every other asset;
+10. creates a fresh draft, uploads it, downloads every asset again, and compares
    exact hashes;
-10. creates GitHub artifact attestations for those downloaded assets; and
-11. publishes the immutable release only after all validation succeeds.
+11. creates GitHub artifact attestations for those downloaded assets;
+12. waits at the `release-publication` environment for explicit acceptance;
+13. after approval, downloads the draft again and enforces its exact inventory,
+    ordinal filename/checksum matching, release identity, and GitHub
+    attestations bound to the canonical release workflow, tag ref, and commit;
+    and
+14. publishes the reverified draft as the immutable latest release.
 
 Actions are pinned to full commit SHAs. The workflow is tag-only, does not use
 `pull_request_target`, does not clobber assets, and exposes the descriptor key
 only to its one signing step. Never move or reuse a published version tag. If a
 release has been published, fix forward with a new version.
 
-## Verify after publication
+## Verify the draft before publication
 
-Before announcing a release:
-
-- install Setup on a clean Windows x64 test account or VM;
-- expect Windows to report an unknown publisher, and verify that no README or
-  dialog claims otherwise;
-- confirm the installed version and exercise add/remove account, destination
-  parsing, single launch, Recent, cancellation, and optional integrations;
-- confirm the top-right update button reports no newer version;
-- from the preceding installed version, verify update discovery, signed notes,
-  download, restart, retained local data, and final version, except at the
-  deliberate 2.3.0-to-2.3.1 package-ID boundary, which must use the
-  side-by-side corrective-install test below;
-- for the 2.3.1 corrective boundary, install side-by-side with a disposable
-  Roblox One 2.1.4/SessionDock 2.3.0 fixture whose legacy root contains
-  `current`, `packages`, `Update.exe`, settings, and browser profiles; verify
-  that only allowlisted user data is copied, both accounts remain visible, and
-  every legacy source and installer file remains byte-identical; and
-- verify the checksums and GitHub attestation for every asset.
+Wait for `Sign, attest, and stage verified draft` to succeed and for `Approve
+and publish verified release` to show that it is waiting for the
+`release-publication` environment. The draft is not visible to the tokenless
+updater, so authenticate `gh` as a repository maintainer and download it by tag:
 
 ```powershell
-$tag = Read-Host 'Published release tag (v followed by major.minor.patch)'
+$tag = Read-Host 'Draft release tag (v followed by major.minor.patch)'
 if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected a vmajor.minor.patch tag.' }
-$directory = "verified-release-$tag"
+$directory = "verified-draft-$tag"
 
 gh release download $tag --repo Makmatoe/SessionDock --dir $directory
-if ($LASTEXITCODE -ne 0) { throw "Release download failed: $tag" }
+if ($LASTEXITCODE -ne 0) { throw "Draft download failed: $tag" }
 Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
     gh attestation verify $_.FullName --repo Makmatoe/SessionDock
     if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed: $($_.Name)" }
@@ -155,5 +162,37 @@ Get-AuthenticodeSignature (Join-Path $directory 'SessionDock-win-x64-Setup.exe')
 
 For this no-cost model the final command is expected to report `NotSigned`.
 That is a disclosed distribution limitation, not a successful publisher check.
+
+Before approving publication:
+
+- install Setup on a clean Windows x64 test account or VM;
+- expect Windows to report an unknown publisher, and verify that no README or
+  dialog claims otherwise;
+- confirm the installed version and exercise add/remove account, destination
+  parsing, single launch, Recent, cancellation, and optional integrations;
+- confirm restart recovery and retained disposable test data;
+- for the 2.3.1 corrective boundary only, install side-by-side with a disposable
+  Roblox One 2.1.4/SessionDock 2.3.0 fixture whose legacy root contains
+  `current`, `packages`, `Update.exe`, settings, and browser profiles; verify
+  that only allowlisted user data is copied, both accounts remain visible, and
+  every legacy source and installer file remains byte-identical; and
+- approve `release-publication` only when all draft checks pass.
+
+If a draft fails, do not approve it. Investigate first; remove only that failed,
+unpublished draft before rerunning the same protected tag workflow. Never move
+or reuse a published tag.
+
+## Verify after publication
+
+Before announcing a release:
+
+- confirm the top-right update button reports no newer version;
+- from the preceding installed version, verify update discovery, signed notes,
+  download, restart, retained disposable test data, and final version, except at the
+  deliberate 2.3.0-to-2.3.1 package-ID boundary, which must use the
+  side-by-side corrective-install test above; and
+- confirm the public release is immutable and its asset inventory still matches
+  the verified draft.
+
 If any descriptor, checksum, inventory, or attestation verification fails, do
 not run or replace assets; investigate and publish a new version.

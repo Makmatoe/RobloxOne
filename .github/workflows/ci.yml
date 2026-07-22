@@ -43,6 +43,10 @@ jobs:
         shell: pwsh
         run: ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 -OutputDirectory artifacts/ci-publish -CI
 
+      - name: Run the isolated published-executable smoke
+        shell: pwsh
+        run: ./scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/ci-publish/SessionDock.exe -TimeoutSeconds 30
+
       - name: Upload diagnostic build output
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
