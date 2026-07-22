@@ -26,36 +26,7 @@ try {
     }
 
     $notesPath = Join-Path $root "SessionDock/ReleaseNotes/$version.md"
-    if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
-        throw "Release notes are required at SessionDock/ReleaseNotes/$version.md."
-    }
-
-    $notes = Get-Content -LiteralPath $notesPath -Raw
-    if ([string]::IsNullOrWhiteSpace($notes) -or $notes.Length -gt 65536) {
-        throw 'Release notes must contain between 1 and 65,536 characters.'
-    }
-    if ($notes -match '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]') {
-        throw 'Release notes contain unsupported control characters.'
-    }
-
-    # Version 2.3.0 displays signed notes in a plain TextBox and can update
-    # directly to any later release. Keep every future notes file readable in
-    # that legacy dialog even though newer clients also apply local formatting.
-    $plainTextCompatibilityPatterns = [ordered] @{
-        'ATX heading markers' = '(?m)^[ \t]{0,3}#{1,6}(?:[ \t]+|$)'
-        'indented continuation or code lines' = '(?m)^[ \t]+\S'
-        'block quote markers' = '(?m)^[ \t]{0,3}>'
-        'fenced code or horizontal rules' = '(?m)^[ \t]{0,3}(?:`{3,}|~{3,}|-{3,}|\*{3,}|_{3,})[ \t]*$'
-        'inline code markers' = '`'
-        'emphasis markers' = '(?:\*\*|\*[^*\r\n]+\*|__|(?<!\w)_[^_\r\n]+_(?!\w))'
-        'Markdown links or images' = '!?\[[^\]\r\n]*\]\([^\)\r\n]+\)'
-        'raw HTML' = '<[!/A-Za-z][^>\r\n]*>'
-    }
-    foreach ($entry in $plainTextCompatibilityPatterns.GetEnumerator()) {
-        if ($notes -match $entry.Value) {
-            throw "Release notes contain $($entry.Key), which are not readable in the 2.3.0 plain-text update dialog. Use plain headings and single-line '- ' bullets."
-        }
-    }
+    Assert-LegacyReadableReleaseNotes -Path $notesPath
 
     $head = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $head -cnotmatch '^[0-9a-f]{40}$') {

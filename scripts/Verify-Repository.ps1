@@ -68,7 +68,9 @@ try {
         throw 'The local vpk tool must remain pinned exactly to version 1.2.0 with roll-forward disabled.'
     }
 
-    [void] (Get-ProjectVersion)
+    $version = Get-ProjectVersion
+    Assert-LegacyReadableReleaseNotes `
+        -Path (Join-Path $root "SessionDock/ReleaseNotes/$version.md")
 
     $releasePolicyContents = Get-Content -LiteralPath `
         (Join-Path $root 'SessionDock.ReleaseTrust/ReleaseDescriptorPolicy.cs') -Raw
@@ -243,7 +245,7 @@ try {
         }
     }
 
-    Write-Host "Repository validation passed for SessionDock $(Get-ProjectVersion)."
+    Write-Host "Repository validation passed for SessionDock $version."
 }
 finally {
     Pop-Location

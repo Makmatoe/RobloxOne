@@ -3,6 +3,7 @@ using SessionDock.Services;
 
 namespace SessionDock.Tests;
 
+[Collection<TimingSensitiveTestCollection>]
 public sealed class WindowOperationLifetimeTests
 {
     [Fact]

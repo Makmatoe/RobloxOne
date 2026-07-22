@@ -4,6 +4,7 @@ using SessionDock.Services;
 
 namespace SessionDock.Tests;
 
+[Collection<TimingSensitiveTestCollection>]
 public sealed class PendingProfileCleanupTests : IDisposable
 {
     private readonly string _storageDirectory = Path.Combine(
