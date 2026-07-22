@@ -82,6 +82,59 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         Assert.NotNull(recoveryService.LoadNotice);
     }
 
+    [Fact]
+    public void Load_PersistentRecoveryWarning_IsShownOnceUntilStateClears()
+    {
+        var initialService = new SettingsService(_storageDirectory);
+        initialService.Save(new AppSettings());
+        var cleanupGuard = Path.Combine(
+            _storageDirectory,
+            "profile-cleanup-paused.txt");
+        var receipt = Path.Combine(
+            _storageDirectory,
+            AppDataPaths.LegacyInstallMigrationReceiptFileName);
+        File.WriteAllText(cleanupGuard, "keep recovered profiles");
+        File.WriteAllText(receipt, "completed recovery");
+
+        var firstService = new SettingsService(_storageDirectory);
+        _ = firstService.Load();
+
+        Assert.Contains(
+            "account records are available",
+            Assert.IsType<string>(firstService.LoadNotice),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(firstService.CanReconcileProfiles);
+        firstService.AcknowledgeLoadNotice();
+
+        var acknowledgedService = new SettingsService(_storageDirectory);
+        _ = acknowledgedService.Load();
+
+        Assert.Null(acknowledgedService.LoadNotice);
+        Assert.False(acknowledgedService.CanReconcileProfiles);
+        Assert.True(File.Exists(Path.Combine(
+            _storageDirectory,
+            SettingsService.RecoveryNoticeAcknowledgementFileName)));
+
+        File.Delete(cleanupGuard);
+        File.Delete(receipt);
+        var cleanService = new SettingsService(_storageDirectory);
+        _ = cleanService.Load();
+
+        Assert.Null(cleanService.LoadNotice);
+        Assert.True(cleanService.CanReconcileProfiles);
+        Assert.False(File.Exists(Path.Combine(
+            _storageDirectory,
+            SettingsService.RecoveryNoticeAcknowledgementFileName)));
+
+        File.WriteAllText(cleanupGuard, "new recovery state");
+        File.WriteAllText(receipt, "new completed recovery");
+        var repeatedStateService = new SettingsService(_storageDirectory);
+        _ = repeatedStateService.Load();
+
+        Assert.NotNull(repeatedStateService.LoadNotice);
+        Assert.False(repeatedStateService.CanReconcileProfiles);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

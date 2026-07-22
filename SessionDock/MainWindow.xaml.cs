@@ -131,6 +131,7 @@ public partial class MainWindow : Window
                     "Local settings recovery",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
+                _settingsService.AcknowledgeLoadNotice();
             }
             if (_activeProfile is null)
             {

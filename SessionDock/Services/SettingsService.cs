@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using SessionDock.Models;
 
@@ -17,6 +19,8 @@ public sealed class SettingsService
     private const int MaximumSettingsBytes = 4 * 1024 * 1024;
     internal const int MaximumPendingProfileDeletions = 256;
     private const string ProfileDeletionMarkerExtension = ".delete";
+    internal const string RecoveryNoticeAcknowledgementFileName =
+        "recovery-notice.ack";
     public static readonly IReadOnlyList<string> AccountColors =
         ["#7C5CFC", "#4D8DFF", "#27B58A", "#E0A33A", "#E36B8D", "#A56DE2"];
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -24,6 +28,7 @@ public sealed class SettingsService
     private readonly string _backupPath;
     private readonly string _profileCleanupGuardPath;
     private readonly string _profileDeletionJournalDirectory;
+    private readonly string _recoveryNoticeAcknowledgementPath;
     private readonly string _settingsPath;
     private readonly object _saveLock = new();
     private readonly Func<string, FileAttributes> _getAttributes;
@@ -67,11 +72,48 @@ public sealed class SettingsService
         _profileDeletionJournalDirectory = Path.Combine(
             _rootDirectory,
             "PendingProfileDeletions");
+        _recoveryNoticeAcknowledgementPath = Path.Combine(
+            _rootDirectory,
+            RecoveryNoticeAcknowledgementFileName);
         RefreshProfileCleanupState();
     }
 
     public string? LoadNotice { get; private set; }
     public bool CanReconcileProfiles { get; private set; } = true;
+
+    internal void AcknowledgeLoadNotice()
+    {
+        var notice = LoadNotice;
+        if (string.IsNullOrWhiteSpace(notice))
+            return;
+
+        lock (_saveLock)
+        {
+            try
+            {
+                var state = ProbePath(_recoveryNoticeAcknowledgementPath);
+                if (state == PathProbeResult.Directory)
+                {
+                    throw new IOException(
+                        "The recovery-notice acknowledgement path is a directory.");
+                }
+                if (state == PathProbeResult.File)
+                    ThrowIfReparsePoint(_recoveryNoticeAcknowledgementPath);
+                File.WriteAllText(
+                    _recoveryNoticeAcknowledgementPath,
+                    GetNoticeFingerprint(notice),
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            }
+            catch (Exception exception) when (
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                // A failed acknowledgement is harmless: the warning remains
+                // visible on the next start instead of weakening recovery.
+                System.Diagnostics.Trace.WriteLine(
+                    $"Recovery notice acknowledgement failed: {exception.GetType().Name}.");
+            }
+        }
+    }
 
     public string GetSessionDataDirectory(AccountProfile profile)
     {
@@ -935,7 +977,12 @@ public sealed class SettingsService
                     PathProbeResult.Missing ||
                     AppDataPaths.HasIncompleteMigration(_rootDirectory)
                     ? "A legacy RobloxOne data migration did not finish cleanly. Some files may exist in either data directory, so automatic browser-profile cleanup is paused. Reconcile both directories before deleting migration-in-progress.txt."
-                    : "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
+                    : ProbePath(Path.Combine(
+                            _rootDirectory,
+                            AppDataPaths.LegacyInstallMigrationReceiptFileName)) !=
+                        PathProbeResult.Missing
+                        ? "Automatic browser-profile cleanup remains paused while recovered sessions are being validated. Your account records are available; the pause prevents unreferenced browser profiles from being deleted."
+                        : "Automatic browser-profile cleanup is paused to protect sessions whose account metadata could not be recovered.";
             AppendLoadNotice(cleanupNotice);
         }
 
@@ -947,7 +994,48 @@ public sealed class SettingsService
             AppendLoadNotice(
                 "Your accounts and browser profiles were recovered, but a conflicting optional sound or local integration file remains only in the preserved RobloxOne folder. Keep that folder until any optional configuration you still need has been reviewed.");
         }
+
+        ApplyRecoveryNoticeAcknowledgement();
     }
+
+    private void ApplyRecoveryNoticeAcknowledgement()
+    {
+        if (string.IsNullOrWhiteSpace(LoadNotice))
+        {
+            DeleteTemporaryFileBestEffort(_recoveryNoticeAcknowledgementPath);
+            return;
+        }
+
+        try
+        {
+            if (ProbePath(_recoveryNoticeAcknowledgementPath) != PathProbeResult.File)
+                return;
+            ThrowIfReparsePoint(_recoveryNoticeAcknowledgementPath);
+            var info = new FileInfo(_recoveryNoticeAcknowledgementPath);
+            if (info.Length <= 0 || info.Length > SHA256.HashSizeInBytes * 2 + 2)
+                return;
+            var acknowledged = File.ReadAllText(
+                    _recoveryNoticeAcknowledgementPath,
+                    Encoding.UTF8)
+                .Trim();
+            if (acknowledged.Equals(
+                    GetNoticeFingerprint(LoadNotice),
+                    StringComparison.Ordinal))
+            {
+                LoadNotice = null;
+            }
+        }
+        catch (Exception exception) when (
+            LocalDataException.IsExpectedPersistenceFailure(exception))
+        {
+            // An unreadable acknowledgement never suppresses a safety notice.
+            System.Diagnostics.Trace.WriteLine(
+                $"Recovery notice acknowledgement could not be read: {exception.GetType().Name}.");
+        }
+    }
+
+    private static string GetNoticeFingerprint(string notice) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(notice)));
 
     private void AppendLoadNotice(string notice) =>
         LoadNotice = string.IsNullOrWhiteSpace(LoadNotice)
