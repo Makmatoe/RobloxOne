@@ -3,6 +3,64 @@ namespace SessionDock.Tests;
 public sealed class MainWindowLayoutTests
 {
     [Theory]
+    [InlineData(-20, 0)]
+    [InlineData(49, 0)]
+    [InlineData(50, 1)]
+    [InlineData(149, 1)]
+    [InlineData(150, 2)]
+    [InlineData(500, 3)]
+    public void CalculateAccountDropInsertionIndex_UsesRenderedMidpoints(
+        double pointerX,
+        int expectedIndex)
+    {
+        Assert.Equal(
+            expectedIndex,
+            MainWindow.CalculateAccountDropInsertionIndex(
+                pointerX,
+                [50, 150, 250]));
+    }
+
+    [Theory]
+    [InlineData(5, 1, true)]
+    [InlineData(3, 1, false)]
+    [InlineData(5, 6, false)]
+    [InlineData(-5, -1, true)]
+    public void ShouldStartHorizontalAccountDrag_RequiresHorizontalIntent(
+        double deltaX,
+        double deltaY,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MainWindow.ShouldStartHorizontalAccountDrag(
+                deltaX,
+                deltaY,
+                minimumHorizontalDistance: 4));
+    }
+
+    [Theory]
+    [InlineData(5, 300, 100, 500, 76)]
+    [InlineData(295, 300, 100, 500, 124)]
+    [InlineData(150, 300, 100, 500, 100)]
+    [InlineData(5, 300, 0, 500, 0)]
+    [InlineData(295, 300, 500, 500, 500)]
+    public void CalculateAccountDragScrollOffset_MovesNearEdgesAndClamps(
+        double pointerX,
+        double viewportWidth,
+        double currentOffset,
+        double scrollableWidth,
+        double expectedOffset)
+    {
+        Assert.Equal(
+            expectedOffset,
+            MainWindow.CalculateAccountDragScrollOffset(
+                pointerX,
+                viewportWidth,
+                currentOffset,
+                scrollableWidth));
+    }
+
+    [Theory]
     [InlineData(120, 200, 120, 80)]
     [InlineData(80, 200, -120, 120)]
     public void CalculateHorizontalWheelOffset_MovesInWheelDirection(

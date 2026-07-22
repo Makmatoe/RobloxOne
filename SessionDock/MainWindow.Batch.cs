@@ -13,13 +13,17 @@ public partial class MainWindow
     private async Task BatchLaunchButtonClickAsync(
         CancellationToken cancellationToken)
     {
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
 
         if (!await FlushDestinationPersistenceAsync())
             return;
         cancellationToken.ThrowIfCancellationRequested();
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
         var dialog = new BatchLaunchDialog(_settings.Accounts) { Owner = this };
         if (dialog.ShowDialog() != true)
@@ -38,7 +42,9 @@ public partial class MainWindow
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
 
         var originalProfile = _activeProfile;

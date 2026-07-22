@@ -830,17 +830,25 @@ public partial class MainWindow : Window
 
     private void RenderAccountList()
     {
-        var restoreKeyboardFocus = AccountsList.IsKeyboardFocusWithin;
-        var focusedAccountKey =
-            (Keyboard.FocusedElement as Button)?.Tag as string;
+        var requestedFocusKey = _accountFocusRestoreKey;
+        _accountFocusRestoreKey = null;
+        var restoreKeyboardFocus =
+            AccountsList.IsKeyboardFocusWithin || requestedFocusKey is not null;
+        var focusedAccountKey = requestedFocusKey ??
+            ((Keyboard.FocusedElement as Button)?.Tag as string);
         Button? focusedAccountButton = null;
         Button? activeAccountButton = null;
 
         AccountsList.Children.Clear();
-        foreach (var account in _settings.Accounts)
+        for (var index = 0; index < _settings.Accounts.Count; index++)
         {
+            var account = _settings.Accounts[index];
             var isActive = account.Key == _settings.ActiveAccountKey;
-            var accountButton = CreateAccountButton(account, isActive);
+            var accountButton = CreateAccountButton(
+                account,
+                isActive,
+                positionInSet: index + 1,
+                sizeOfSet: _settings.Accounts.Count);
             AccountsList.Children.Add(accountButton);
             if (account.Key.Equals(
                     focusedAccountKey,
@@ -867,9 +875,7 @@ public partial class MainWindow : Window
             }
         }
 
-        AddAccountButton.IsEnabled = !_operationBusy && _pendingProfile is null;
-        EditAccountButton.IsEnabled =
-            !_operationBusy && _pendingProfile is null && _activeProfile is not null;
+        UpdateAccountControlAvailability();
 
         if (restoreKeyboardFocus)
             RestoreKeyboardFocus(focusedAccountButton ?? activeAccountButton);
@@ -892,7 +898,9 @@ public partial class MainWindow : Window
     private Button CreateAccountButton(
         AccountProfile account,
         bool selected,
-        bool pending = false)
+        bool pending = false,
+        int positionInSet = 0,
+        int sizeOfSet = 0)
     {
         var button = new Button
         {
@@ -913,6 +921,13 @@ public partial class MainWindow : Window
         AutomationProperties.SetItemStatus(
             button,
             selected ? "Selected account" : "Not selected");
+        if (!pending)
+        {
+            ConfigureAccountReordering(
+                button,
+                positionInSet,
+                sizeOfSet);
+        }
 
         var accountColor = (Color)ColorConverter.ConvertFromString(
             account.ColorHex ?? "#326FD1");
@@ -983,7 +998,10 @@ public partial class MainWindow : Window
 
     private async Task EditAccountButtonClickAsync()
     {
-        if (_operationBusy || _pendingProfile is not null || _activeProfile is null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null ||
+            _activeProfile is null)
             return;
 
         var editedProfile = _activeProfile;
@@ -1266,15 +1284,29 @@ public partial class MainWindow : Window
             0,
             Math.Max(0, scrollableWidth));
 
-    private async void AccountButton_Click(object sender, RoutedEventArgs e) =>
+    private async void AccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_accountDragInProgress ||
+            _accountReorderInProgress ||
+            sender is Button { Tag: string key } &&
+            _suppressedAccountClickKey?.Equals(
+                key,
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return;
+        }
+
         await RunWindowOperationAsync(cancellationToken =>
             AccountButtonClickAsync(sender, cancellationToken));
+    }
 
     private async Task AccountButtonClickAsync(
         object sender,
         CancellationToken cancellationToken)
     {
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
         if (sender is not Button { Tag: string key })
             return;
@@ -1363,13 +1395,17 @@ public partial class MainWindow : Window
     private async Task AddAccountButtonClickAsync(
         CancellationToken cancellationToken)
     {
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
 
         if (!await FlushDestinationPersistenceAsync())
             return;
         cancellationToken.ThrowIfCancellationRequested();
-        if (_operationBusy || _pendingProfile is not null)
+        if (_operationBusy ||
+            _accountReorderInProgress ||
+            _pendingProfile is not null)
             return;
 
         var key = Guid.NewGuid().ToString("N");
@@ -1796,7 +1832,7 @@ public partial class MainWindow : Window
 
     private async Task ResetButtonClickAsync(CancellationToken cancellationToken)
     {
-        if (_operationBusy)
+        if (_operationBusy || _accountReorderInProgress)
             return;
         var profile = _activeProfile;
         if (profile is null || _pendingProfile is not null)
@@ -2306,6 +2342,7 @@ public partial class MainWindow : Window
             destinationIsValid;
         BatchLaunchButton.IsEnabled =
             !_operationBusy &&
+            !_accountReorderInProgress &&
             !_launchInProgress &&
             _pendingProfile is null &&
             _settings.Accounts.Count >= 2;
@@ -2314,12 +2351,8 @@ public partial class MainWindow : Window
     private void SetOperationBusy(bool busy)
     {
         _operationBusy = busy;
-        AccountsList.IsEnabled = !busy;
-        AddAccountButton.IsEnabled = !busy && _pendingProfile is null;
-        EditAccountButton.IsEnabled =
-            !busy && _pendingProfile is null && _activeProfile is not null;
+        UpdateAccountControlAvailability();
         RunningClientsButton.IsEnabled = !busy;
-        ResetButton.IsEnabled = !busy && _activeProfile is not null;
         SignInButton.IsEnabled = !busy;
         PlaceIdBox.IsEnabled = !busy;
         LaunchTabButton.IsEnabled = !busy;

@@ -6,6 +6,42 @@ namespace SessionDock.Tests;
 public sealed class WindowChromeTests
 {
     [Fact]
+    public void MainWindow_ConnectsAccountDragDropSurfaceAndIndicator()
+    {
+        var document = XDocument.Load(Path.Combine(
+            FindRepositoryRoot(),
+            "SessionDock",
+            "MainWindow.xaml"));
+        XNamespace presentation =
+            "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xaml =
+            "http://schemas.microsoft.com/winfx/2006/xaml";
+
+        var scrollViewer = document.Descendants(presentation + "ScrollViewer")
+            .Single(element =>
+                (string?)element.Attribute(xaml + "Name") ==
+                "AccountsScrollViewer");
+        Assert.Equal("True", (string?)scrollViewer.Attribute("AllowDrop"));
+        Assert.Equal(
+            "AccountsScrollViewer_PreviewDragOver",
+            (string?)scrollViewer.Attribute("PreviewDragOver"));
+        Assert.Equal(
+            "AccountsScrollViewer_PreviewDrop",
+            (string?)scrollViewer.Attribute("PreviewDrop"));
+        Assert.Equal(
+            "AccountsScrollViewer_DragLeave",
+            (string?)scrollViewer.Attribute("DragLeave"));
+
+        var indicator = document.Descendants(presentation + "Border")
+            .Single(element =>
+                (string?)element.Attribute(xaml + "Name") ==
+                "AccountDropIndicator");
+        Assert.Equal(
+            "False",
+            (string?)indicator.Attribute("IsHitTestVisible"));
+    }
+
+    [Fact]
     public void MainWindow_IntegratesNativeCaptionIntoApplicationHeader()
     {
         var document = XDocument.Load(Path.Combine(
