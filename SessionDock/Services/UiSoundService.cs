@@ -187,24 +187,35 @@ public sealed class UiSoundService : IDisposable
     }
 
     internal int CleanupOrphanedImportedSounds(
-        string? referencedFileName,
+        IReadOnlyCollection<string> retainedFileNames,
         bool reconciliationIsSafe,
+        IReadOnlyCollection<string>? ownedFileNames = null,
         CancellationToken cancellationToken = default) =>
         CleanupOrphanedImportedSounds(
             _soundsDirectory,
-            referencedFileName,
+            retainedFileNames,
             reconciliationIsSafe,
+            ownedFileNames,
             cancellationToken);
 
     internal static int CleanupOrphanedImportedSounds(
         string soundsDirectory,
-        string? referencedFileName,
+        IReadOnlyCollection<string> retainedFileNames,
         bool reconciliationIsSafe,
+        IReadOnlyCollection<string>? ownedFileNames = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(soundsDirectory);
-        if (!reconciliationIsSafe)
+        ArgumentNullException.ThrowIfNull(retainedFileNames);
+        ownedFileNames ??= [];
+        if (!reconciliationIsSafe && ownedFileNames.Count == 0)
             return 0;
+        var retained = retainedFileNames
+            .Where(IsManagedImportedFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var owned = ownedFileNames
+            .Where(IsManagedImportedFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var removed = 0;
         try
         {
@@ -226,10 +237,13 @@ public sealed class UiSoundService : IDisposable
                 {
                     continue;
                 }
+                if (!reconciliationIsSafe &&
+                    (!isImportedSound || !owned.Contains(fileName)))
+                {
+                    continue;
+                }
                 if (isImportedSound &&
-                    fileName.Equals(
-                        referencedFileName,
-                        StringComparison.OrdinalIgnoreCase))
+                    retained.Contains(fileName))
                 {
                     continue;
                 }

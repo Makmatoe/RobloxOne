@@ -493,7 +493,7 @@ public partial class MainWindow
                 account,
                 showLogin: false,
                 cancellationToken);
-            if (!TryGetCurrentWebSessionToken(account, out var sessionToken))
+            if (!TryGetAffineWebSessionToken(account, out var sessionToken))
             {
                 await initialization;
                 return null;
@@ -511,9 +511,16 @@ public partial class MainWindow
                 return null;
             }
 
-            var loadedToken = await pageLoaded.Task.WaitAsync(
-                TimeSpan.FromSeconds(20),
-                cancellationToken);
+            var sessionEnded = _webSession.GetSessionEndedTask(sessionToken);
+            if (!await RobloxWebSessionService.WaitForSessionWorkAsync(
+                    pageLoaded.Task,
+                    sessionEnded,
+                    TimeSpan.FromSeconds(20),
+                    cancellationToken))
+            {
+                return null;
+            }
+            var loadedToken = await pageLoaded.Task;
             cancellationToken.ThrowIfCancellationRequested();
             if (loadedToken != sessionToken ||
                 !IsCurrentWebSessionOwner(sessionToken))
@@ -654,6 +661,8 @@ public partial class MainWindow
                 $"Batch {position}: launching @{account.Username}",
                 "Handing this account's ticket directly to Roblox Player…",
                 "BATCH LAUNCH");
+            if (!IsCurrentWebSessionOwner(sessionToken))
+                return false;
             var launchStartedAt = DateTimeOffset.UtcNow;
             var result = await _robloxClient.LaunchAsync(
                 RobloxLaunchUriBuilder.Build(

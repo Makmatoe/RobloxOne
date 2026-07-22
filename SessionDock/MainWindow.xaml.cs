@@ -27,11 +27,13 @@ public partial class MainWindow : Window
         new LocalApiLaunchHook());
     private readonly WindowOperationLifetime _operationLifetime = new();
     private readonly SemaphoreSlim _accountCheckLock = new(1, 1);
+    private readonly HashSet<string> _sessionImportedSoundFileNames = new(
+        StringComparer.OrdinalIgnoreCase);
     private readonly AppSettings _settings;
     private readonly SerializedSettingsWriter _settingsWriter;
     private readonly SettingsMutationCoordinator _settingsMutations;
     private readonly DestinationPersistenceDebouncer _destinationPersistence;
-    private readonly string? _startupNotice;
+    private string? _startupNotice;
     private AccountProfile? _activeProfile;
     private AccountProfile? _pendingProfile;
     private RobloxUser? _currentUser;
@@ -67,17 +69,7 @@ public partial class MainWindow : Window
         _destinationPersistence = new DestinationPersistenceDebouncer(
             DestinationPersistenceDelay,
             PersistDestinationRequestAsync);
-        var removedOrphanedProfiles =
-            _settingsService.CleanupOrphanedSessionDirectories(_settings);
-        _startupNotice = removedOrphanedProfiles > 0
-            ? string.Join(
-                Environment.NewLine + Environment.NewLine,
-                new[]
-                {
-                    _settingsService.LoadNotice,
-                    $"Removed {removedOrphanedProfiles} incomplete local account profile(s) left by an interrupted sign-in."
-                }.Where(message => !string.IsNullOrWhiteSpace(message)))
-            : _settingsService.LoadNotice;
+        _startupNotice = _settingsService.LoadNotice;
         app.UiSoundsEnabled = _settings.UiSoundsEnabled;
         _webSession.RobloxPageLoaded += WebSession_RobloxPageLoaded;
         _webSession.SessionUnavailable += WebSession_SessionUnavailable;
@@ -95,33 +87,196 @@ public partial class MainWindow : Window
 
     private async Task MainWindowLoadedAsync(CancellationToken cancellationToken)
     {
-        await Task.Run(
-            () => _soundService.CleanupOrphanedImportedSounds(
-                _settings.CustomStartupSoundFileName,
-                _settingsService.CanReconcileProfiles,
-                cancellationToken),
-            cancellationToken);
-        _soundService.PlayStartup(
-            _settings.StartupSound,
-            _settings.CustomStartupSoundFileName);
-        if (!string.IsNullOrWhiteSpace(_startupNotice))
+        SetOperationBusy(true);
+        try
         {
-            MessageBox.Show(
-                this,
-                _startupNotice,
-                "Local settings recovery",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            await RetryPendingProfileDeletionsAsync(cancellationToken);
+            var removedOrphanedProfiles = await Task.Run(
+                () => _settingsService.CleanupOrphanedSessionDirectories(
+                    _settings),
+                cancellationToken);
+            if (removedOrphanedProfiles > 0)
+            {
+                AppendStartupNotice(
+                    $"Removed {removedOrphanedProfiles} incomplete local account profile(s) left by an interrupted sign-in.");
+            }
+
+            await ReconcileImportedSoundsAsync(cancellationToken);
+            _soundService.PlayStartup(
+                _settings.StartupSound,
+                _settings.CustomStartupSoundFileName);
+            if (!string.IsNullOrWhiteSpace(_startupNotice))
+            {
+                MessageBox.Show(
+                    this,
+                    _startupNotice,
+                    "Local settings recovery",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            if (_activeProfile is null)
+            {
+                SetSignedOutState();
+                return;
+            }
+
+            await InitializeBrowserAsync(
+                _activeProfile,
+                showLogin: false,
+                cancellationToken);
         }
-        if (_activeProfile is null)
+        finally
         {
-            SetSignedOutState();
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
+        }
+    }
+
+    private void AppendStartupNotice(string notice)
+    {
+        _startupNotice = string.IsNullOrWhiteSpace(_startupNotice)
+            ? notice
+            : $"{_startupNotice}{Environment.NewLine}{Environment.NewLine}{notice}";
+    }
+
+    private async Task RetryPendingProfileDeletionsAsync(
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> journaledKeys;
+        try
+        {
+            journaledKeys = await Task.Run(
+                _settingsService.GetJournaledProfileDeletionKeys,
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            LocalDataException.IsExpectedPersistenceFailure(exception))
+        {
+            AppendStartupNotice(
+                "SessionDock could not inspect its account-removal journal, so all browser profiles were left untouched.");
             return;
         }
 
-        await InitializeBrowserAsync(
-            _activeProfile,
-            showLogin: false,
+        if (journaledKeys.Count == 0)
+            return;
+
+        var journaledSet = journaledKeys.ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        var prepared = false;
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    _settings.PendingProfileDeletionKeys = journaledKeys
+                        .Concat(_settings.PendingProfileDeletionKeys)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(SettingsService.MaximumPendingProfileDeletions)
+                        .ToList();
+                    _settings.Accounts.RemoveAll(account =>
+                        journaledSet.Contains(account.Key));
+                    if (_settings.ActiveAccountKey is not null &&
+                        journaledSet.Contains(_settings.ActiveAccountKey))
+                    {
+                        _settings.ActiveAccountKey =
+                            _settings.Accounts.FirstOrDefault()?.Key;
+                    }
+                    prepared = true;
+                },
+                "Pending account removal could not be restored",
+                "CLEANUP WARNING",
+                "SessionDock preserved the removal journal and left all browser profiles untouched. It will retry after local settings become writable.",
+                onCommitted: () =>
+                {
+                    _activeProfile = FindActiveSavedProfile();
+                    _pendingProfile = null;
+                    _currentUser = null;
+                    ShowDestinationForProfile(_activeProfile);
+                    RenderAccountList();
+                }) ||
+            !prepared)
+        {
+            AppendStartupNotice(
+                "One or more confirmed account removals could not yet be restored to local settings. Their browser data was preserved for a later retry.");
+            return;
+        }
+
+        var deletedKeys = new List<string>();
+        foreach (var accountKey in journaledKeys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await _settingsService.DeletePendingProfileAsync(
+                    accountKey,
+                    _settings,
+                    cancellationToken))
+            {
+                deletedKeys.Add(accountKey);
+            }
+        }
+
+        var journalClearFailed = false;
+        if (deletedKeys.Count > 0 &&
+            await AcknowledgePendingProfileDeletionsAsync(deletedKeys))
+        {
+            foreach (var accountKey in deletedKeys)
+            {
+                if (!await Task.Run(
+                        () => _settingsService.ClearProfileDeletionJournal(
+                            accountKey),
+                        CancellationToken.None))
+                {
+                    journalClearFailed = true;
+                }
+            }
+
+            AppendStartupNotice(
+                $"Finished clearing {deletedKeys.Count} previously removed account profile(s).");
+        }
+
+        if (deletedKeys.Count < journaledKeys.Count || journalClearFailed ||
+            _settings.PendingProfileDeletionKeys.Count > 0)
+        {
+            AppendStartupNotice(
+                "Some isolated browser data from a removed account is still locked or its cleanup acknowledgement could not be saved. SessionDock will retry on the next start.");
+        }
+    }
+
+    private async Task<bool> AcknowledgePendingProfileDeletionsAsync(
+        IReadOnlyCollection<string> accountKeys)
+    {
+        var keys = accountKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var acknowledged = 0;
+        var committed = await TryCommitSettingsMutationAsync(
+            () =>
+            {
+                if (_settings.Accounts.Any(account =>
+                        keys.Contains(account.Key)))
+                {
+                    return;
+                }
+
+                acknowledged = _settings.PendingProfileDeletionKeys.RemoveAll(
+                    key => keys.Contains(key));
+            },
+            "Account cleanup could not be confirmed",
+            "CLEANUP WARNING",
+            "The browser data was cleared, but SessionDock could not save that acknowledgement. It will safely retry on the next start.");
+        return committed && acknowledged > 0;
+    }
+
+    private async Task ReconcileImportedSoundsAsync(
+        CancellationToken cancellationToken)
+    {
+        var retention = await Task.Run(
+            () => _settingsService.CaptureImportedSoundRetention(
+                _settings.CustomStartupSoundFileName),
+            cancellationToken);
+        await Task.Run(
+            () => _soundService.CleanupOrphanedImportedSounds(
+                retention.FileNames,
+                retention.CanReconcile,
+                retention.ReferencesAreComplete
+                    ? _sessionImportedSoundFileNames.ToArray()
+                    : [],
+                cancellationToken),
             cancellationToken);
     }
 
@@ -193,7 +348,7 @@ public partial class MainWindow : Window
     private Task HandleWebSessionUnavailableAsync(
         WebSessionUnavailableEventArgs e)
     {
-        if (!IsCurrentWebSessionOwner(e.Token))
+        if (!HasCurrentWebSessionAffinity(e.Token))
             return Task.CompletedTask;
 
         _currentUser = null;
@@ -286,7 +441,7 @@ public partial class MainWindow : Window
         {
             System.Diagnostics.Trace.WriteLine(
                 $"Account verification failed safely: {exception.Reason}.");
-            if (IsCurrentWebSessionOwner(token))
+            if (HasCurrentWebSessionAffinity(token))
                 SetSignedOutState();
             return;
         }
@@ -389,6 +544,12 @@ public partial class MainWindow : Window
 
     private bool IsCurrentWebSessionOwner(WebSessionToken token)
     {
+        return HasCurrentWebSessionAffinity(token) &&
+            _webSession.IsUsable(token);
+    }
+
+    private bool HasCurrentWebSessionAffinity(WebSessionToken token)
+    {
         var owner = _pendingProfile ?? _activeProfile;
         return _webSessionToken == token &&
             _webSession.IsCurrent(token) &&
@@ -406,6 +567,24 @@ public partial class MainWindow : Window
                 currentToken.AccountKey,
                 StringComparison.OrdinalIgnoreCase) &&
             IsCurrentWebSessionOwner(currentToken))
+        {
+            token = currentToken;
+            return true;
+        }
+
+        token = default;
+        return false;
+    }
+
+    private bool TryGetAffineWebSessionToken(
+        AccountProfile profile,
+        out WebSessionToken token)
+    {
+        if (_webSessionToken is { } currentToken &&
+            profile.Key.Equals(
+                currentToken.AccountKey,
+                StringComparison.OrdinalIgnoreCase) &&
+            HasCurrentWebSessionAffinity(currentToken))
         {
             token = currentToken;
             return true;
@@ -436,7 +615,8 @@ public partial class MainWindow : Window
 
     private void SetReadyState()
     {
-        if (_currentUser is null || _activeProfile is null)
+        if (_currentUser is null || _activeProfile is null ||
+            !TryGetCurrentWebSessionToken(_activeProfile, out _))
             return;
 
         SetStatus(
@@ -692,9 +872,10 @@ public partial class MainWindow : Window
     }
 
     private async void SoundSettingsButton_Click(object sender, RoutedEventArgs e) =>
-        await RunWindowOperationAsync(_ => SoundSettingsButtonClickAsync());
+        await RunWindowOperationAsync(SoundSettingsButtonClickAsync);
 
-    private async Task SoundSettingsButtonClickAsync()
+    private async Task SoundSettingsButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -710,30 +891,31 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true)
             return;
 
-        string? stagedCustomFileName = null;
-        string? previousCustomFileName = null;
+        SetOperationBusy(true);
+        string? selectedCustomFileName = null;
         var uiSoundsEnabled = dialog.UiSoundsEnabled;
         var startupSound = dialog.StartupSound;
-        var settingsCommitted = false;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (dialog.PendingCustomSourcePath is not null)
             {
                 _soundService.StopPreview();
-                stagedCustomFileName = await Task.Run(() =>
+                selectedCustomFileName = await Task.Run(() =>
                     _soundService.ImportStartupSound(
-                        dialog.PendingCustomSourcePath));
+                        dialog.PendingCustomSourcePath),
+                    cancellationToken);
+                _sessionImportedSoundFileNames.Add(selectedCustomFileName);
             }
 
             if (!await TryCommitSettingsMutationAsync(
                     () =>
                     {
-                        previousCustomFileName =
-                            _settings.CustomStartupSoundFileName;
                         _settings.UiSoundsEnabled = uiSoundsEnabled;
                         _settings.StartupSound = startupSound;
                         _settings.CustomStartupSoundFileName =
-                            stagedCustomFileName ?? previousCustomFileName;
+                            selectedCustomFileName ??
+                            _settings.CustomStartupSoundFileName;
                     },
                     "Sound settings could not be saved",
                     onCommitted: () =>
@@ -742,24 +924,12 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            settingsCommitted = true;
-            if (stagedCustomFileName is not null &&
-                !string.Equals(
-                    previousCustomFileName,
-                    stagedCustomFileName,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                await Task.Run(() =>
-                    _soundService.TryDeleteImportedStartupSound(
-                        previousCustomFileName));
-            }
             SetStatus(
                 "Sound settings saved",
                 "Your interface and startup sound choices stay on this PC.",
                 "SETTINGS SAVED");
         }
-        catch (Exception ex) when (
-            ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (IsExpectedSoundImportFailure(ex))
         {
             SetStatus(
                 "Sound settings could not be saved",
@@ -768,14 +938,21 @@ public partial class MainWindow : Window
         }
         finally
         {
-            if (!settingsCommitted && stagedCustomFileName is not null)
+            try
             {
-                await Task.Run(() =>
-                    _soundService.TryDeleteImportedStartupSound(
-                        stagedCustomFileName));
+                await ReconcileImportedSoundsAsync(cancellationToken);
+            }
+            finally
+            {
+                if (!_operationLifetime.IsShuttingDown)
+                    SetOperationBusy(false);
             }
         }
     }
+
+    internal static bool IsExpectedSoundImportFailure(Exception exception) =>
+        exception is System.IO.IOException or UnauthorizedAccessException or
+            System.IO.InvalidDataException or ArgumentException;
 
     private UIElement CreateAccountIndicator(bool pending, bool selected)
     {
@@ -1182,6 +1359,8 @@ public partial class MainWindow : Window
             LastLaunchedAt = DateTimeOffset.UtcNow
         };
         var locale = localeTask.Result;
+        if (!IsCurrentWebSessionOwner(sessionToken))
+            return;
         await LaunchClientAsync(
             RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
             recent,
@@ -1360,9 +1539,20 @@ public partial class MainWindow : Window
         SetOperationBusy(true);
         try
         {
+            await Task.Run(
+                () => _settingsService.StageProfileDeletion(profile.Key),
+                cancellationToken);
             if (!await TryCommitSettingsMutationAsync(
                     () =>
                     {
+                        _settings.PendingProfileDeletionKeys = new[]
+                            {
+                                profile.Key
+                            }
+                            .Concat(_settings.PendingProfileDeletionKeys)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .Take(SettingsService.MaximumPendingProfileDeletions)
+                            .ToList();
                         _settings.Accounts.RemoveAll(
                             account => account.Key == profile.Key);
                         _settings.ActiveAccountKey =
@@ -1372,6 +1562,16 @@ public partial class MainWindow : Window
                     "ACCOUNT SAVE ERROR",
                     "SessionDock could not save the account removal, so the account and its isolated sign-in data were left unchanged. Make %LOCALAPPDATA%\\SessionDock writable, then retry."))
             {
+                if (!await Task.Run(
+                        () => _settingsService.ClearProfileDeletionJournal(
+                            profile.Key),
+                        CancellationToken.None))
+                {
+                    SetStatus(
+                        "Account removal is queued",
+                        "SessionDock could not cancel the durable removal request. It will safely finish removing this account after local settings become writable.",
+                        "CLEANUP WARNING");
+                }
                 return;
             }
 
@@ -1379,14 +1579,29 @@ public partial class MainWindow : Window
             if (_operationLifetime.IsShuttingDown)
                 return;
 
-            var profileWasCleared = await ClearBrowserProfileAsync(
-                profile,
-                cancellationToken);
+            var profileWasCleared = false;
+            try
+            {
+                profileWasCleared = await ClearBrowserProfileAsync(
+                    profile,
+                    cancellationToken,
+                    requireDeletionIntent: true);
+            }
+            finally
+            {
+                _activeProfile = _settings.Accounts.FirstOrDefault();
+                ShowDestinationForProfile(_activeProfile);
+                _currentUser = null;
+                RenderAccountList();
+            }
             cancellationToken.ThrowIfCancellationRequested();
-            _activeProfile = _settings.Accounts.FirstOrDefault();
-            ShowDestinationForProfile(_activeProfile);
-            _currentUser = null;
-            RenderAccountList();
+            var cleanupAcknowledged = profileWasCleared &&
+                await AcknowledgePendingProfileDeletionsAsync([profile.Key]);
+            var journalCleared = cleanupAcknowledged &&
+                await Task.Run(
+                    () => _settingsService.ClearProfileDeletionJournal(
+                        profile.Key),
+                    CancellationToken.None);
             if (_activeProfile is not null)
                 await InitializeBrowserAsync(
                     _activeProfile,
@@ -1395,11 +1610,11 @@ public partial class MainWindow : Window
             else
                 SetSignedOutState();
 
-            if (!profileWasCleared)
+            if (!profileWasCleared || !cleanupAcknowledged || !journalCleared)
             {
                 SetStatus(
                     "Account removed; local cleanup is pending",
-                    "The account metadata was removed safely, but some isolated browser files are still in use. SessionDock will retry orphan cleanup on a later start.",
+                    "The account removal was saved, but some isolated browser files are still in use or the cleanup acknowledgement could not be saved. SessionDock will retry this exact removal on the next start.",
                     "CLEANUP WARNING");
             }
         }
@@ -1422,24 +1637,38 @@ public partial class MainWindow : Window
 
     private async Task<bool> ClearBrowserProfileAsync(
         AccountProfile profile,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireDeletionIntent = false)
     {
-        if (TryGetCurrentWebSessionToken(profile, out var sessionToken))
+        if (TryGetAffineWebSessionToken(profile, out var sessionToken))
         {
-            await _webSession.ClearProfileAsync(
-                sessionToken,
-                cancellationToken);
+            try
+            {
+                await _webSession.ClearProfileAsync(
+                    sessionToken,
+                    cancellationToken);
+            }
+            catch (WebSessionUnavailableException)
+            {
+                // A failed current browser still owns profile resources and
+                // must be released before the exact deletion is retried.
+            }
             cancellationToken.ThrowIfCancellationRequested();
-            if (IsCurrentWebSessionOwner(sessionToken))
+            if (HasCurrentWebSessionAffinity(sessionToken))
             {
                 _webSession.ReleaseBrowser();
                 _webSessionToken = null;
                 BrowserHost.Children.Clear();
             }
         }
-        var directoryRemoved = await _settingsService.DeleteSessionDataAsync(
-            profile,
-            cancellationToken);
+        var directoryRemoved = requireDeletionIntent
+            ? await _settingsService.DeletePendingProfileAsync(
+                profile.Key,
+                _settings,
+                cancellationToken)
+            : await _settingsService.DeleteSessionDataAsync(
+                profile,
+                cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return directoryRemoved;
     }
@@ -1799,6 +2028,8 @@ public partial class MainWindow : Window
             !_operationBusy &&
             !_launchInProgress &&
             _currentUser?.Id == _activeProfile?.UserId &&
+            _activeProfile is not null &&
+            TryGetCurrentWebSessionToken(_activeProfile, out _) &&
             destinationIsValid;
         BatchLaunchButton.IsEnabled =
             !_operationBusy &&

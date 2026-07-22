@@ -85,6 +85,7 @@ public sealed class SerializedSettingsWriterTests
         settings.UiSoundsEnabled = false;
         settings.StartupSound = "custom";
         settings.CustomStartupSoundFileName = "startup-custom.wav";
+        settings.PendingProfileDeletionKeys = [Guid.NewGuid().ToString("N")];
         settings.LockedUserId = 7;
         settings.LockedUsername = "legacy";
         settings.PlaceId = 99;

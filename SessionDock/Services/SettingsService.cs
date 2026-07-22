@@ -15,29 +15,46 @@ public sealed class SettingsService
     }
 
     private const int MaximumSettingsBytes = 4 * 1024 * 1024;
+    internal const int MaximumPendingProfileDeletions = 256;
+    private const string ProfileDeletionMarkerExtension = ".delete";
     public static readonly IReadOnlyList<string> AccountColors =
         ["#7C5CFC", "#4D8DFF", "#27B58A", "#E0A33A", "#E36B8D", "#A56DE2"];
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly string _rootDirectory;
     private readonly string _backupPath;
     private readonly string _profileCleanupGuardPath;
+    private readonly string _profileDeletionJournalDirectory;
     private readonly string _settingsPath;
     private readonly object _saveLock = new();
     private readonly Func<string, FileAttributes> _getAttributes;
+    private readonly Func<string, CancellationToken, bool> _deleteDirectoryTree;
     private bool _primaryIsUnreadable;
     private bool _profileCleanupGuardRequiredButUnavailable;
 
     public SettingsService(string? storageDirectory = null)
-        : this(storageDirectory, File.GetAttributes)
+        : this(
+            storageDirectory,
+            File.GetAttributes,
+            TryDeleteDirectoryTree)
     {
     }
 
     internal SettingsService(
         string? storageDirectory,
         Func<string, FileAttributes> getAttributes)
+        : this(storageDirectory, getAttributes, TryDeleteDirectoryTree)
+    {
+    }
+
+    internal SettingsService(
+        string? storageDirectory,
+        Func<string, FileAttributes> getAttributes,
+        Func<string, CancellationToken, bool> deleteDirectoryTree)
     {
         _getAttributes = getAttributes ??
             throw new ArgumentNullException(nameof(getAttributes));
+        _deleteDirectoryTree = deleteDirectoryTree ??
+            throw new ArgumentNullException(nameof(deleteDirectoryTree));
         _rootDirectory = Path.GetFullPath(
             storageDirectory ?? AppDataPaths.RootDirectory);
         Directory.CreateDirectory(_rootDirectory);
@@ -47,6 +64,9 @@ public sealed class SettingsService
         _profileCleanupGuardPath = Path.Combine(
             _rootDirectory,
             "profile-cleanup-paused.txt");
+        _profileDeletionJournalDirectory = Path.Combine(
+            _rootDirectory,
+            "PendingProfileDeletions");
         RefreshProfileCleanupState();
     }
 
@@ -274,14 +294,273 @@ public sealed class SettingsService
         return removed;
     }
 
+    internal void StageProfileDeletion(string accountKey)
+    {
+        if (!TryGetCanonicalSessionFolder(accountKey, out _))
+            throw new ArgumentException(
+                "The account key cannot identify a browser profile.",
+                nameof(accountKey));
+
+        lock (_saveLock)
+        {
+            EnsureDirectoryPathHasNoReparsePoints(
+                _profileDeletionJournalDirectory);
+            var markerPath = GetProfileDeletionMarkerPath(accountKey);
+            var markerState = ProbePath(markerPath);
+            if (markerState == PathProbeResult.File)
+            {
+                ValidateProfileDeletionMarker(markerPath);
+                return;
+            }
+            if (markerState != PathProbeResult.Missing)
+            {
+                throw new IOException(
+                    "The account-removal marker path is unavailable.");
+            }
+
+            var existingKeys = GetJournaledProfileDeletionKeysCore();
+            if (existingKeys.Count >= MaximumPendingProfileDeletions)
+            {
+                throw new IOException(
+                    "Too many account removals are already pending.");
+            }
+
+            var temporaryPath = Path.Combine(
+                _profileDeletionJournalDirectory,
+                $"pending-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                using (var stream = new FileStream(
+                           temporaryPath,
+                           FileMode.CreateNew,
+                           FileAccess.Write,
+                           FileShare.None))
+                using (var writer = new StreamWriter(stream))
+                {
+                    writer.Write(accountKey);
+                    writer.Flush();
+                    stream.Flush(flushToDisk: true);
+                }
+                File.Move(temporaryPath, markerPath);
+            }
+            finally
+            {
+                DeleteTemporaryFileBestEffort(temporaryPath);
+            }
+        }
+    }
+
+    internal IReadOnlyList<string> GetJournaledProfileDeletionKeys()
+    {
+        lock (_saveLock)
+            return GetJournaledProfileDeletionKeysCore();
+    }
+
+    internal bool ClearProfileDeletionJournal(string accountKey)
+    {
+        if (!TryGetCanonicalSessionFolder(accountKey, out _))
+            return false;
+
+        lock (_saveLock)
+        {
+            var markerPath = GetProfileDeletionMarkerPath(accountKey);
+            try
+            {
+                var journalState = ProbePath(
+                    _profileDeletionJournalDirectory);
+                if (journalState == PathProbeResult.Missing)
+                    return true;
+                if (journalState != PathProbeResult.Directory)
+                    return false;
+                ThrowIfReparsePoint(_profileDeletionJournalDirectory);
+                var state = ProbePath(markerPath);
+                if (state == PathProbeResult.Missing)
+                    return true;
+                if (state != PathProbeResult.File)
+                    return false;
+                ValidateProfileDeletionMarker(markerPath);
+                File.Delete(markerPath);
+                return ProbePath(markerPath) == PathProbeResult.Missing;
+            }
+            catch (Exception exception) when (
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Account-removal marker cleanup failed: {exception.GetType().Name}.");
+                return false;
+            }
+        }
+    }
+
+    private IReadOnlyList<string> GetJournaledProfileDeletionKeysCore()
+    {
+        var state = ProbePath(_profileDeletionJournalDirectory);
+        if (state == PathProbeResult.Missing)
+            return [];
+        if (state != PathProbeResult.Directory)
+        {
+            throw new IOException(
+                "The account-removal journal cannot be inspected safely.");
+        }
+        ThrowIfReparsePoint(_profileDeletionJournalDirectory);
+
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inspected = 0;
+        foreach (var markerPath in Directory.EnumerateFiles(
+                     _profileDeletionJournalDirectory,
+                     $"*{ProfileDeletionMarkerExtension}",
+                     SearchOption.TopDirectoryOnly))
+        {
+            if (++inspected > MaximumPendingProfileDeletions * 2)
+                break;
+            var fileName = Path.GetFileName(markerPath);
+            var accountKey = fileName[..^ProfileDeletionMarkerExtension.Length];
+            if (!TryGetCanonicalSessionFolder(accountKey, out _) ||
+                keys.Count >= MaximumPendingProfileDeletions)
+            {
+                continue;
+            }
+
+            try
+            {
+                ValidateProfileDeletionMarker(markerPath);
+                keys.Add(accountKey);
+            }
+            catch (Exception exception) when (
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Ignored an invalid account-removal marker: {exception.GetType().Name}.");
+            }
+        }
+        return keys.ToList();
+    }
+
+    private string GetProfileDeletionMarkerPath(string accountKey) =>
+        Path.Combine(
+            _profileDeletionJournalDirectory,
+            $"{accountKey}{ProfileDeletionMarkerExtension}");
+
+    private void ValidateProfileDeletionMarker(string markerPath)
+    {
+        if (!ValidateFilePathAndCheckExists(markerPath))
+            throw new FileNotFoundException(
+                "The account-removal marker is missing.",
+                markerPath);
+    }
+
+    private bool IsProfileDeletionJournaled(string accountKey)
+    {
+        lock (_saveLock)
+        {
+            try
+            {
+                if (ProbePath(_profileDeletionJournalDirectory) !=
+                    PathProbeResult.Directory)
+                {
+                    return false;
+                }
+                ThrowIfReparsePoint(_profileDeletionJournalDirectory);
+                var markerPath = GetProfileDeletionMarkerPath(accountKey);
+                ValidateProfileDeletionMarker(markerPath);
+                return true;
+            }
+            catch (Exception exception) when (
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                return false;
+            }
+        }
+    }
+
+    internal ImportedSoundRetention CaptureImportedSoundRetention(
+        string? liveFileName)
+    {
+        lock (_saveLock)
+        {
+            var retained = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+            AddImportedSoundReference(retained, liveFileName);
+
+            foreach (var path in new[] { _settingsPath, _backupPath })
+            {
+                var state = ProbePath(path);
+                if (state == PathProbeResult.Missing)
+                    continue;
+                if (state != PathProbeResult.File ||
+                    !TryLoadFile(path, out var settings, out _, out _))
+                {
+                    return new ImportedSoundRetention(
+                        CanReconcile: false,
+                        ReferencesAreComplete: false,
+                        retained);
+                }
+
+                AddImportedSoundReference(
+                    retained,
+                    settings.CustomStartupSoundFileName);
+            }
+
+            return new ImportedSoundRetention(
+                CanReconcileProfiles,
+                ReferencesAreComplete: true,
+                retained);
+        }
+    }
+
+    internal async Task<bool> DeletePendingProfileAsync(
+        string accountKey,
+        AppSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (!TryGetCanonicalSessionFolder(accountKey, out var sessionFolder) ||
+            !IsProfileDeletionJournaled(accountKey) ||
+            !settings.PendingProfileDeletionKeys.Any(key =>
+                string.Equals(
+                    key,
+                    accountKey,
+                    StringComparison.OrdinalIgnoreCase)) ||
+            settings.Accounts.Any(account =>
+                account.Key.Equals(
+                    accountKey,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    account.SessionFolder,
+                    sessionFolder,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return await DeleteSessionDataAsync(
+            new AccountProfile
+            {
+                Key = accountKey,
+                SessionFolder = sessionFolder
+            },
+            cancellationToken);
+    }
+
     public async Task<bool> DeleteSessionDataAsync(
         AccountProfile profile,
         CancellationToken cancellationToken = default)
     {
+        if (!TryGetCanonicalSessionFolder(
+                profile.Key,
+                out var canonicalSessionFolder) ||
+            !string.Equals(
+                profile.SessionFolder,
+                canonicalSessionFolder,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         string path;
         try
         {
-            path = GetSessionDataDirectory(profile);
+            path = GetSessionDataDirectoryForDeletion(profile);
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException or
@@ -295,16 +574,24 @@ public sealed class SettingsService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var pathState = ProbePath(path);
-                if (pathState == PathProbeResult.Missing)
-                    return true;
-                if (pathState != PathProbeResult.Directory)
-                {
-                    if (pathState == PathProbeResult.Uncertain)
-                        throw new IOException("The browser profile could not be inspected.");
-                    return false;
-                }
-                return TryDeleteDirectoryTree(path, cancellationToken);
+                return await Task.Run(
+                    () =>
+                    {
+                        var pathState = ProbePath(path);
+                        if (pathState == PathProbeResult.Missing)
+                            return true;
+                        if (pathState != PathProbeResult.Directory)
+                        {
+                            if (pathState == PathProbeResult.Uncertain)
+                            {
+                                throw new IOException(
+                                    "The browser profile could not be inspected.");
+                            }
+                            return false;
+                        }
+                        return _deleteDirectoryTree(path, cancellationToken);
+                    },
+                    cancellationToken);
             }
             catch (Exception ex) when (
                 ex is IOException or UnauthorizedAccessException)
@@ -315,6 +602,52 @@ public sealed class SettingsService
             }
         }
         return false;
+    }
+
+    private static void AddImportedSoundReference(
+        ISet<string> retained,
+        string? fileName)
+    {
+        if (UiSoundService.IsValidImportedFileName(fileName))
+            retained.Add(fileName!);
+    }
+
+    private static bool TryGetCanonicalSessionFolder(
+        string? accountKey,
+        out string sessionFolder)
+    {
+        if (accountKey?.Equals(
+                "legacy",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            sessionFolder = "WebSession";
+            return true;
+        }
+
+        if (accountKey is { Length: 32 } && accountKey.All(Uri.IsHexDigit))
+        {
+            sessionFolder = $@"Profiles\{accountKey}";
+            return true;
+        }
+
+        sessionFolder = string.Empty;
+        return false;
+    }
+
+    private string GetSessionDataDirectoryForDeletion(AccountProfile profile)
+    {
+        var path = Path.GetFullPath(
+            Path.Combine(_rootDirectory, profile.SessionFolder));
+        if (!path.StartsWith(
+                _rootDirectory + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The account session path is outside SessionDock.");
+        }
+
+        EnsureExistingDirectoryPathHasNoReparsePoints(path);
+        return path;
     }
 
     private bool TryLoadFile(
@@ -344,8 +677,17 @@ public sealed class SettingsService
                 settings.LockedUserId is > 0 &&
                 !string.IsNullOrWhiteSpace(settings.LockedUsername);
             migrated = MigrateLegacyAccount(settings);
-            accountMetadataWasDiscarded = Normalize(settings) ||
+            accountMetadataWasDiscarded = Normalize(
+                    settings,
+                    out var pendingDeletionStateWasNormalized) ||
                 !hasAccountCollection && !hadMigratableLegacyAccount;
+            if (accountMetadataWasDiscarded &&
+                settings.PendingProfileDeletionKeys.Count > 0)
+            {
+                settings.PendingProfileDeletionKeys.Clear();
+                pendingDeletionStateWasNormalized = true;
+            }
+            migrated |= pendingDeletionStateWasNormalized;
             migrated |= MigrateLegacyDestinations(settings);
             return true;
         }
@@ -553,10 +895,23 @@ public sealed class SettingsService
             : $"{LoadNotice}{Environment.NewLine}{Environment.NewLine}{notice}";
     }
 
-    private static bool Normalize(AppSettings settings)
+    private static bool Normalize(
+        AppSettings settings,
+        out bool pendingDeletionStateWasNormalized)
     {
         settings.Accounts ??= [];
         settings.RecentExperiences ??= [];
+        var originalPendingDeletionKeys =
+            settings.PendingProfileDeletionKeys ?? [];
+        settings.PendingProfileDeletionKeys = originalPendingDeletionKeys
+            .Where(key => TryGetCanonicalSessionFolder(key, out _))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumPendingProfileDeletions)
+            .ToList();
+        pendingDeletionStateWasNormalized =
+            !originalPendingDeletionKeys.SequenceEqual(
+                settings.PendingProfileDeletionKeys,
+                StringComparer.OrdinalIgnoreCase);
         var originalAccountCount = settings.Accounts.Count;
         var validAccounts = settings.Accounts
             .Where(IsValidAccount)
@@ -817,6 +1172,25 @@ public sealed class SettingsService
         }
     }
 
+    private void EnsureExistingDirectoryPathHasNoReparsePoints(string path)
+    {
+        ThrowIfReparsePoint(_rootDirectory);
+        var relative = Path.GetRelativePath(_rootDirectory, path);
+        var current = _rootDirectory;
+        foreach (var component in relative.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, component);
+            var state = ProbePath(current);
+            if (state == PathProbeResult.Missing || state == PathProbeResult.File)
+                return;
+            if (state == PathProbeResult.Uncertain)
+                throw new IOException("The browser profile could not be inspected.");
+            ThrowIfReparsePoint(current);
+        }
+    }
+
     private static bool TryDeleteDirectoryTree(
         string root,
         CancellationToken cancellationToken)
@@ -913,3 +1287,8 @@ public sealed class SettingsService
     private static bool IsReparsePoint(string path) =>
         (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 }
+
+internal readonly record struct ImportedSoundRetention(
+    bool CanReconcile,
+    bool ReferencesAreComplete,
+    IReadOnlySet<string> FileNames);

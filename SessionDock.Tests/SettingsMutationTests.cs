@@ -157,6 +157,7 @@ public sealed class SettingsMutationTests
         settings.UiSoundsEnabled = false;
         settings.StartupSound = "bright";
         settings.CustomStartupSoundFileName = "startup-custom.wav";
+        settings.PendingProfileDeletionKeys.Add(Guid.NewGuid().ToString("N"));
         settings.LockedUserId = 99;
         settings.LockedUsername = "legacy";
         settings.PlaceId = 999;
@@ -178,6 +179,7 @@ public sealed class SettingsMutationTests
         Assert.True(settings.UiSoundsEnabled);
         Assert.Equal("soft", settings.StartupSound);
         Assert.Null(settings.CustomStartupSoundFileName);
+        Assert.Empty(settings.PendingProfileDeletionKeys);
         Assert.Null(settings.LockedUserId);
         Assert.Null(settings.LockedUsername);
         Assert.Null(settings.PlaceId);

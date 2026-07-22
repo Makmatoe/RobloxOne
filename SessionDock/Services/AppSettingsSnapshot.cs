@@ -19,6 +19,7 @@ internal static class AppSettingsSnapshot
             UiSoundsEnabled = source.UiSoundsEnabled,
             StartupSound = source.StartupSound,
             CustomStartupSoundFileName = source.CustomStartupSoundFileName,
+            PendingProfileDeletionKeys = [.. source.PendingProfileDeletionKeys],
             LockedUserId = source.LockedUserId,
             LockedUsername = source.LockedUsername,
             PlaceId = source.PlaceId,

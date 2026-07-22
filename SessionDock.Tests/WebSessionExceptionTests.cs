@@ -48,4 +48,64 @@ public sealed class WebSessionExceptionTests
             RobloxWebSessionService.IsExpectedInitializationHResult(
                 unchecked((int)0x8000FFFF)));
     }
+
+    [Fact]
+    public void CanContinue_SameTokenAfterReadinessLoss_ReturnsFalse()
+    {
+        var token = new WebSessionToken(7, "account");
+
+        Assert.True(RobloxWebSessionService.CanContinue(
+            token,
+            generation: 7,
+            token,
+            isReady: true,
+            browserHasCore: true));
+        Assert.False(RobloxWebSessionService.CanContinue(
+            token,
+            generation: 7,
+            token,
+            isReady: false,
+            browserHasCore: true));
+    }
+
+    [Fact]
+    public void CanContinue_SupersededTokenCannotUseNewBrowserReadiness()
+    {
+        var oldToken = new WebSessionToken(7, "old");
+        var newToken = new WebSessionToken(8, "new");
+
+        Assert.False(RobloxWebSessionService.CanContinue(
+            newToken,
+            generation: 8,
+            oldToken,
+            isReady: true,
+            browserHasCore: true));
+        Assert.True(RobloxWebSessionService.CanContinue(
+            newToken,
+            generation: 8,
+            newToken,
+            isReady: true,
+            browserHasCore: true));
+    }
+
+    [Fact]
+    public async Task WaitForSessionWork_SessionFailureWakesBeforeWorkTimeout()
+    {
+        var work = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var sessionEnded = new TaskCompletionSource<WebSessionUnavailableReason>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = RobloxWebSessionService.WaitForSessionWorkAsync(
+            work.Task,
+            sessionEnded.Task,
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+
+        sessionEnded.SetResult(WebSessionUnavailableReason.ProcessExited);
+
+        Assert.False(await waiting.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken));
+        Assert.False(work.Task.IsCompleted);
+    }
 }

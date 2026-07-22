@@ -91,6 +91,7 @@ internal static class SettingsMutation
         private readonly bool _uiSoundsEnabled;
         private readonly string _startupSound;
         private readonly string? _customStartupSoundFileName;
+        private readonly List<string> _pendingProfileDeletionKeys;
         private readonly long? _lockedUserId;
         private readonly string? _lockedUsername;
         private readonly long? _placeId;
@@ -112,6 +113,8 @@ internal static class SettingsMutation
             _uiSoundsEnabled = settings.UiSoundsEnabled;
             _startupSound = settings.StartupSound;
             _customStartupSoundFileName = settings.CustomStartupSoundFileName;
+            _pendingProfileDeletionKeys =
+                [.. settings.PendingProfileDeletionKeys];
             _lockedUserId = settings.LockedUserId;
             _lockedUsername = settings.LockedUsername;
             _placeId = settings.PlaceId;
@@ -140,6 +143,8 @@ internal static class SettingsMutation
             settings.StartupSound = _startupSound;
             settings.CustomStartupSoundFileName =
                 _customStartupSoundFileName;
+            settings.PendingProfileDeletionKeys =
+                [.. _pendingProfileDeletionKeys];
             settings.LockedUserId = _lockedUserId;
             settings.LockedUsername = _lockedUsername;
             settings.PlaceId = _placeId;

@@ -1,6 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using SessionDock.Models;
@@ -22,18 +22,51 @@ public sealed class RobloxWebSessionService : IDisposable
     private bool _isReady;
     private WebSessionToken? _currentToken;
     private int _failedGeneration = -1;
+    private TaskCompletionSource<WebSessionUnavailableReason> _sessionEnded =
+        CreateSessionEndedSignal();
 
     internal event EventHandler<WebSessionEventArgs>? RobloxPageLoaded;
     internal event EventHandler<WebSessionUnavailableEventArgs>? SessionUnavailable;
 
-    public bool IsReady => _isReady &&
-        _currentToken is not null &&
-        _browser?.CoreWebView2 is not null;
+    public bool IsReady => _currentToken is { } token && IsUsable(token);
+
+    internal bool IsUsable(WebSessionToken token) =>
+        _isReady && CanContinue(
+            _currentToken,
+            _generation,
+            token,
+            isReady: true,
+            _browser?.CoreWebView2 is not null);
+
+    internal static bool CanContinue(
+        WebSessionToken? currentToken,
+        int generation,
+        WebSessionToken candidate,
+        bool isReady,
+        bool browserHasCore) =>
+        currentToken == candidate &&
+        candidate.Generation == generation &&
+        isReady &&
+        browserHasCore;
+
+    internal static async Task<bool> WaitForSessionWorkAsync(
+        Task work,
+        Task<WebSessionUnavailableReason> sessionEnded,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        ArgumentNullException.ThrowIfNull(sessionEnded);
+        var completed = await Task.WhenAny(work, sessionEnded)
+            .WaitAsync(timeout, cancellationToken);
+        return completed == work;
+    }
 
     internal WebSessionBrowser BeginBrowserReplacement(string accountKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountKey);
         ReleaseBrowser();
+        _sessionEnded = CreateSessionEndedSignal();
         _browser = new WebView2 { AllowExternalDrop = false };
         var token = new WebSessionToken(_generation, accountKey);
         _currentToken = token;
@@ -43,6 +76,7 @@ public sealed class RobloxWebSessionService : IDisposable
     public void ReleaseBrowser()
     {
         var browser = _browser;
+        _sessionEnded.TrySetResult(WebSessionUnavailableReason.Closed);
         _generation++;
         _isReady = false;
         _currentToken = null;
@@ -139,7 +173,7 @@ public sealed class RobloxWebSessionService : IDisposable
             _isReady = false;
             throw CreateRuntimeUnavailableException(exception, token);
         }
-        return true;
+        return IsUsable(token);
     }
 
     internal void NavigateToLogin(WebSessionToken token)
@@ -359,6 +393,7 @@ public sealed class RobloxWebSessionService : IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         var core = GetCore(token);
+        var sessionEnded = GetSessionEndedTask(token);
         var completion = new TaskCompletionSource<JsonElement?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -411,11 +446,14 @@ public sealed class RobloxWebSessionService : IDisposable
             {
                 throw CreateRuntimeUnavailableException(exception, token);
             }
-            EnsureCurrent(token);
+            EnsureUsable(token);
             var delay = Task.Delay(timeout, cancellationToken);
-            var finished = await Task.WhenAny(completion.Task, delay);
+            var finished = await Task.WhenAny(
+                completion.Task,
+                delay,
+                sessionEnded);
             cancellationToken.ThrowIfCancellationRequested();
-            EnsureCurrent(token);
+            EnsureUsable(token);
             return finished == completion.Task
                 ? await completion.Task
                 : null;
@@ -500,7 +538,7 @@ public sealed class RobloxWebSessionService : IDisposable
             return;
         }
 
-        if (IsCurrent(token.Value))
+        if (IsUsable(token.Value))
             RobloxPageLoaded?.Invoke(this, new WebSessionEventArgs(token.Value));
     }
 
@@ -538,6 +576,8 @@ public sealed class RobloxWebSessionService : IDisposable
 
         _isReady = false;
         _failedGeneration = token.Generation;
+        _sessionEnded.TrySetResult(
+            WebSessionUnavailableReason.ProcessExited);
         SessionUnavailable?.Invoke(
             this,
             new WebSessionUnavailableEventArgs(
@@ -551,10 +591,23 @@ public sealed class RobloxWebSessionService : IDisposable
     internal bool IsCurrent(WebSessionToken token) =>
         _currentToken == token && token.Generation == _generation;
 
-    private CoreWebView2 GetCore(WebSessionToken token)
+    internal Task<WebSessionUnavailableReason> GetSessionEndedTask(
+        WebSessionToken token)
     {
         EnsureCurrent(token);
-        if (!IsReady)
+        return _sessionEnded.Task;
+    }
+
+    private CoreWebView2 GetCore(WebSessionToken token)
+    {
+        EnsureUsable(token);
+        return _browser!.CoreWebView2;
+    }
+
+    private void EnsureUsable(WebSessionToken token)
+    {
+        EnsureCurrent(token);
+        if (!IsUsable(token))
         {
             throw new WebSessionUnavailableException(
                 _failedGeneration == token.Generation
@@ -562,7 +615,6 @@ public sealed class RobloxWebSessionService : IDisposable
                     : WebSessionUnavailableReason.Closed,
                 "The Roblox web session is no longer available.");
         }
-        return _browser!.CoreWebView2;
     }
 
     private void EnsureCurrent(WebSessionToken token)
@@ -593,16 +645,23 @@ public sealed class RobloxWebSessionService : IDisposable
 
     private WebSessionUnavailableException CreateRuntimeUnavailableException(
         Exception exception,
-        WebSessionToken token) =>
-        exception as WebSessionUnavailableException ??
-        new WebSessionUnavailableException(
-            IsCurrent(token)
+        WebSessionToken token)
+    {
+        if (exception is WebSessionUnavailableException unavailable)
+            return unavailable;
+
+        var isCurrent = IsCurrent(token);
+        if (isCurrent)
+            MarkSessionUnavailable(token);
+        return new WebSessionUnavailableException(
+            isCurrent
                 ? WebSessionUnavailableReason.ProcessExited
                 : WebSessionUnavailableReason.Superseded,
-            IsCurrent(token)
+            isCurrent
                 ? "The Roblox web session process exited. Reconnect this account and try again."
                 : "A newer Roblox account session replaced this operation.",
             exception);
+    }
 
     internal static bool IsExpectedInitializationHResult(int hResult) =>
         hResult is
@@ -627,6 +686,10 @@ public sealed class RobloxWebSessionService : IDisposable
         exception is ObjectDisposedException or InvalidOperationException ||
         exception is COMException comException &&
         IsClosedRuntimeHResult(comException.HResult);
+
+    private static TaskCompletionSource<WebSessionUnavailableReason>
+        CreateSessionEndedSignal() => new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
     private static bool IsTrustedBrowserLocation(string location)
     {
