@@ -44,7 +44,9 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
 
         var service = new SettingsService(_storageDirectory);
         var loaded = service.Load();
-        var removed = service.CleanupOrphanedSessionDirectories(loaded);
+        var removed = service.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Empty(loaded.Accounts);
         Assert.False(service.CanReconcileProfiles);
@@ -56,7 +58,8 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         var restartedService = new SettingsService(_storageDirectory);
         var restartedSettings = restartedService.Load();
         var removedAfterRestart = restartedService.CleanupOrphanedSessionDirectories(
-            restartedSettings);
+            restartedSettings,
+            TestContext.Current.CancellationToken);
 
         Assert.False(restartedService.CanReconcileProfiles);
         Assert.Equal(0, removedAfterRestart);
@@ -114,7 +117,8 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         var recoveryService = new SettingsService(_storageDirectory);
         var recovered = recoveryService.Load();
         var removed = recoveryService.CleanupOrphanedSessionDirectories(
-            recovered);
+            recovered,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal("Original", Assert.Single(recovered.Accounts).Label);
         Assert.False(recoveryService.CanReconcileProfiles);
@@ -151,7 +155,9 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
 
         var service = new SettingsService(_storageDirectory);
         var loaded = service.Load();
-        var removed = service.CleanupOrphanedSessionDirectories(loaded);
+        var removed = service.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Empty(loaded.Accounts);
         Assert.False(service.CanReconcileProfiles);
@@ -174,7 +180,9 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
 
         var service = new SettingsService(_storageDirectory);
         var settings = service.Load();
-        var removed = service.CleanupOrphanedSessionDirectories(settings);
+        var removed = service.CleanupOrphanedSessionDirectories(
+            settings,
+            TestContext.Current.CancellationToken);
 
         Assert.False(service.CanReconcileProfiles);
         Assert.Equal(0, removed);
@@ -196,7 +204,8 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         var recoveryService = new SettingsService(_storageDirectory);
         var recovered = recoveryService.Load();
         var removed = recoveryService.CleanupOrphanedSessionDirectories(
-            recovered);
+            recovered,
+            TestContext.Current.CancellationToken);
 
         Assert.Empty(recovered.Accounts);
         Assert.False(recoveryService.CanReconcileProfiles);
@@ -223,7 +232,8 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
                 : File.GetAttributes(path));
         var recovered = recoveryService.Load();
         var removed = recoveryService.CleanupOrphanedSessionDirectories(
-            recovered);
+            recovered,
+            TestContext.Current.CancellationToken);
 
         Assert.Empty(recovered.Accounts);
         Assert.False(recoveryService.CanReconcileProfiles);
@@ -251,7 +261,9 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
                 ? throw new UnauthorizedAccessException("probe denied")
                 : File.GetAttributes(path));
         var loaded = guardedService.Load();
-        var removed = guardedService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = guardedService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.False(guardedService.CanReconcileProfiles);
         Assert.Equal(0, removed);
@@ -296,7 +308,9 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
             Path.Combine(_storageDirectory, "Profiles"),
             "unexpected-file");
 
-        var removed = service.CleanupOrphanedSessionDirectories(new());
+        var removed = service.CleanupOrphanedSessionDirectories(
+            new(),
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, removed);
         Assert.False(service.CanReconcileProfiles);
@@ -320,12 +334,42 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
         Directory.CreateDirectory(orphan);
         Directory.CreateDirectory(unrelated);
 
-        var removed = service.CleanupOrphanedSessionDirectories(settings);
+        var removed = service.CleanupOrphanedSessionDirectories(
+            settings,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(1, removed);
         Assert.True(Directory.Exists(referenced));
         Assert.False(Directory.Exists(orphan));
         Assert.True(Directory.Exists(unrelated));
+    }
+
+    [Fact]
+    public void CleanupOrphanedSessionDirectories_CancellationPreservesUnfinishedProfile()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var service = new SettingsService(
+            _storageDirectory,
+            File.GetAttributes,
+            (_, cancellationToken) =>
+            {
+                Assert.True(cancellationToken.CanBeCanceled);
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return true;
+            });
+        var orphan = Path.Combine(
+            _storageDirectory,
+            "Profiles",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(orphan);
+
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            service.CleanupOrphanedSessionDirectories(
+                new AppSettings(),
+                cancellation.Token));
+
+        Assert.True(Directory.Exists(orphan));
     }
 
     public void Dispose()

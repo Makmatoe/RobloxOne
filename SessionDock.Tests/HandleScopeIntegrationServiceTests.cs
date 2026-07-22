@@ -536,6 +536,53 @@ public sealed class HandleScopeIntegrationServiceTests
     }
 
     [Fact]
+    public void CreateApiStartInfo_RemovesLaunchHookConfiguration()
+    {
+        var inheritedEnvironment = new Dictionary<string, string?>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            [LocalApiLaunchHook.UrlEnvironmentVariable] =
+                "http://127.0.0.1:4312/launch",
+            [LocalApiLaunchHook.TokenEnvironmentVariable] = "current-secret",
+            [LocalApiLaunchHook.LegacyUrlEnvironmentVariable] =
+                "http://127.0.0.1:4313/legacy",
+            [LocalApiLaunchHook.LegacyTokenEnvironmentVariable] =
+                "legacy-secret",
+            ["SESSIONDOCK_ORDINARY_TEST_VALUE"] = "preserve-me"
+        };
+
+        var startInfo = HandleScopeIntegrationService.CreateApiStartInfo(
+            @"C:\HandleScope\Api\HandleScope.Api.exe",
+            @"C:\HandleScope\Api",
+            inheritedEnvironment);
+
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal(
+            @"C:\HandleScope\Api\HandleScope.Api.exe",
+            startInfo.FileName);
+        Assert.Equal(@"C:\HandleScope\Api", startInfo.WorkingDirectory);
+        Assert.Equal(
+            "preserve-me",
+            startInfo.Environment["SESSIONDOCK_ORDINARY_TEST_VALUE"]);
+        Assert.DoesNotContain(
+            LocalApiLaunchHook.UrlEnvironmentVariable,
+            startInfo.Environment.Keys,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            LocalApiLaunchHook.TokenEnvironmentVariable,
+            startInfo.Environment.Keys,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            LocalApiLaunchHook.LegacyUrlEnvironmentVariable,
+            startInfo.Environment.Keys,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            LocalApiLaunchHook.LegacyTokenEnvironmentVariable,
+            startInfo.Environment.Keys,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task StartAsync_ValidatedRunningApi_DoesNotStartDuplicateProcess()
     {
         using var environment = new TestEnvironment();

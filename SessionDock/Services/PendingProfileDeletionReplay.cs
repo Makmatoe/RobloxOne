@@ -25,44 +25,92 @@ internal sealed class PendingProfileDeletionReplay
             TimeSpan.Zero);
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var budgetCancellation =
+        var budgetCancellation =
             _createBudgetCancellation(budget) ??
             throw new InvalidOperationException(
                 "The profile-deletion replay budget could not be created.");
-        using var replayCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(
+        CancellationTokenSource? replayCancellation = null;
+        Task<bool>? activeDeletionTask = null;
+        var deletedKeys = new List<string>();
+        try
+        {
+            replayCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 budgetCancellation.Token);
-        var deletedKeys = new List<string>();
 
-        foreach (var accountKey in accountKeys)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (budgetCancellation.IsCancellationRequested)
+            foreach (var accountKey in accountKeys)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return CreateResult(deletedKeys, budgetExpired: true);
-            }
-
-            try
-            {
-                if (await deleteAsync(
-                        accountKey,
-                        replayCancellation.Token))
+                if (budgetCancellation.IsCancellationRequested)
                 {
-                    deletedKeys.Add(accountKey);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return CreateResult(deletedKeys, budgetExpired: true);
+                }
+
+                try
+                {
+                    activeDeletionTask = Task.Run(
+                        () => deleteAsync(
+                                accountKey,
+                                replayCancellation.Token) ??
+                            throw new InvalidOperationException(
+                                "Profile deletion returned no operation."),
+                        CancellationToken.None);
+                    if (await activeDeletionTask.WaitAsync(
+                            replayCancellation.Token))
+                    {
+                        deletedKeys.Add(accountKey);
+                    }
+                    activeDeletionTask = null;
+                }
+                catch (OperationCanceledException) when (
+                    budgetCancellation.IsCancellationRequested &&
+                    !cancellationToken.IsCancellationRequested)
+                {
+                    return CreateResult(deletedKeys, budgetExpired: true);
                 }
             }
-            catch (OperationCanceledException) when (
-                budgetCancellation.IsCancellationRequested &&
-                !cancellationToken.IsCancellationRequested)
-            {
-                return CreateResult(deletedKeys, budgetExpired: true);
-            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return CreateResult(deletedKeys, budgetExpired: false);
+        }
+        finally
+        {
+            DisposeCancellationSourcesWhenSafe(
+                activeDeletionTask,
+                replayCancellation,
+                budgetCancellation);
+        }
+    }
+
+    private static void DisposeCancellationSourcesWhenSafe(
+        Task? activeDeletionTask,
+        CancellationTokenSource? replayCancellation,
+        CancellationTokenSource budgetCancellation)
+    {
+        if (activeDeletionTask is null || activeDeletionTask.IsCompleted)
+        {
+            if (activeDeletionTask?.IsFaulted == true)
+                _ = activeDeletionTask.Exception;
+            replayCancellation?.Dispose();
+            budgetCancellation.Dispose();
+            return;
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        return CreateResult(deletedKeys, budgetExpired: false);
+        _ = activeDeletionTask.ContinueWith(
+            completed =>
+            {
+                if (completed.IsFaulted)
+                {
+                    System.Diagnostics.Trace.WriteLine(
+                        $"A timed-out profile deletion later failed: {completed.Exception?.GetBaseException().GetType().Name}.");
+                }
+                replayCancellation?.Dispose();
+                budgetCancellation.Dispose();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private static PendingProfileDeletionReplayResult CreateResult(

@@ -10,8 +10,9 @@ public sealed class LocalApiLaunchHook : ILaunchHook
 {
     public const string UrlEnvironmentVariable = "SESSIONDOCK_LAUNCH_HOOK_URL";
     public const string TokenEnvironmentVariable = "SESSIONDOCK_LAUNCH_HOOK_BEARER_TOKEN";
-    private const string LegacyUrlEnvironmentVariable = "ROBLOX_ONE_LAUNCH_HOOK_URL";
-    private const string LegacyTokenEnvironmentVariable =
+    internal const string LegacyUrlEnvironmentVariable =
+        "ROBLOX_ONE_LAUNCH_HOOK_URL";
+    internal const string LegacyTokenEnvironmentVariable =
         "ROBLOX_ONE_LAUNCH_HOOK_BEARER_TOKEN";
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
     private readonly HttpClient _client;
@@ -85,6 +86,36 @@ public sealed class LocalApiLaunchHook : ILaunchHook
     }
 
     public void Dispose() => _client.Dispose();
+
+    internal static void RemoveConfigurationFromChildEnvironment(
+        ProcessStartInfo startInfo)
+    {
+        ArgumentNullException.ThrowIfNull(startInfo);
+        if (startInfo.UseShellExecute)
+        {
+            throw new InvalidOperationException(
+                "Child-process environment scrubbing requires direct process creation.");
+        }
+
+        foreach (var variableName in new[]
+        {
+            UrlEnvironmentVariable,
+            TokenEnvironmentVariable,
+            LegacyUrlEnvironmentVariable,
+            LegacyTokenEnvironmentVariable
+        })
+        {
+            foreach (var inheritedName in startInfo.Environment.Keys
+                         .Where(name => string.Equals(
+                             name,
+                             variableName,
+                             StringComparison.OrdinalIgnoreCase))
+                         .ToArray())
+            {
+                startInfo.Environment.Remove(inheritedName);
+            }
+        }
+    }
 
     private static bool TryGetEndpoint(out Uri? endpoint)
     {

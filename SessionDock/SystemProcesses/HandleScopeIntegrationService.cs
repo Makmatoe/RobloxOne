@@ -219,17 +219,9 @@ public sealed class HandleScopeIntegrationService : IDisposable
                         HandleScopeIntegrationState.RunningUntested));
                 }
 
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = _executablePath,
-                    WorkingDirectory = _installRoot,
-                    Arguments = string.Empty,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    ErrorDialog = false,
-                    Verb = string.Empty,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                };
+                var startInfo = CreateApiStartInfo(
+                    _executablePath,
+                    _installRoot);
                 cancellationToken.ThrowIfCancellationRequested();
                 var processId = startInfo.ArgumentList.Count == 0
                     ? _startProcess(startInfo)
@@ -278,6 +270,38 @@ public sealed class HandleScopeIntegrationService : IDisposable
         UseProxy = false,
         ActivityHeadersPropagator = null
     };
+
+    internal static ProcessStartInfo CreateApiStartInfo(
+        string executablePath,
+        string installRoot,
+        IReadOnlyDictionary<string, string?>? inheritedEnvironment = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installRoot);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = installRoot,
+            Arguments = string.Empty,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            ErrorDialog = false,
+            Verb = string.Empty,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        if (inheritedEnvironment is not null)
+        {
+            startInfo.Environment.Clear();
+            foreach (var variable in inheritedEnvironment)
+            {
+                if (variable.Value is not null)
+                    startInfo.Environment[variable.Key] = variable.Value;
+            }
+        }
+
+        LocalApiLaunchHook.RemoveConfigurationFromChildEnvironment(startInfo);
+        return startInfo;
+    }
 
     private Task<HandleScopeIntegrationResult> SetEnabledAsync(
         bool enabled,

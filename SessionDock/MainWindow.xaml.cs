@@ -17,6 +17,8 @@ public partial class MainWindow : Window
         TimeSpan.FromSeconds(2);
     private static readonly TimeSpan StartupProfileDeletionTimeout =
         TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartupOrphanProfileCleanupTimeout =
+        TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DestinationPersistenceDelay =
         TimeSpan.FromMilliseconds(450);
     private readonly SettingsService _settingsService = new();
@@ -99,14 +101,22 @@ public partial class MainWindow : Window
         try
         {
             await RetryPendingProfileDeletionsAsync(cancellationToken);
-            var removedOrphanedProfiles = await Task.Run(
-                () => _settingsService.CleanupOrphanedSessionDirectories(
-                    _settings),
+            var orphanCleanup = await new BoundedOrphanProfileCleanup().RunAsync(
+                cleanupCancellationToken =>
+                    _settingsService.CleanupOrphanedSessionDirectories(
+                        _settings,
+                        cleanupCancellationToken),
+                StartupOrphanProfileCleanupTimeout,
                 cancellationToken);
-            if (removedOrphanedProfiles > 0)
+            if (orphanCleanup.RemovedProfiles > 0)
             {
                 AppendStartupNotice(
-                    $"Removed {removedOrphanedProfiles} incomplete local account profile(s) left by an interrupted sign-in.");
+                    $"Removed {orphanCleanup.RemovedProfiles} incomplete local account profile(s) left by an interrupted sign-in.");
+            }
+            if (orphanCleanup.BudgetExpired)
+            {
+                AppendStartupNotice(
+                    "SessionDock limited incomplete-profile cleanup during startup so the window could remain responsive. Any unfinished profile is preserved for another cleanup attempt on the next start.");
             }
 
             await ReconcileImportedSoundsAsync(cancellationToken);

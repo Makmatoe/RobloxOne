@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
+using SessionDock.SystemProcesses;
 
 namespace SessionDock.Services;
 
@@ -68,12 +69,7 @@ public sealed class RobloxClientService
                         "Roblox Player was not found. Install Roblox Player, then restart SessionDock.");
                 }
 
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = playerPath,
-                    UseShellExecute = false
-                };
-                startInfo.ArgumentList.Add(launchUri);
+                var startInfo = CreatePlayerStartInfo(playerPath, launchUri);
                 cancellationToken.ThrowIfCancellationRequested();
                 using var process = Process.Start(startInfo);
                 return process is null
@@ -89,6 +85,33 @@ public sealed class RobloxClientService
                 return LaunchResult.Failed($"Roblox Player could not start: {ex.Message}");
             }
         }, cancellationToken);
+    }
+
+    internal static ProcessStartInfo CreatePlayerStartInfo(
+        string playerPath,
+        string launchUri,
+        IReadOnlyDictionary<string, string?>? inheritedEnvironment = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playerPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(launchUri);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = playerPath,
+            UseShellExecute = false
+        };
+        if (inheritedEnvironment is not null)
+        {
+            startInfo.Environment.Clear();
+            foreach (var variable in inheritedEnvironment)
+            {
+                if (variable.Value is not null)
+                    startInfo.Environment[variable.Key] = variable.Value;
+            }
+        }
+
+        LocalApiLaunchHook.RemoveConfigurationFromChildEnvironment(startInfo);
+        startInfo.ArgumentList.Add(launchUri);
+        return startInfo;
     }
 
     public Task<ClosePlayersResult> CloseAllPlayersAsync(

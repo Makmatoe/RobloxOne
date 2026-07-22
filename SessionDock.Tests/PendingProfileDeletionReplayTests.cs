@@ -88,6 +88,95 @@ public sealed class PendingProfileDeletionReplayTests : IDisposable
     }
 
     [Fact]
+    public async Task ReplayAsync_UncooperativeDeletionReturnsAtOwnedBudgetDeadline()
+    {
+        var budgetCancellation = new CancellationTokenSource();
+        var replay = new PendingProfileDeletionReplay(
+            _ => budgetCancellation);
+        var deletionStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowLateCompletion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var replayTask = replay.ReplayAsync(
+            ["blocked"],
+            (_, _) =>
+            {
+                deletionStarted.TrySetResult();
+                return allowLateCompletion.Task;
+            },
+            TimeSpan.FromMinutes(1),
+            TestContext.Current.CancellationToken);
+        await deletionStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        budgetCancellation.Cancel();
+        try
+        {
+            var result = await replayTask.WaitAsync(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+            Assert.Empty(result.DeletedKeys);
+            Assert.True(result.BudgetExpired);
+        }
+        finally
+        {
+            allowLateCompletion.TrySetResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayAsync_SynchronouslyBlockedDeletionReturnsAtOwnedBudgetDeadline()
+    {
+        var budgetCancellation = new CancellationTokenSource();
+        var replay = new PendingProfileDeletionReplay(
+            _ => budgetCancellation);
+        var deletionStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var allowLateCompletion = new ManualResetEventSlim();
+        var lateCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var replayTask = Task.Run(
+            () => replay.ReplayAsync(
+                ["blocked"],
+                (_, _) =>
+                {
+                    deletionStarted.TrySetResult();
+                    allowLateCompletion.Wait();
+                    lateCompletion.TrySetResult();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.FromMinutes(1),
+                TestContext.Current.CancellationToken),
+            CancellationToken.None);
+        await deletionStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        budgetCancellation.Cancel();
+        try
+        {
+            var result = await replayTask.WaitAsync(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+            Assert.Empty(result.DeletedKeys);
+            Assert.True(result.BudgetExpired);
+        }
+        finally
+        {
+            allowLateCompletion.Set();
+        }
+
+        await lateCompletion.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task ReplayAsync_CallerCancellationPropagates()
     {
         var budgetCancellation = new CancellationTokenSource();
@@ -117,6 +206,45 @@ public sealed class PendingProfileDeletionReplayTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await replayTask);
+    }
+
+    [Fact]
+    public async Task ReplayAsync_UncooperativeDeletionPropagatesCallerCancellationPromptly()
+    {
+        var budgetCancellation = new CancellationTokenSource();
+        var replay = new PendingProfileDeletionReplay(
+            _ => budgetCancellation);
+        using var callerCancellation = new CancellationTokenSource();
+        var deletionStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowLateCompletion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var replayTask = replay.ReplayAsync(
+            ["blocked"],
+            (_, _) =>
+            {
+                deletionStarted.TrySetResult();
+                return allowLateCompletion.Task;
+            },
+            TimeSpan.FromMinutes(1),
+            callerCancellation.Token);
+        await deletionStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        callerCancellation.Cancel();
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await replayTask.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            allowLateCompletion.TrySetResult(true);
+        }
     }
 
     [Fact]

@@ -97,7 +97,9 @@ public sealed class AppDataPathsTests : IDisposable
         var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(preferred, resolved);
         Assert.Equal(currentKey, Assert.Single(loaded.Accounts).Key);
@@ -134,7 +136,9 @@ public sealed class AppDataPathsTests : IDisposable
         var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, removed);
         Assert.False(settingsService.CanReconcileProfiles);
@@ -166,7 +170,9 @@ public sealed class AppDataPathsTests : IDisposable
         var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, removed);
         Assert.False(settingsService.CanReconcileProfiles);
@@ -206,7 +212,9 @@ public sealed class AppDataPathsTests : IDisposable
                 "The legacy root could not be positively inspected."));
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, removed);
         Assert.False(settingsService.CanReconcileProfiles);
@@ -237,7 +245,9 @@ public sealed class AppDataPathsTests : IDisposable
         var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, removed);
         Assert.True(settingsService.CanReconcileProfiles);
@@ -288,7 +298,9 @@ public sealed class AppDataPathsTests : IDisposable
         var resolved = AppDataPaths.ResolveForDirectories(preferred, legacy);
         var settingsService = new SettingsService(resolved);
         var loaded = settingsService.Load();
-        var removed = settingsService.CleanupOrphanedSessionDirectories(loaded);
+        var removed = settingsService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(currentKey, Assert.Single(loaded.Accounts).Key);
         Assert.Equal(0, removed);

@@ -227,9 +227,17 @@ public sealed class SettingsService
         }
     }
 
-    public int CleanupOrphanedSessionDirectories(AppSettings settings)
+    public int CleanupOrphanedSessionDirectories(AppSettings settings) =>
+        CleanupOrphanedSessionDirectories(
+            settings,
+            CancellationToken.None);
+
+    internal int CleanupOrphanedSessionDirectories(
+        AppSettings settings,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!CanReconcileProfiles)
             return 0;
 
@@ -264,6 +272,7 @@ public sealed class SettingsService
                          "*",
                          SearchOption.TopDirectoryOnly))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var key = Path.GetFileName(directory);
                 if (!IsValidKey(key) || key == "legacy" ||
                     referencedKeys.Contains(key) || IsReparsePoint(directory))
@@ -272,9 +281,9 @@ public sealed class SettingsService
                 }
                 try
                 {
-                    if (TryDeleteDirectoryTree(
+                    if (_deleteDirectoryTree(
                             directory,
-                            CancellationToken.None))
+                            cancellationToken))
                         removed++;
                 }
                 catch (Exception exception) when (
