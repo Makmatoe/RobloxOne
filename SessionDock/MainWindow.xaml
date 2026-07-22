@@ -82,15 +82,15 @@
                         <Path Style="{StaticResource ButtonIcon}"
                               Data="{StaticResource IconIntegration}"/>
                     </Button>
-                    <Button x:Name="CloseAllInstancesButton"
+                    <Button x:Name="RunningClientsButton"
                             Style="{StaticResource RailIconButton}"
-                            Click="CloseAllInstancesButton_Click"
+                            Click="RunningClientsButton_Click"
                             Margin="0,0,0,10"
-                            Background="#27181C" Foreground="#F09AAA"
-                            AutomationProperties.Name="Close all Roblox instances"
-                            ToolTip="Close every verified Roblox Player instance">
+                            AutomationProperties.Name="Manage running Roblox clients"
+                            AutomationProperties.HelpText="View and close individual verified Roblox Player processes"
+                            ToolTip="View and close running Roblox clients">
                         <Path Style="{StaticResource ButtonIcon}"
-                              Data="{StaticResource IconCloseAll}"/>
+                              Data="{StaticResource IconClients}"/>
                     </Button>
                     <Border Height="1" Background="#303640" Margin="4,0,4,10"/>
                     <Border Width="40" Height="32" CornerRadius="8"

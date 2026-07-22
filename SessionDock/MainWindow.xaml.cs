@@ -23,6 +23,7 @@ public partial class MainWindow : Window
         TimeSpan.FromMilliseconds(450);
     private readonly SettingsService _settingsService = new();
     private readonly RobloxClientService _robloxClient = new();
+    private readonly RunningClientRegistry _runningClients = new();
     private readonly RobloxServerTracker _serverTracker = new();
     private readonly RobloxWebSessionService _webSession = new();
     private readonly UiSoundService _soundService;
@@ -1472,6 +1473,7 @@ public partial class MainWindow : Window
             return;
         await LaunchClientAsync(
             RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
+            activeProfile,
             recent,
             cancellationToken);
     }
@@ -1501,6 +1503,7 @@ public partial class MainWindow : Window
 
     private async Task LaunchClientAsync(
         string launchUri,
+        AccountProfile account,
         RecentExperience recent,
         CancellationToken cancellationToken)
     {
@@ -1514,6 +1517,7 @@ public partial class MainWindow : Window
         var result = await _robloxClient.LaunchAsync(
             launchUri,
             cancellationToken);
+        TrackLaunchedClient(result.PlayerIdentity, account, recent);
         cancellationToken.ThrowIfCancellationRequested();
         _launchInProgress = false;
         if (result is { Success: true, ProcessId: int processId })
@@ -2154,7 +2158,7 @@ public partial class MainWindow : Window
         AddAccountButton.IsEnabled = !busy && _pendingProfile is null;
         EditAccountButton.IsEnabled =
             !busy && _pendingProfile is null && _activeProfile is not null;
-        CloseAllInstancesButton.IsEnabled = !busy;
+        RunningClientsButton.IsEnabled = !busy;
         ResetButton.IsEnabled = !busy && _activeProfile is not null;
         SignInButton.IsEnabled = !busy;
         PlaceIdBox.IsEnabled = !busy;

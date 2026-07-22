@@ -1,86 +1,57 @@
 using System.Windows;
+using SessionDock.Models;
+using SessionDock.Services;
 
 namespace SessionDock;
 
 public partial class MainWindow
 {
-    private async void CloseAllInstancesButton_Click(
+    private void RunningClientsButton_Click(
         object sender,
-        RoutedEventArgs e) =>
-        await RunWindowOperationAsync(CloseAllInstancesButtonClickAsync);
-
-    private async Task CloseAllInstancesButtonClickAsync(
-        CancellationToken cancellationToken)
+        RoutedEventArgs e)
     {
         if (_operationBusy)
             return;
 
-        var confirmation = MessageBox.Show(
-            "Close every running Roblox Player instance, including windowless background processes? Active games will disconnect.",
-            "Close all Roblox instances",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (confirmation != MessageBoxResult.Yes)
+        var dialog = new RunningClientsDialog(
+            _robloxClient,
+            _runningClients,
+            () => _operationLifetime.IsShuttingDown)
+        {
+            Owner = this
+        };
+        _ = dialog.ShowDialog();
+        if (dialog.ClosedClientCount == 0)
             return;
 
-        SetOperationBusy(true);
         SetStatus(
-            "Closing all Roblox instances",
-            "Checking every RobloxPlayerBeta process before closing it…",
-            "CLIENT CLEANUP");
+            dialog.ClosedClientCount == 1
+                ? "Roblox client closed"
+                : "Roblox clients closed",
+            dialog.ClosedClientCount == 1
+                ? "One verified Roblox Player process was closed."
+                : $"{dialog.ClosedClientCount} verified Roblox Player processes were closed.",
+            "CLIENTS CLOSED");
+    }
 
-        try
-        {
-            var result = await _robloxClient.CloseAllPlayersAsync(
-                cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (result.Success)
-            {
-                var detail = result.Found == 0
-                    ? "No running RobloxPlayerBeta processes were found."
-                    : result.BackgroundFound == 0
-                        ? $"Closed {result.Closed} Roblox Player instance(s)."
-                        : $"Closed {result.Closed} Roblox Player instance(s), including {result.BackgroundFound} background process(es).";
-                SetStatus(
-                    result.Found == 0
-                        ? "Roblox Player is already closed"
-                        : "All Roblox instances closed",
-                    detail,
-                    "CLIENTS CLOSED");
-                return;
-            }
+    private void TrackLaunchedClient(
+        RobloxClientProcessIdentity? identity,
+        AccountProfile account,
+        RecentExperience recent)
+    {
+        if (identity is null)
+            return;
 
-            var problems = new List<string>();
-            if (result.Remaining > 0)
-            {
-                problems.Add(
-                    $"{result.Remaining} verified instance(s) could not be closed");
-            }
-            if (result.Unverified > 0)
-            {
-                problems.Add(
-                    $"{result.Unverified} Roblox-named process(es) could not be safely verified and were left running");
-            }
-            SetStatus(
-                "Some Roblox instances remain",
-                string.Join("; ", problems) + ".",
-                "CLIENT CLEANUP ERROR");
-        }
-        catch (OperationCanceledException)
-        {
-            // Window shutdown cancels process cleanup.
-        }
-        catch (Exception ex)
-        {
-            SetStatus(
-                "Roblox instances could not be closed",
-                ex.Message,
-                "CLIENT CLEANUP ERROR");
-        }
-        finally
-        {
-            if (!_operationLifetime.IsShuttingDown)
-                SetOperationBusy(false);
-        }
+        _runningClients.Track(
+            identity,
+            new RunningClientAttribution(
+                account.Key,
+                account.UserId,
+                account.Username,
+                account.Label,
+                account.ColorHex,
+                recent.PlaceId,
+                recent.CustomName ?? recent.Name,
+                recent.LastLaunchedAt));
     }
 }

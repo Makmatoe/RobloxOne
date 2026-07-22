@@ -135,6 +135,8 @@ public partial class MainWindow
         {
             closeResult = await _robloxClient.CloseAllPlayersAsync(
                 cancellationToken);
+            if (closeResult.Success)
+                _runningClients.Clear();
         }
         catch (OperationCanceledException)
         {
@@ -677,6 +679,7 @@ public partial class MainWindow
                     serverJobId,
                     locale),
                 cancellationToken);
+            TrackLaunchedClient(result.PlayerIdentity, account, recent);
             cancellationToken.ThrowIfCancellationRequested();
             if (result is not { Success: true, ProcessId: int processId })
                 return false;
