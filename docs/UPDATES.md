@@ -22,6 +22,35 @@ The installer-based production build is the recommended updateable edition.
 Source, debug, and raw `dotnet publish` builds do not become trusted production
 installations and cannot use the production self-update path.
 
+## Roblox One 2.1.4 or earlier
+
+Roblox One 2.1.4 and earlier cannot complete their in-app compatibility update
+after the project repository was renamed. GitHub first redirects the old
+`Makmatoe/RobloxOne` release address to `Makmatoe/SessionDock`; the older app's
+fail-closed updater rejects that renamed-repository hop and reports that the
+release manifest was redirected to an untrusted address. Retrying that update
+does not repair the older binary.
+
+Use the official 2.1.5 compatibility release as a one-time manual bridge:
+
+1. Close Roblox One. Do not uninstall it or delete either application-data
+   directory.
+2. From the canonical
+   [SessionDock 2.1.5 release](https://github.com/Makmatoe/SessionDock/releases/tag/v2.1.5),
+   download `RobloxOne-win-x64-stable-Setup.exe` and `SHA256SUMS.txt`.
+3. Follow the verification procedure below, setting `$asset` to
+   `RobloxOne-win-x64-stable-Setup.exe`.
+4. Run that verified Setup as the same standard Windows user. It preserves the
+   legacy package identity for the upgrade and migrates local Roblox One data
+   to SessionDock.
+5. Confirm the account slots and browser sessions in SessionDock 2.1.5, then
+   use its update button to install the latest stable SessionDock release.
+
+If expected account slots are missing, or both application-data directories
+remain populated, close SessionDock, keep `%LOCALAPPDATA%\RobloxOne` and
+`%LOCALAPPDATA%\SessionDock` unchanged, and stop before removing an account or
+either directory.
+
 ## Verify a manual installer download
 
 Download both `SessionDock-win-x64-Setup.exe` and `SHA256SUMS.txt` from
