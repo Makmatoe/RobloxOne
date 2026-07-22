@@ -62,6 +62,22 @@ public sealed class PendingProfileDeletionIntentTests : IDisposable
     }
 
     [Fact]
+    public void StageProfileDeletion_CreatesEmptyMarker()
+    {
+        var service = new SettingsService(_storageDirectory);
+        var key = Guid.NewGuid().ToString("N");
+
+        service.StageProfileDeletion(key);
+
+        var marker = Path.Combine(
+            _storageDirectory,
+            "PendingProfileDeletions",
+            $"{key}.delete");
+        Assert.True(File.Exists(marker));
+        Assert.Empty(File.ReadAllBytes(marker));
+    }
+
+    [Fact]
     public async Task DeletePendingProfile_CurrentAccountReferenceFailsClosed()
     {
         var service = new SettingsService(_storageDirectory);

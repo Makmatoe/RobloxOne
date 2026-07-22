@@ -2349,6 +2349,8 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (!_operationLifetime.BeginShutdown())
             return;
+        var shutdownWatchdog = ShutdownExitWatchdog.Start(ShutdownTimeout);
+        DisarmWatchdogOnApplicationExit(shutdownWatchdog);
 
         var destinationRequest = CaptureShutdownDestinationRequest();
         var shutdownFailures = new List<Exception>();
@@ -2393,6 +2395,23 @@ public partial class MainWindow : Window
             }
             Close();
         }
+    }
+
+    private static void DisarmWatchdogOnApplicationExit(
+        ShutdownExitWatchdog shutdownWatchdog)
+    {
+        ArgumentNullException.ThrowIfNull(shutdownWatchdog);
+        var application = Application.Current;
+        if (application is null)
+            return;
+
+        ExitEventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            application.Exit -= handler;
+            shutdownWatchdog.Dispose();
+        };
+        application.Exit += handler;
     }
 
     private async Task CompleteShutdownAsync(
