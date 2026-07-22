@@ -14,6 +14,15 @@ public partial class MainWindow
     private long _recentAccountFilter;
     private bool _updatingRecentFilters;
 
+    private static void RecentExperiencesScrollViewer_RequestBringIntoView(
+        object sender,
+        RequestBringIntoViewEventArgs e)
+    {
+        // The inner viewer makes the focused card visible first. Reopening the
+        // routed event then lets the outer Launch Center reveal the list itself.
+        e.Handled = false;
+    }
+
     private void LaunchTabButton_Click(object sender, RoutedEventArgs e) =>
         ShowLauncherTab();
 

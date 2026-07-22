@@ -474,9 +474,13 @@
                                               BorderBrush="#343D50" Padding="8,4"
                                               AutomationProperties.Name="Recent account filter"/>
                                 </Grid>
-                                <ScrollViewer Grid.Row="2" Margin="0,14,0,14"
+                                <ScrollViewer x:Name="RecentExperiencesScrollViewer"
+                                              Grid.Row="2" Margin="0,14,0,14"
+                                              MaxHeight="280" VerticalAlignment="Top"
                                               VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              PanningMode="VerticalOnly"
+                                              AutomationProperties.Name="Recent experiences list">
                                     <StackPanel x:Name="RecentExperiencesList"/>
                                 </ScrollViewer>
                                 <Grid Grid.Row="3">

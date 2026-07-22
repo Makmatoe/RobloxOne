@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private readonly SerializedSettingsWriter _settingsWriter;
     private readonly SettingsMutationCoordinator _settingsMutations;
     private readonly DestinationPersistenceDebouncer _destinationPersistence;
+    private readonly AccountVerificationGate _accountVerificationGate = new();
     private string? _startupNotice;
     private AccountProfile? _activeProfile;
     private AccountProfile? _pendingProfile;
@@ -66,6 +67,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RecentExperiencesScrollViewer.AddHandler(
+            FrameworkElement.RequestBringIntoViewEvent,
+            new RequestBringIntoViewEventHandler(
+                RecentExperiencesScrollViewer_RequestBringIntoView),
+            handledEventsToo: true);
         WindowLayoutService.FitToWorkArea(this);
         var app = (App)Application.Current;
         _soundService = app.SoundService;
@@ -355,12 +361,17 @@ public partial class MainWindow : Window
 
     private async void WebSession_RobloxPageLoaded(
         object? sender,
-        WebSessionEventArgs e) =>
+        WebSessionEventArgs e)
+    {
+        if (!_accountVerificationGate.ShouldRunAutomaticVerification(e.Token))
+            return;
+
         await RunWindowOperationAsync(cancellationToken =>
             CheckAuthenticatedAccountAsync(
                 e.Token,
                 skipIfBusy: true,
                 cancellationToken));
+    }
 
     private async void WebSession_SessionUnavailable(
         object? sender,

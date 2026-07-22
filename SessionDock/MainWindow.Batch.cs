@@ -489,6 +489,12 @@ public partial class MainWindow
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            // This activation performs an awaited verification below. Skip only
+            // its first automatic page-load check so the same Roblox request is
+            // not serialized twice; later navigations remain observable.
+            using var automaticCheckSuppression =
+                _accountVerificationGate.SuppressNextAutomaticVerification(
+                    account.Key);
             var initialization = InitializeBrowserAsync(
                 account,
                 showLogin: false,
