@@ -2169,6 +2169,7 @@ public partial class MainWindow : Window
         BatchLaunchButton.IsEnabled = !busy;
         SoundSettingsButton.IsEnabled = !busy;
         IntegrationsButton.IsEnabled = !busy;
+        ReleaseNotesButton.IsEnabled = !busy;
         InstallUpdateButton.IsEnabled = !busy;
         RefreshLaunchAvailability();
     }

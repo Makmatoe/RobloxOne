@@ -64,6 +64,8 @@
           CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Resources\update-public-key.pem"
                       LogicalName="SessionDock.Embedded.ReleasePublicKey.pem" />
+    <EmbeddedResource Include="ReleaseNotes\*.md"
+                      LogicalName="SessionDock.Embedded.ReleaseNotes.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <Target Name="RemovePublishDocumentation" AfterTargets="Publish">

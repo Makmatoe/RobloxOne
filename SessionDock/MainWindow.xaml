@@ -131,6 +131,18 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal"
                             VerticalAlignment="Center">
+                    <Button x:Name="ReleaseNotesButton"
+                            Style="{StaticResource IconOnlyButton}"
+                            Width="34" Height="34" Padding="8"
+                            Margin="0,0,6,0"
+                            Background="#1B1F26" Foreground="#AEB7C5"
+                            Click="ReleaseNotesButton_Click"
+                            AutomationProperties.Name="View current and previous release notes"
+                            AutomationProperties.HelpText="Shows changes in the installed release and the release before it"
+                            ToolTip="View included SessionDock release notes">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconReleaseNotes}"/>
+                    </Button>
                     <Button x:Name="InstallUpdateButton"
                             Style="{StaticResource IconOnlyButton}"
                             Width="34" Height="34" Padding="8"
