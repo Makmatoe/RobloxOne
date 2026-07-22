@@ -53,11 +53,16 @@ When the user explicitly checks for an application update, SessionDock connects
 to GitHub Releases for `Makmatoe/SessionDock`. GitHub receives ordinary request
 metadata such as the source IP address and user agent under GitHub's policies.
 
-An optional post-launch HTTP hook is used only after the user configures a
-loopback URL. The connector rejects non-loopback destinations, redirects, and
-system proxies. Its bounded event payload contains the Roblox process ID, place
-and experience, public/private classification, and selected account ID,
-username, and label. It excludes passwords, cookies, launch tickets, raw
+An optional generic post-launch hook is used only after the user configures an
+HTTPS URL for a numeric loopback address and a bearer token. Windows must trust
+the endpoint certificate and it must match the configured IP address;
+SessionDock does not bypass TLS certificate validation. Plain HTTP, missing or
+invalid tokens, and non-loopback destinations make the hook unconfigured, so
+the event payload is not created or sent. A certificate-validation failure
+prevents the HTTP request from being transmitted. Redirects, cookies, and
+system proxies are disabled. The bounded payload contains the Roblox process
+ID, place and experience, public/private classification, and selected account
+ID, username, and label. It excludes passwords, cookies, launch tickets, raw
 destinations, private-server codes, and server job IDs.
 
 The optional HandleScope integration inspects only the expected local install

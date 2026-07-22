@@ -158,8 +158,11 @@ public sealed class SettingsService
                 out var migrated,
                 out var accountMetadataWasDiscarded))
         {
-            var cleanupPauseIsDurable =
-                !accountMetadataWasDiscarded || RequireProfileCleanupPause();
+            var metadataSupportsProfileCleanup =
+                !accountMetadataWasDiscarded &&
+                BackupMetadataAllowsProfileCleanup(settings, backupState);
+            var cleanupPauseIsDurable = metadataSupportsProfileCleanup ||
+                RequireProfileCleanupPause();
             if (migrated && cleanupPauseIsDurable)
             {
                 try
@@ -390,10 +393,7 @@ public sealed class SettingsService
                            FileMode.CreateNew,
                            FileAccess.Write,
                            FileShare.None))
-                using (var writer = new StreamWriter(stream))
                 {
-                    writer.Write(accountKey);
-                    writer.Flush();
                     stream.Flush(flushToDisk: true);
                 }
                 File.Move(temporaryPath, markerPath);
@@ -791,6 +791,46 @@ public sealed class SettingsService
             settings = new();
             migrated = false;
             accountMetadataWasDiscarded = false;
+            return false;
+        }
+    }
+
+    private bool BackupMetadataAllowsProfileCleanup(
+        AppSettings primarySettings,
+        PathProbeResult backupState)
+    {
+        if (backupState == PathProbeResult.Missing)
+            return true;
+
+        if (backupState != PathProbeResult.File ||
+            !TryLoadFile(
+                _backupPath,
+                out var backupSettings,
+                out _,
+                out var backupAccountMetadataWasDiscarded) ||
+            backupAccountMetadataWasDiscarded)
+        {
+            return false;
+        }
+
+        try
+        {
+            // The primary remains authoritative for live settings. A profile
+            // referenced only by the prior revision is still recoverable,
+            // though, unless the crash-durable removal journal names it.
+            // Pause broad cleanup instead of silently restoring the account.
+            var primaryKeys = primarySettings.Accounts
+                .Select(account => account.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var journaledDeletionKeys = GetJournaledProfileDeletionKeys()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return backupSettings.Accounts.All(account =>
+                primaryKeys.Contains(account.Key) ||
+                journaledDeletionKeys.Contains(account.Key));
+        }
+        catch (Exception exception) when (
+            LocalDataException.IsExpectedPersistenceFailure(exception))
+        {
             return false;
         }
     }

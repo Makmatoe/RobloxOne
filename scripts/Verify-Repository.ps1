@@ -6,15 +6,39 @@ param(
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
 $root = Get-RepositoryRoot
+
+function Get-WorkflowJobBlock {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Contents,
+
+        [Parameter(Mandatory)]
+        [string] $Name
+    )
+
+    $escapedName = [regex]::Escape($Name)
+    $match = [regex]::Match(
+        $Contents,
+        "(?ms)^  ${escapedName}:\r?\n(?<block>.*?)(?=^  [A-Za-z0-9][A-Za-z0-9_-]*:\r?\n|\z)")
+    if (-not $match.Success) {
+        throw "Required workflow job is missing: $Name"
+    }
+
+    $match.Groups['block'].Value
+}
+
 Push-Location $root
 try {
     $requiredFiles = @(
         '.config/dotnet-tools.json',
+        '.github/workflows/ci.yml',
+        '.github/workflows/release.yml',
         'Directory.Build.props',
         'global.json',
         'NuGet.Config',
         'LICENSE.md',
         'THIRD_PARTY_NOTICES.md',
+        'docs/RELEASING.md',
         'SessionDock/SessionDock.csproj',
         'SessionDock/Resources/update-public-key.pem',
         'SessionDock.ReleaseTrust/ReleaseDescriptorPolicy.cs',
@@ -83,11 +107,82 @@ try {
         throw 'The Velopack package ID must remain SessionDockApp and must not collide with either data-directory identity.'
     }
     $publishContents = Get-Content -LiteralPath (Join-Path $root 'scripts/Publish.ps1') -Raw
+    $ciWorkflowContents = Get-Content -LiteralPath `
+        (Join-Path $root '.github/workflows/ci.yml') -Raw
     $releaseWorkflowContents = Get-Content -LiteralPath `
         (Join-Path $root '.github/workflows/release.yml') -Raw
     if ($publishContents -notmatch "'--packId'\s+'SessionDockApp'" -or
         $releaseWorkflowContents -notmatch '--packId\s+SessionDockApp') {
         throw 'Local and protected release packaging must use the non-colliding SessionDockApp package ID.'
+    }
+
+    $ciBuildJob = Get-WorkflowJobBlock -Contents $ciWorkflowContents -Name 'build-and-test'
+    $releaseValidateJob = Get-WorkflowJobBlock `
+        -Contents $releaseWorkflowContents `
+        -Name 'validate-and-build'
+    $releaseStageJob = Get-WorkflowJobBlock `
+        -Contents $releaseWorkflowContents `
+        -Name 'sign-attest-and-stage'
+    $releasePublishJob = Get-WorkflowJobBlock `
+        -Contents $releaseWorkflowContents `
+        -Name 'publish-verified-release'
+
+    $ciRuntimeSmoke =
+        './scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/ci-publish/SessionDock.exe -TimeoutSeconds 30'
+    if (-not $ciBuildJob.Contains($ciRuntimeSmoke)) {
+        throw 'CI must execute the isolated published-executable runtime smoke.'
+    }
+    $releaseRuntimeSmoke =
+        './scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/release-input/app/SessionDock.exe -TimeoutSeconds 30'
+    if (-not $releaseValidateJob.Contains($releaseRuntimeSmoke)) {
+        throw 'Protected release validation must execute the isolated published-executable runtime smoke.'
+    }
+
+    if ($releaseStageJob -notmatch '(?m)^    environment:\s*release\s*$' -or
+        $releaseStageJob -notmatch '(?m)^      contents:\s*write\s*$' -or
+        $releaseStageJob -notmatch '(?m)^      id-token:\s*write\s*$' -or
+        $releaseStageJob -notmatch '(?m)^      attestations:\s*write\s*$' -or
+        $releaseStageJob -notmatch '(?m)^      artifact-metadata:\s*write\s*$' -or
+        $releaseStageJob -notmatch 'gh release create[^\r\n]*--draft' -or
+        $releaseStageJob -notmatch 'actions/attest@') {
+        throw 'The protected staging job must sign, draft, and attest with its required permissions.'
+    }
+    if ($releaseStageJob -match 'gh release edit|--draft=false') {
+        throw 'The protected staging job must not publish the verified draft.'
+    }
+
+    if ($releasePublishJob -notmatch '(?ms)^    needs:\s*\r?\n      - validate-and-build\s*\r?\n      - sign-attest-and-stage\s*$' -or
+        $releasePublishJob -notmatch '(?m)^    environment:\s*release-publication\s*$' -or
+        $releasePublishJob -notmatch '(?m)^      contents:\s*write\s*$' -or
+        $releasePublishJob -notmatch '(?m)^      attestations:\s*read\s*$' -or
+        $releasePublishJob -notmatch 'gh release download' -or
+        $releasePublishJob -notmatch 'SHA256SUMS\.txt' -or
+        $releasePublishJob -notmatch 'Compare-Object \$expectedNames \$actualNames -CaseSensitive' -or
+        $releasePublishJob -notmatch '\[Collections\.Generic\.Dictionary\[string, string\]\]::new\(\s*\r?\n\s*\[StringComparer\]::Ordinal\)' -or
+        $releasePublishJob -notmatch '(?s)Compare-Object\s+`\s*\r?\n\s*\$expectedChecksumNames\s+`\s*\r?\n\s*@\(\$checksumEntries\.Keys \| Sort-Object\)\s+`\s*\r?\n\s*-CaseSensitive' -or
+        $releasePublishJob -notmatch '(?s)gh attestation verify \$asset\.FullName\s+`\s*\r?\n\s*--repo \$env:GITHUB_REPOSITORY\s+`\s*\r?\n\s*--signer-workflow \$env:EXPECTED_SIGNER_WORKFLOW\s+`\s*\r?\n\s*--source-ref \$env:EXPECTED_SOURCE_REF\s+`\s*\r?\n\s*--source-digest \$env:EXPECTED_SOURCE_DIGEST' -or
+        $releasePublishJob -notmatch 'EXPECTED_SIGNER_WORKFLOW:\s*Makmatoe/SessionDock/\.github/workflows/release\.yml' -or
+        $releasePublishJob -notmatch 'EXPECTED_SOURCE_REF:\s*\$\{\{\s*github\.ref\s*\}\}' -or
+        $releasePublishJob -notmatch 'EXPECTED_SOURCE_DIGEST:\s*\$\{\{\s*github\.sha\s*\}\}' -or
+        $releasePublishJob -notmatch 'gh release edit[^\r\n]*--draft=false[^\r\n]*--latest') {
+        throw 'Final publication must be separately approved and must reverify the exact draft and bounded provenance before publishing it.'
+    }
+    if ($releasePublishJob -match '(?m)^      (?:id-token|artifact-metadata):\s*write\s*$' -or
+        $releasePublishJob -match '(?m)^      attestations:\s*write\s*$' -or
+        $releasePublishJob -match '\$\{\{\s*secrets\.' -or
+        $releasePublishJob -match 'ReleaseSigner|private-key') {
+        throw 'The final publication job must not receive signing secrets or attestation write permissions.'
+    }
+    if (@([regex]::Matches($releaseWorkflowContents, '--draft=false')).Count -ne 1) {
+        throw 'Only the separately approved final job may make a release public.'
+    }
+
+    $releaseGuideContents = Get-Content -LiteralPath `
+        (Join-Path $root 'docs/RELEASING.md') -Raw
+    if ($releaseGuideContents -notmatch '`release-publication`' -or
+        $releaseGuideContents -notmatch 'Test-RuntimeSmoke\.ps1' -or
+        $releaseGuideContents -notmatch '(?i)draft[\s\S]{0,500}approval') {
+        throw 'The release guide must document runtime smoke and the separate draft-publication approval.'
     }
 
     $trackedFiles = @(& git ls-files)
@@ -205,8 +300,9 @@ try {
             if ($workflow.Name -ceq 'release.yml' -and
                 ($contents -match '(?m)^\s*workflow_dispatch\s*:' -or
                  $contents -notmatch '(?m)^\s+environment:\s*release\s*$' -or
+                 $contents -notmatch '(?m)^\s+environment:\s*release-publication\s*$' -or
                  $contents -match '--clobber')) {
-                throw 'Release workflow must be tag-only, environment-protected, and non-clobbering.'
+                throw 'Release workflow must be tag-only, separately environment-protected, and non-clobbering.'
             }
             if ($workflow.Name -ceq 'release.yml') {
                 if ($contents -match '(?i)azure/login|AzureTrustedSign|AZURE_(?:CLIENT|TENANT|SUBSCRIPTION|SIGNING)|EXPECTED_PUBLISHER_SUBJECT') {
@@ -223,7 +319,7 @@ try {
                 }
                 if ($contents -notmatch '(?m)^\s+artifact-metadata:\s*write\s*$' -or
                     $contents -notmatch 'actions/attest@') {
-                    throw 'The release publication job must retain GitHub artifact attestation permissions.'
+                    throw 'The release staging job must retain GitHub artifact attestation permissions.'
                 }
             }
             if ($contents -match 'actions/setup-dotnet@' -and

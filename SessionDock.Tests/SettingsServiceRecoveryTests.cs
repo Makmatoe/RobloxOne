@@ -203,6 +203,140 @@ public sealed class SettingsServiceRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void Load_ValidEmptyPrimary_PreservesProfileReferencedOnlyByBackup()
+    {
+        var service = new SettingsService(_storageDirectory);
+        var backupSettings = CreateSettings("Backup only");
+        service.Save(backupSettings);
+        var profile = service.GetSessionDataDirectory(backupSettings.Accounts[0]);
+        Directory.CreateDirectory(profile);
+        var sentinel = Path.Combine(profile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+        service.Save(new AppSettings());
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var loaded = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(loaded.Accounts);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+        Assert.True(File.Exists(Path.Combine(
+            _storageDirectory,
+            "profile-cleanup-paused.txt")));
+    }
+
+    [Fact]
+    public void Load_ValidPartialPrimary_PreservesProfileReferencedOnlyByBackup()
+    {
+        var service = new SettingsService(_storageDirectory);
+        var settings = CreateSettings("Retained");
+        var backupOnlyKey = Guid.NewGuid().ToString("N");
+        var backupOnlyAccount = new AccountProfile
+        {
+            Key = backupOnlyKey,
+            UserId = 99,
+            Username = "backup-only",
+            Label = "Backup only",
+            SessionFolder = $@"Profiles\{backupOnlyKey}"
+        };
+        settings.Accounts.Add(backupOnlyAccount);
+        service.Save(settings);
+        var backupOnlyProfile = service.GetSessionDataDirectory(backupOnlyAccount);
+        Directory.CreateDirectory(backupOnlyProfile);
+        var sentinel = Path.Combine(backupOnlyProfile, "Cookies");
+        File.WriteAllText(sentinel, "authenticated-session");
+        settings.Accounts.Remove(backupOnlyAccount);
+        service.Save(settings);
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var loaded = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("Retained", Assert.Single(loaded.Accounts).Label);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public async Task Load_BackupOnlyProfileWithDurableDeletionIntent_CanBeDeletedExactly()
+    {
+        var key = Guid.NewGuid().ToString("N");
+        var account = new AccountProfile
+        {
+            Key = key,
+            UserId = 42,
+            Username = "removed",
+            SessionFolder = $@"Profiles\{key}"
+        };
+        var service = new SettingsService(_storageDirectory);
+        service.Save(new AppSettings
+        {
+            Accounts = [account],
+            ActiveAccountKey = key
+        });
+        var target = service.GetSessionDataDirectory(account);
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "Cookies"), "authenticated-session");
+        var unrelatedKey = Guid.NewGuid().ToString("N");
+        var unrelated = Path.Combine(
+            _storageDirectory,
+            "Profiles",
+            unrelatedKey);
+        Directory.CreateDirectory(unrelated);
+        service.StageProfileDeletion(key);
+        service.Save(new AppSettings
+        {
+            PendingProfileDeletionKeys = [key]
+        });
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var loaded = recoveryService.Load();
+        var deleted = await recoveryService.DeletePendingProfileOnceAsync(
+            key,
+            loaded,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(recoveryService.CanReconcileProfiles);
+        Assert.True(deleted);
+        Assert.False(Directory.Exists(target));
+        Assert.True(Directory.Exists(unrelated));
+    }
+
+    [Fact]
+    public void Load_UnreadableBackup_PausesProfileCleanupDespiteValidPrimary()
+    {
+        var service = new SettingsService(_storageDirectory);
+        service.Save(new AppSettings());
+        service.Save(new AppSettings());
+        File.WriteAllText(
+            Path.Combine(_storageDirectory, "settings.backup.json"),
+            "{not-json");
+        var profile = Path.Combine(
+            _storageDirectory,
+            "Profiles",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(profile);
+
+        var recoveryService = new SettingsService(_storageDirectory);
+        var loaded = recoveryService.Load();
+        var removed = recoveryService.CleanupOrphanedSessionDirectories(
+            loaded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(loaded.Accounts);
+        Assert.False(recoveryService.CanReconcileProfiles);
+        Assert.Equal(0, removed);
+        Assert.True(Directory.Exists(profile));
+    }
+
+    [Fact]
     public void Load_DiscardedInvalidAccount_PreservesItsProfile()
     {
         var key = Guid.NewGuid().ToString("N");

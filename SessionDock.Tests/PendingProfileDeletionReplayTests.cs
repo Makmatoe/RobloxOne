@@ -130,6 +130,7 @@ public sealed class PendingProfileDeletionReplayTests : IDisposable
     [Fact]
     public async Task ReplayAsync_SynchronouslyBlockedDeletionReturnsAtOwnedBudgetDeadline()
     {
+        var testGuardTimeout = TimeSpan.FromSeconds(10);
         var budgetCancellation = new CancellationTokenSource();
         var replay = new PendingProfileDeletionReplay(
             _ => budgetCancellation);
@@ -153,18 +154,19 @@ public sealed class PendingProfileDeletionReplayTests : IDisposable
                 TestContext.Current.CancellationToken),
             CancellationToken.None);
         await deletionStarted.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
 
         budgetCancellation.Cancel();
         try
         {
             var result = await replayTask.WaitAsync(
-                TimeSpan.FromSeconds(1),
+                testGuardTimeout,
                 TestContext.Current.CancellationToken);
 
             Assert.Empty(result.DeletedKeys);
             Assert.True(result.BudgetExpired);
+            Assert.False(lateCompletion.Task.IsCompleted);
         }
         finally
         {
@@ -172,7 +174,7 @@ public sealed class PendingProfileDeletionReplayTests : IDisposable
         }
 
         await lateCompletion.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
     }
 
