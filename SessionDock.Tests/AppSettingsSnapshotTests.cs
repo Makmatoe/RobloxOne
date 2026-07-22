@@ -86,6 +86,7 @@ public sealed class AppSettingsSnapshotTests
             "PlaceId",
             "RecentExperiences",
             "StartupSound",
+            "UseLightTheme",
             "UiSoundsEnabled");
         AssertPublicProperties<AccountProfile>(
             "ColorHex",
@@ -167,6 +168,7 @@ public sealed class AppSettingsSnapshotTests
                 }
             ],
             UiSoundsEnabled = false,
+            UseLightTheme = true,
             StartupSound = "bright",
             CustomStartupSoundFileName = "startup-custom.wav",
             PendingProfileDeletionKeys =
@@ -205,6 +207,7 @@ public sealed class AppSettingsSnapshotTests
         settings.RecentExperiences = [new RecentExperience()];
 
         settings.UiSoundsEnabled = true;
+        settings.UseLightTheme = false;
         settings.StartupSound = "soft";
         settings.CustomStartupSoundFileName = null;
         settings.PendingProfileDeletionKeys = [];

@@ -169,8 +169,6 @@ public partial class RunningClientsDialog : Window
 
         var card = new Border
         {
-            Background = CreateBrush("#15181E"),
-            BorderBrush = CreateBrush("#303640"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(11, 9, 9, 9),
@@ -178,6 +176,12 @@ public partial class RunningClientsDialog : Window
             ToolTip =
                 $"Verified Roblox Player process\nPID {client.Identity.ProcessId}"
         };
+        card.SetResourceReference(
+            Border.BackgroundProperty,
+            "CardSurfaceBrush");
+        card.SetResourceReference(
+            Border.BorderBrushProperty,
+            "CardBorderBrush");
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition
         {
@@ -194,60 +198,87 @@ public partial class RunningClientsDialog : Window
             Width = 32,
             Height = 32,
             CornerRadius = new CornerRadius(8),
-            Background = CreateBrush(
-                knownAccount
-                    ? attribution!.AccountColorHex ?? "#326FD1"
-                    : "#323945"),
             VerticalAlignment = VerticalAlignment.Top
         };
-        iconShell.Child = new Path
+        Color? accountColor = null;
+        if (knownAccount)
+        {
+            accountColor = (Color)ColorConverter.ConvertFromString(
+                attribution!.AccountColorHex ?? "#326FD1");
+            iconShell.Background = new SolidColorBrush(accountColor.Value);
+        }
+        else
+        {
+            iconShell.SetResourceReference(
+                Border.BackgroundProperty,
+                "UnknownAccountSurfaceBrush");
+        }
+        var icon = new Path
         {
             Data = (Geometry)FindResource(
                 knownAccount ? "IconAccount" : "IconClients"),
             Style = (Style)FindResource("ButtonIcon"),
-            Stroke = Brushes.White,
             Width = 15,
             Height = 15,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+        if (accountColor is { } color)
+        {
+            icon.Stroke = new SolidColorBrush(
+                MainWindow.GetContrastingAccountForeground(color));
+        }
+        else
+        {
+            icon.SetResourceReference(Shape.StrokeProperty, "OnAccentTextBrush");
+        }
+        iconShell.Child = icon;
         grid.Children.Add(iconShell);
 
         var labels = new StackPanel
         {
             Margin = new Thickness(9, 0, 12, 0)
         };
-        labels.Children.Add(new TextBlock
+        var accountTitleText = new TextBlock
         {
             Text = accountTitle,
-            Foreground = Brushes.White,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        labels.Children.Add(new TextBlock
+        };
+        accountTitleText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "TextBrush");
+        labels.Children.Add(accountTitleText);
+        var attributionText = new TextBlock
         {
             Text = knownAccount
                 ? $"{experience} • launched for @{attribution!.AccountUsername}"
                 : "Launched before SessionDock opened or outside this run",
-            Foreground = (Brush)FindResource("MutedBrush"),
             FontSize = 10,
             Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        attributionText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "MutedBrush");
+        labels.Children.Add(attributionText);
         var startedAt = DateTime.SpecifyKind(
             client.Identity.StartTimeUtc,
             DateTimeKind.Utc).ToLocalTime();
-        labels.Children.Add(new TextBlock
+        var processText = new TextBlock
         {
             Text = client.HasVisibleWindow
                 ? $"Started {startedAt:t} • PID {client.Identity.ProcessId}"
                 : $"Background process • started {startedAt:t} • PID {client.Identity.ProcessId}",
-            Foreground = (Brush)FindResource("SubtleBrush"),
             FontSize = 10,
             Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        processText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "SubtleBrush");
+        labels.Children.Add(processText);
         Grid.SetColumn(labels, 1);
         grid.Children.Add(labels);
 
@@ -255,11 +286,15 @@ public partial class RunningClientsDialog : Window
         {
             Tag = new ClientCloseTarget(client, index, accountTitle, experience),
             Content = "Close",
-            Background = CreateBrush("#2A171D"),
-            Foreground = CreateBrush("#F09AAA"),
             Padding = new Thickness(13, 8, 13, 8),
             VerticalAlignment = VerticalAlignment.Center
         };
+        closeButton.SetResourceReference(
+            Control.BackgroundProperty,
+            "ErrorSurfaceBrush");
+        closeButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "ErrorMutedTextBrush");
         AutomationProperties.SetName(
             closeButton,
             knownAccount
@@ -578,9 +613,6 @@ public partial class RunningClientsDialog : Window
         Exception exception) =>
         exception is System.ComponentModel.Win32Exception or
             UnauthorizedAccessException or NotSupportedException;
-
-    private static SolidColorBrush CreateBrush(string color) =>
-        new((Color)ColorConverter.ConvertFromString(color));
 
     private void RunningClientsDialog_Closing(
         object? sender,

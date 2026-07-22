@@ -4,7 +4,7 @@
         Title="HandleScope integration" Width="720" Height="680"
         MinWidth="480" MinHeight="460" MaxWidth="920" MaxHeight="840"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text" UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display" ShowInTaskbar="False">
     <Grid>
@@ -26,26 +26,31 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Border Width="44" Height="44" CornerRadius="10"
-                                Background="#17243A" VerticalAlignment="Top">
+                                Background="{DynamicResource InfoSurfaceBrush}"
+                                VerticalAlignment="Top">
                             <Path Data="{StaticResource IconIntegration}"
                                   Width="22" Height="22" Stretch="Uniform"
-                                  Fill="Transparent" Stroke="#8FB8FF"
+                                  Fill="Transparent"
+                                  Stroke="{DynamicResource InfoTextBrush}"
                                   StrokeThickness="1.8" StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                            <TextBlock Text="HandleScope integration" Foreground="White"
+                            <TextBlock Text="HandleScope integration"
+                                       Foreground="{DynamicResource TextBrush}"
                                        FontSize="24" FontWeight="SemiBold"/>
                             <TextBlock Text="Connect SessionDock to a separately installed local HandleScope API."
-                                       Foreground="{StaticResource MutedBrush}" FontSize="13"
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="13"
                                        Margin="0,6,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
 
                     <Border Grid.Row="1" Margin="0,24,0,0" Padding="18"
-                            Background="#12151A" CornerRadius="10"
-                            BorderBrush="#3A424D" BorderThickness="1">
+                            Background="{DynamicResource InsetSurfaceBrush}"
+                            CornerRadius="10"
+                            BorderBrush="{DynamicResource StrokeBrush}"
+                            BorderThickness="1">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="42"/>
@@ -53,29 +58,33 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Border x:Name="StateIconShell" Width="34" Height="34"
-                                    CornerRadius="8" Background="#20252D"
+                                    CornerRadius="8"
+                                    Background="{DynamicResource BadgeSurfaceBrush}"
                                     VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <Path x:Name="StateIcon" Data="{StaticResource IconActivity}"
                                       Width="17" Height="17" Stretch="Uniform"
-                                      Fill="Transparent" Stroke="#9BA4B3"
+                                      Fill="Transparent"
+                                      Stroke="{DynamicResource BadgeTextBrush}"
                                       StrokeThickness="1.8" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel Grid.Column="1" Margin="10,0,16,0">
                                 <TextBlock x:Name="StateTitleText" Text="Checking local setup..."
-                                           Foreground="White" FontSize="16"
+                                           Foreground="{DynamicResource TextBrush}" FontSize="16"
                                            FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="StateDescriptionText"
                                            Text="SessionDock is inspecting local files only."
-                                           Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                           Foreground="{DynamicResource MutedBrush}" FontSize="12"
                                            Margin="0,5,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                             <Border Grid.Column="2" x:Name="StateBadge"
-                                    Background="#20252D" CornerRadius="8"
+                                    Background="{DynamicResource BadgeSurfaceBrush}"
+                                    CornerRadius="8"
                                     Padding="9,5" VerticalAlignment="Top">
                                 <TextBlock x:Name="StateBadgeText" Text="CHECKING"
-                                           Foreground="#BEC6D2" FontSize="9"
+                                           Foreground="{DynamicResource BadgeTextBrush}"
+                                           FontSize="9"
                                            FontWeight="Bold"/>
                             </Border>
                         </Grid>
@@ -83,7 +92,8 @@
 
                     <Border x:Name="RepairWarningPanel" Grid.Row="2"
                             Visibility="Collapsed" Margin="0,12,0,0" Padding="15"
-                            Background="#241D13" BorderBrush="#5C4726"
+                            Background="{DynamicResource WarningSurfaceBrush}"
+                            BorderBrush="{DynamicResource WarningBorderBrush}"
                             BorderThickness="1" CornerRadius="12">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -91,33 +101,38 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Path Data="{StaticResource IconWarning}" Width="18" Height="18"
-                                  Stretch="Uniform" Fill="Transparent" Stroke="#E0A33A"
+                                  Stretch="Uniform" Fill="Transparent"
+                                  Stroke="{DynamicResource WarningTextBrush}"
                                   StrokeThickness="1.8" StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                   HorizontalAlignment="Left" VerticalAlignment="Top"/>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="Configuration needs attention"
-                                           Foreground="#F1BE61" FontSize="13"
+                                           Foreground="{DynamicResource WarningTextBrush}"
+                                           FontSize="13"
                                            FontWeight="SemiBold"/>
                                 <TextBlock x:Name="RepairWarningText"
                                            Text="SessionDock preserved the existing configuration and will not use it. Repair replaces only the SessionDock opt-in with the fixed, minimal Roblox policy; it does not reinstall or stop HandleScope."
-                                           Foreground="#C7A873" FontSize="11"
+                                           Foreground="{DynamicResource WarningTextBrush}"
+                                           FontSize="11"
                                            Margin="0,4,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Grid>
                     </Border>
 
                     <StackPanel Grid.Row="3" Margin="0,22,0,0">
-                        <TextBlock Text="SETUP AND CONTROLS" Foreground="#7F8998"
+                        <TextBlock Text="SETUP AND CONTROLS"
+                                   Foreground="{DynamicResource SubtleBrush}"
                                    FontSize="11" FontWeight="Bold"/>
                         <TextBlock Text="Install HandleScope from its official release page and verify its published checksum, then use these explicit controls. SessionDock checks the expected local path but cannot authenticate an unsigned executable's publisher. It never downloads, installs, elevates, or silently starts HandleScope."
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="12"
                                    Margin="0,7,0,0" TextWrapping="Wrap"/>
 
                         <WrapPanel Margin="0,15,0,0">
                             <Button x:Name="GetHandleScopeButton"
                                     Click="GetHandleScopeButton_Click"
-                                    Background="#20252D" Foreground="#D6DCE5"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Get HandleScope from official releases">
                                 <StackPanel Orientation="Horizontal">
@@ -127,7 +142,8 @@
                                 </StackPanel>
                             </Button>
                             <Button x:Name="RefreshButton" Click="RefreshButton_Click"
-                                    Background="#20252D" Foreground="#D6DCE5"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Refresh HandleScope status">
                                 <StackPanel Orientation="Horizontal">
@@ -155,7 +171,8 @@
                                 </StackPanel>
                             </Button>
                             <Button x:Name="DisableButton" Click="DisableButton_Click"
-                                    Background="#20252D" Foreground="#D6DCE5"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Disable HandleScope integration">
                                 <StackPanel Orientation="Horizontal">
@@ -166,7 +183,8 @@
                             </Button>
                             <Button x:Name="TestConnectionButton"
                                     Click="TestConnectionButton_Click"
-                                    Background="#20252D" Foreground="#D6DCE5"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Test HandleScope connection">
                                 <StackPanel Orientation="Horizontal">
@@ -176,8 +194,10 @@
                                 </StackPanel>
                             </Button>
                             <Button x:Name="RepairButton" Click="RepairButton_Click"
-                                    Visibility="Collapsed" Background="#6A4B18"
-                                    Foreground="#FFE0A0" Padding="14,10"
+                                    Visibility="Collapsed"
+                                    Background="{DynamicResource WarningSurfaceBrush}"
+                                    Foreground="{DynamicResource WarningTextBrush}"
+                                    Padding="14,10"
                                     Margin="0,0,8,8"
                                     AutomationProperties.Name="Repair HandleScope integration configuration">
                                 <StackPanel Orientation="Horizontal">
@@ -190,7 +210,7 @@
                         </WrapPanel>
 
                         <TextBlock x:Name="ActionStatusText" MinHeight="18"
-                                   Foreground="#9BA4B3" FontSize="11"
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11"
                                    Margin="0,3,0,0" TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite"/>
                     </StackPanel>
@@ -201,11 +221,13 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Testing contacts only the checked loopback health endpoint. It never closes a handle."
-                                   Foreground="#7F8998" FontSize="10"
+                                   Foreground="{DynamicResource SubtleBrush}" FontSize="10"
                                    Margin="0,0,18,0" VerticalAlignment="Center"
                                    TextWrapping="Wrap"/>
                         <Button Grid.Column="1" Content="Close" Click="CloseButton_Click"
-                                IsCancel="True" Background="#20252D"
+                                IsCancel="True"
+                                Background="{DynamicResource ControlSurfaceBrush}"
+                                Foreground="{DynamicResource ControlTextBrush}"
                                 Padding="20,10"/>
                     </Grid>
                 </Grid>

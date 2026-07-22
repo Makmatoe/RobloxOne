@@ -83,6 +83,7 @@ public sealed class SerializedSettingsWriterTests
             LastLaunchedAt = DateTimeOffset.Parse("2026-01-02T03:04:05Z")
         });
         settings.UiSoundsEnabled = false;
+        settings.UseLightTheme = true;
         settings.StartupSound = "custom";
         settings.CustomStartupSoundFileName = "startup-custom.wav";
         settings.PendingProfileDeletionKeys = [Guid.NewGuid().ToString("N")];
@@ -97,6 +98,7 @@ public sealed class SerializedSettingsWriterTests
         settings.RecentExperiences[0].CustomName = "mutated";
         settings.RecentExperiences.Clear();
         settings.UiSoundsEnabled = true;
+        settings.UseLightTheme = false;
         settings.LockedUsername = "mutated";
         await save;
 

@@ -114,11 +114,13 @@ public partial class ReleaseNotesDialog : Window
     private void SetTabSelected(Button button, bool selected)
     {
         button.IsTabStop = selected;
-        button.Background = (Brush)FindResource(
+        button.SetResourceReference(
+            Control.BackgroundProperty,
             selected
                 ? "ReleaseTabSelectedBrush"
                 : "ReleaseTabIdleBrush");
-        button.Foreground = (Brush)FindResource(
+        button.SetResourceReference(
+            Control.ForegroundProperty,
             selected
                 ? "ReleaseTabSelectedTextBrush"
                 : "ReleaseTabIdleTextBrush");

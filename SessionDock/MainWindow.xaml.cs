@@ -65,6 +65,61 @@ public partial class MainWindow : Window
 
     internal event Action<Exception?>? ShutdownCompleted;
 
+    internal void VerifyThemeSwitchForRuntimeSmoke()
+    {
+        Dispatcher.VerifyAccess();
+        var themeService = ((App)Application.Current).ThemeService;
+        if (themeService.IsHighContrastActive)
+            return;
+
+        var originalPreference = themeService.UseLightThemePreference;
+        var originalBackground = GetSolidColor(Background, "window background");
+        try
+        {
+            themeService.ApplyPreference(!originalPreference);
+            var expectedBackground = GetSolidColor(
+                (Brush)FindResource("BackgroundBrush"),
+                "active background resource");
+            var switchedBackground = GetSolidColor(
+                Background,
+                "switched window background");
+            if (switchedBackground != expectedBackground ||
+                switchedBackground == originalBackground)
+            {
+                throw new InvalidOperationException(
+                    "The existing main window did not adopt the switched theme.");
+            }
+
+            var generatedEmptyState = RecentExperiencesList.Children
+                .OfType<TextBlock>()
+                .FirstOrDefault();
+            if (generatedEmptyState is not null)
+            {
+                var expectedSubtle = GetSolidColor(
+                    (Brush)FindResource("SubtleBrush"),
+                    "active subtle resource");
+                var actualSubtle = GetSolidColor(
+                    generatedEmptyState.Foreground,
+                    "generated recent-list foreground");
+                if (actualSubtle != expectedSubtle)
+                {
+                    throw new InvalidOperationException(
+                        "A generated recent-list element retained the old theme.");
+                }
+            }
+        }
+        finally
+        {
+            themeService.ApplyPreference(originalPreference);
+        }
+    }
+
+    private static Color GetSolidColor(Brush brush, string description) =>
+        brush is SolidColorBrush solidColorBrush
+            ? solidColorBrush.Color
+            : throw new InvalidOperationException(
+                $"The {description} is not a solid theme brush.");
+
     public MainWindow()
     {
         InitializeComponent();
@@ -74,6 +129,9 @@ public partial class MainWindow : Window
         InstallUpdateButton.ToolTip =
             $"Check for signed updates (current {_updateService.CurrentVersion})";
         _settings = _settingsService.Load();
+        app.ThemeService.ApplyPreference(_settings.UseLightTheme);
+        UpdateThemeTogglePresentation();
+        app.ThemeService.ThemeChanged += ThemeService_ThemeChanged;
         _settingsWriter = new SerializedSettingsWriter(_settingsService.Save);
         _settingsMutations = new SettingsMutationCoordinator(
             _settings,
@@ -92,6 +150,7 @@ public partial class MainWindow : Window
         RenderRecentExperiences();
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        Closed += MainWindow_Closed;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e) =>
@@ -667,34 +726,38 @@ public partial class MainWindow : Window
         SessionBadge.Text = badge;
 
         var tone = StatusToneClassifier.Classify(badge);
-        var isError = tone == StatusTone.Error;
-        var isSuccess = tone == StatusTone.Success;
-        var isWarning = tone == StatusTone.Warning;
-
-        var accent = ColorConverter.ConvertFromString(
-            isError
-                ? "#FF7188"
-                : isSuccess
-                    ? "#57D9A3"
-                    : isWarning
-                        ? "#E0A33A"
-                        : "#8FB8FF");
-        var surface = ColorConverter.ConvertFromString(
-            isError
-                ? "#2A171D"
-                : isSuccess
-                    ? "#15271F"
-                    : isWarning
-                        ? "#2A2215"
-                        : "#17243A");
-        var accentBrush = new SolidColorBrush((Color)accent);
-        var surfaceBrush = new SolidColorBrush((Color)surface);
-        SessionBadge.Foreground = accentBrush;
-        SessionBadgeBorder.Background = surfaceBrush;
+        var foregroundResource = tone switch
+        {
+            StatusTone.Error => "ErrorTextBrush",
+            StatusTone.Success => "SuccessTextBrush",
+            StatusTone.Warning => "WarningTextBrush",
+            _ => "InfoTextBrush"
+        };
+        var surfaceResource = tone switch
+        {
+            StatusTone.Error => "ErrorSurfaceBrush",
+            StatusTone.Success => "SuccessSurfaceBrush",
+            StatusTone.Warning => "WarningSurfaceBrush",
+            _ => "InfoSurfaceBrush"
+        };
+        SessionBadge.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            foregroundResource);
+        SessionBadgeBorder.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
         StatusIconGlyph.Data = (Geometry)FindResource(
-            isError ? "IconError" : isSuccess ? "IconCheck" : "IconActivity");
-        StatusIconGlyph.Stroke = accentBrush;
-        StatusIconBorder.Background = surfaceBrush;
+            tone == StatusTone.Error
+                ? "IconError"
+                : tone == StatusTone.Success
+                    ? "IconCheck"
+                    : "IconActivity");
+        StatusIconGlyph.SetResourceReference(
+            Shape.StrokeProperty,
+            foregroundResource);
+        StatusIconBorder.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
     }
 
     private Task RunWindowOperationAsync(
@@ -855,16 +918,18 @@ public partial class MainWindow : Window
 
         var border = new Border
         {
-            Background = new SolidColorBrush(
-                (Color)ColorConverter.ConvertFromString(selected ? "#17243A" : "#171A20")),
-            BorderBrush = new SolidColorBrush(
-                selected ? accountColor : (Color)ColorConverter.ConvertFromString("#303640")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(9, 7, 9, 7),
             MinHeight = 48,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
+        border.SetResourceReference(
+            Border.BackgroundProperty,
+            selected ? "CardSelectedBackgroundBrush" : "CardSurfaceBrush");
+        border.SetResourceReference(
+            Border.BorderBrushProperty,
+            selected ? "CardSelectedBorderBrush" : "CardBorderBrush");
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -876,30 +941,34 @@ public partial class MainWindow : Window
             CornerRadius = new CornerRadius(7),
             Background = new SolidColorBrush(accountColor)
         };
-        dot.Child = CreateAccountIndicator(pending, selected);
+        dot.Child = CreateAccountIndicator(pending, selected, accountColor);
 
         var labels = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
-        labels.Children.Add(new TextBlock
+        var title = new TextBlock
         {
             Text = pending
                 ? "New account"
                 : account.Label ?? $"@{account.Username}",
-            Foreground = Brushes.White,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        labels.Children.Add(new TextBlock
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        labels.Children.Add(title);
+        var subtitle = new TextBlock
         {
             Text = pending
                 ? "Finish sign-in"
                 : account.Label is null
                     ? $"User ID {account.UserId}"
                     : $"@{account.Username}  •  User ID {account.UserId}",
-            Foreground = (Brush)FindResource("MutedBrush"),
             FontSize = 10,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        subtitle.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "MutedBrush");
+        labels.Children.Add(subtitle);
         Grid.SetColumn(labels, 1);
         grid.Children.Add(dot);
         grid.Children.Add(labels);
@@ -949,6 +1018,67 @@ public partial class MainWindow : Window
         }
         if (!mutationApplied)
             return;
+    }
+
+    private async void ThemeToggleButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => ThemeToggleButtonClickAsync());
+
+    private async Task ThemeToggleButtonClickAsync()
+    {
+        var useLightTheme = ThemeToggleButton.IsChecked != true;
+        UpdateThemeTogglePresentation();
+        if (_operationBusy || useLightTheme == _settings.UseLightTheme)
+            return;
+
+        SetOperationBusy(true);
+        try
+        {
+            await TryCommitSettingsMutationAsync(
+                () => _settings.UseLightTheme = useLightTheme,
+                "Theme could not be saved",
+                onCommitted: () =>
+                {
+                    ((App)Application.Current).ThemeService.ApplyPreference(
+                        useLightTheme);
+                    UpdateThemeTogglePresentation();
+                });
+        }
+        finally
+        {
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
+        }
+    }
+
+    private void UpdateThemeTogglePresentation()
+    {
+        var isDarkTheme = !_settings.UseLightTheme;
+        ThemeToggleButton.IsChecked = isDarkTheme;
+        ThemeToggleIcon.Data = (Geometry)FindResource(
+            isDarkTheme ? "IconMoon" : "IconSun");
+
+        var mode = isDarkTheme ? "Dark" : "Light";
+        var target = isDarkTheme ? "light" : "dark";
+        var highContrastSuffix =
+            ((App)Application.Current).ThemeService.IsHighContrastActive
+                ? "; Windows high contrast is currently active"
+                : string.Empty;
+        var description =
+            $"{mode} theme on — switch to {target}{highContrastSuffix}";
+        ThemeToggleButton.ToolTip = description;
+        AutomationProperties.SetName(ThemeToggleButton, description);
+        AutomationProperties.SetHelpText(
+            ThemeToggleButton,
+            "Switch SessionDock between dark and light appearance.");
+    }
+
+    private void ThemeService_ThemeChanged(object? sender, EventArgs e) =>
+        UpdateThemeTogglePresentation();
+
+    private void MainWindow_Closed(object? sender, EventArgs e)
+    {
+        ((App)Application.Current).ThemeService.ThemeChanged -=
+            ThemeService_ThemeChanged;
     }
 
     private async void SoundSettingsButton_Click(object sender, RoutedEventArgs e) =>
@@ -1034,14 +1164,20 @@ public partial class MainWindow : Window
         exception is System.IO.IOException or UnauthorizedAccessException or
             System.IO.InvalidDataException or ArgumentException;
 
-    private UIElement CreateAccountIndicator(bool pending, bool selected)
+    private UIElement CreateAccountIndicator(
+        bool pending,
+        bool selected,
+        Color accountColor)
     {
+        var foreground = new SolidColorBrush(
+            GetContrastingAccountForeground(accountColor));
+        foreground.Freeze();
         if (pending)
         {
             return new Path
             {
                 Data = (Geometry)FindResource("IconAdd"),
-                Stroke = Brushes.White,
+                Stroke = foreground,
                 StrokeThickness = 2,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
@@ -1056,7 +1192,7 @@ public partial class MainWindow : Window
             {
                 Width = 8,
                 Height = 8,
-                Fill = Brushes.White,
+                Fill = foreground,
                 Opacity = 0.78,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -1066,7 +1202,7 @@ public partial class MainWindow : Window
         return new Path
         {
             Data = (Geometry)FindResource("IconCheck"),
-            Stroke = Brushes.White,
+            Stroke = foreground,
             StrokeThickness = 2.2,
             StrokeStartLineCap = PenLineCap.Round,
             StrokeEndLineCap = PenLineCap.Round,
@@ -1074,6 +1210,29 @@ public partial class MainWindow : Window
             Stretch = Stretch.Uniform,
             Margin = new Thickness(6)
         };
+    }
+
+    internal static Color GetContrastingAccountForeground(Color background)
+    {
+        var luminance = GetRelativeLuminance(background);
+        var whiteContrast = 1.05 / (luminance + 0.05);
+        var blackContrast = (luminance + 0.05) / 0.05;
+        return whiteContrast >= blackContrast ? Colors.White : Colors.Black;
+    }
+
+    private static double GetRelativeLuminance(Color color)
+    {
+        static double Linearize(byte component)
+        {
+            var channel = component / 255d;
+            return channel <= 0.04045
+                ? channel / 12.92
+                : Math.Pow((channel + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Linearize(color.R) +
+               0.7152 * Linearize(color.G) +
+               0.0722 * Linearize(color.B);
     }
 
     private void AccountsScrollViewer_PreviewMouseWheel(
@@ -2167,6 +2326,7 @@ public partial class MainWindow : Window
         RecentExperiencesList.IsEnabled = !busy;
         UpdateClearHistoryButton();
         BatchLaunchButton.IsEnabled = !busy;
+        ThemeToggleButton.IsEnabled = !busy;
         SoundSettingsButton.IsEnabled = !busy;
         IntegrationsButton.IsEnabled = !busy;
         ReleaseNotesButton.IsEnabled = !busy;

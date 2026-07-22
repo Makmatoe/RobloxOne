@@ -137,6 +137,7 @@ public sealed class SettingsMutationTests
                 }
             ],
             UiSoundsEnabled = true,
+            UseLightTheme = true,
             StartupSound = "soft"
         };
     }
@@ -155,6 +156,7 @@ public sealed class SettingsMutationTests
         settings.RecentExperiences[0].Name = "Changed place";
         settings.RecentExperiences.Clear();
         settings.UiSoundsEnabled = false;
+        settings.UseLightTheme = false;
         settings.StartupSound = "bright";
         settings.CustomStartupSoundFileName = "startup-custom.wav";
         settings.PendingProfileDeletionKeys.Add(Guid.NewGuid().ToString("N"));
@@ -177,6 +179,7 @@ public sealed class SettingsMutationTests
         Assert.Same(originalRecent, Assert.Single(settings.RecentExperiences));
         Assert.Equal("Original place", originalRecent.Name);
         Assert.True(settings.UiSoundsEnabled);
+        Assert.True(settings.UseLightTheme);
         Assert.Equal("soft", settings.StartupSound);
         Assert.Null(settings.CustomStartupSoundFileName);
         Assert.Empty(settings.PendingProfileDeletionKeys);

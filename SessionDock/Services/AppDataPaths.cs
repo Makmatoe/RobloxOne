@@ -892,6 +892,7 @@ internal static class AppDataPaths
         settings.ActiveAccountKey is null &&
         settings.RecentExperiences is { Count: 0 } &&
         settings.UiSoundsEnabled &&
+        !settings.UseLightTheme &&
         "soft".Equals(settings.StartupSound, StringComparison.Ordinal) &&
         settings.CustomStartupSoundFileName is null &&
         settings.PendingProfileDeletionKeys is { Count: 0 } &&

@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using SessionDock.Services;
 using SessionDock.SystemProcesses;
 
@@ -165,8 +167,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "HandleScope is not installed",
                     "Install it separately from the official release page. SessionDock will not download or install it for you.",
                     "NOT INSTALLED",
-                    "#8E99AD",
-                    "#222938",
+                    "MutedBrush",
+                    "UtilitySurfaceBrush",
                     "IconUpdate");
                 break;
             case HandleScopeIntegrationState.InstalledStopped:
@@ -174,8 +176,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "Installed - connection not tested",
                     "HandleScope is installed locally. Start its API explicitly, enable the integration if needed, then test the connection.",
                     "NOT CONNECTED",
-                    "#A99BFF",
-                    "#2A2348",
+                    "VioletTextBrush",
+                    "VioletSurfaceBrush",
                     "IconActivity");
                 break;
             case HandleScopeIntegrationState.StartPending:
@@ -183,8 +185,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "API start requested",
                     "SessionDock recently started the expected local API. Wait briefly, then test the connection.",
                     "STARTING",
-                    "#A99BFF",
-                    "#2A2348",
+                    "VioletTextBrush",
+                    "VioletSurfaceBrush",
                     "IconActivity");
                 break;
             case HandleScopeIntegrationState.RunningUntested:
@@ -192,8 +194,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "API running - connection not tested",
                     "The expected local API process is already running. Test the loopback connection before relying on the integration.",
                     "RUNNING",
-                    "#A99BFF",
-                    "#2A2348",
+                    "VioletTextBrush",
+                    "VioletSurfaceBrush",
                     "IconActivity");
                 break;
             case HandleScopeIntegrationState.RunningDisabled:
@@ -201,8 +203,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "API running - integration disabled",
                     "The API at the expected local path answered, but SessionDock's fixed Roblox policy is not enabled.",
                     "DISABLED",
-                    "#E0A33A",
-                    "#302617",
+                    "WarningTextBrush",
+                    "WarningSurfaceBrush",
                     "IconLock");
                 break;
             case HandleScopeIntegrationState.Ready:
@@ -210,8 +212,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "Ready for SessionDock",
                     "The checked loopback API is running and the fixed Roblox policy is enabled.",
                     "READY",
-                    "#5DD6A8",
-                    "#18332B",
+                    "SuccessTextBrush",
+                    "SuccessSurfaceBrush",
                     "IconCheck");
                 break;
             case HandleScopeIntegrationState.UpdateRequired:
@@ -219,8 +221,8 @@ public partial class HandleScopeIntegrationDialog : Window
                     "HandleScope update required",
                     "The installed API is not compatible with this SessionDock release. Install the latest official HandleScope release.",
                     "UPDATE REQUIRED",
-                    "#E0A33A",
-                    "#302617",
+                    "WarningTextBrush",
+                    "WarningSurfaceBrush",
                     "IconUpdate");
                 break;
             case HandleScopeIntegrationState.ConfigurationError:
@@ -230,8 +232,8 @@ public partial class HandleScopeIntegrationDialog : Window
                         "Configuration was preserved",
                         "The local opt-in is invalid or does not match SessionDock's fixed policy, so the integration remains unavailable.",
                         "ACTION REQUIRED",
-                        "#FF7188",
-                        "#3A1E27",
+                        "ErrorTextBrush",
+                        "ErrorSurfaceBrush",
                         "IconWarning");
                     RepairWarningPanel.Visibility = Visibility.Visible;
                     RepairButton.Visibility = Visibility.Visible;
@@ -248,8 +250,8 @@ public partial class HandleScopeIntegrationDialog : Window
                         "Local safety check failed",
                         "SessionDock refused the local installation, start request, or health response. Reinstall or update from the official release page, then refresh.",
                         "UNAVAILABLE",
-                        "#FF7188",
-                        "#3A1E27",
+                        "ErrorTextBrush",
+                        "ErrorSurfaceBrush",
                         "IconError");
                 }
                 break;
@@ -264,21 +266,25 @@ public partial class HandleScopeIntegrationDialog : Window
         string title,
         string description,
         string badge,
-        string accent,
-        string background,
+        string foregroundResource,
+        string surfaceResource,
         string iconResource)
     {
         StateTitleText.Text = title;
         StateDescriptionText.Text = description;
         StateBadgeText.Text = badge;
-        var accentBrush = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(accent));
-        var backgroundBrush = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(background));
-        StateIcon.Stroke = accentBrush;
-        StateBadgeText.Foreground = accentBrush;
-        StateIconShell.Background = backgroundBrush;
-        StateBadge.Background = backgroundBrush;
+        StateIcon.SetResourceReference(
+            Shape.StrokeProperty,
+            foregroundResource);
+        StateBadgeText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            foregroundResource);
+        StateIconShell.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
+        StateBadge.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
         StateIcon.Data = (Geometry)FindResource(iconResource);
     }
 

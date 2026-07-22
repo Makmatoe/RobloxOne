@@ -675,6 +675,41 @@ public sealed class AppDataPathsTests : IDisposable
     }
 
     [Fact]
+    public void ResolveForDirectories_LightThemePreference_IsNotTreatedAsPristine()
+    {
+        var preferred = Path.Combine(_root, "SessionDock");
+        var legacy = Path.Combine(_root, "RobloxOne");
+        Directory.CreateDirectory(preferred);
+        File.WriteAllText(
+            Path.Combine(preferred, "settings.json"),
+            JsonSerializer.Serialize(new AppSettings
+            {
+                UseLightTheme = true
+            }));
+        CreateVelopackInstallLayout(legacy);
+        WriteSettings(
+            legacy,
+            Guid.NewGuid().ToString("N"),
+            101,
+            "legacy-user");
+
+        var resolved = AppDataPaths.ResolveForDirectories(
+            preferred,
+            legacy,
+            protectedInstallDirectory: legacy);
+        var service = new SettingsService(resolved);
+        var loaded = service.Load();
+
+        Assert.Equal(preferred, resolved);
+        Assert.True(loaded.UseLightTheme);
+        Assert.Empty(loaded.Accounts);
+        Assert.True(File.Exists(Path.Combine(
+            preferred,
+            AppDataPaths.MigrationConflictFileName)));
+        Assert.True(File.Exists(Path.Combine(legacy, "settings.json")));
+    }
+
+    [Fact]
     public void ResolveForDirectories_MatchingReceiptWithMissingDestinationSettings_RestoresSettings()
     {
         var preferred = Path.Combine(_root, "SessionDock");

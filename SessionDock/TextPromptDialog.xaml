@@ -4,7 +4,7 @@
         Width="470" SizeToContent="Height" MinWidth="390" MinHeight="260"
         ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
@@ -17,11 +17,12 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock x:Name="PromptTitle" Foreground="White"
+                <TextBlock x:Name="PromptTitle"
+                           Foreground="{DynamicResource TextBrush}"
                            FontSize="22" FontWeight="SemiBold"
                            TextWrapping="Wrap"/>
                 <TextBlock x:Name="PromptDetail" Grid.Row="1"
-                           Foreground="{StaticResource MutedBrush}"
+                           Foreground="{DynamicResource MutedBrush}"
                            FontSize="12" Margin="0,6,0,0"
                            TextWrapping="Wrap"/>
                 <Border Grid.Row="2" Height="48" Margin="0,20,0,0"
@@ -33,7 +34,9 @@
                 <WrapPanel Grid.Row="3" HorizontalAlignment="Right"
                            Margin="0,20,0,0">
                     <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                            Background="#20252D" Padding="16,9" Margin="0,0,8,0"/>
+                            Background="{DynamicResource ControlSurfaceBrush}"
+                            Foreground="{DynamicResource ControlTextBrush}"
+                            Padding="16,9" Margin="0,0,8,0"/>
                     <Button Content="Save" Click="SaveButton_Click" IsDefault="True"
                             Padding="22,9"/>
                 </WrapPanel>

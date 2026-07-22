@@ -1,0 +1,110 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Core application surfaces and typography. -->
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#0D0F12"/>
+    <SolidColorBrush x:Key="SidebarBrush" Color="#111318"/>
+    <SolidColorBrush x:Key="PanelBrush" Color="#171A20"/>
+    <SolidColorBrush x:Key="RaisedPanelBrush" Color="#1D2129"/>
+    <SolidColorBrush x:Key="StrokeBrush" Color="#3A424D"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#F4F6FA"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#9BA4B3"/>
+    <SolidColorBrush x:Key="SubtleBrush" Color="#7F8998"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#326FD1"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#2F6FD8"/>
+    <SolidColorBrush x:Key="AccentSurfaceBrush" Color="#17243A"/>
+    <SolidColorBrush x:Key="FocusBrush" Color="#BBD2FF"/>
+    <SolidColorBrush x:Key="OnAccentTextBrush" Color="#FFFFFF"/>
+
+    <!-- Fields, scrolling, menus, and general controls. -->
+    <SolidColorBrush x:Key="FieldBackgroundBrush" Color="#12151A"/>
+    <SolidColorBrush x:Key="FieldBorderBrush" Color="#606B7A"/>
+    <SolidColorBrush x:Key="FieldHoverBorderBrush" Color="#8FA3BD"/>
+    <SolidColorBrush x:Key="FieldCaretBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SelectionBrush" Color="#356CC7"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush" Color="#12151A"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#596575"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#748195"/>
+    <SolidColorBrush x:Key="MenuBackgroundBrush" Color="#171A20"/>
+    <SolidColorBrush x:Key="MenuBorderBrush" Color="#606B7A"/>
+    <SolidColorBrush x:Key="MenuHoverBrush" Color="#242A33"/>
+    <SolidColorBrush x:Key="MenuSelectedBrush" Color="#1C3152"/>
+    <SolidColorBrush x:Key="MenuSelectedTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#20252D"/>
+    <SolidColorBrush x:Key="ControlForegroundBrush" Color="#D6DCE5"/>
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#303640"/>
+    <SolidColorBrush x:Key="ControlHoverBorderBrush" Color="#7A8797"/>
+    <SolidColorBrush x:Key="ControlSurfaceBrush" Color="#20252D"/>
+    <SolidColorBrush x:Key="ControlTextBrush" Color="#D6DCE5"/>
+    <SolidColorBrush x:Key="SelectedControlSurfaceBrush" Color="#252A33"/>
+    <SolidColorBrush x:Key="SelectedControlTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ReleaseTabSelectedBrush" Color="#17243A"/>
+    <SolidColorBrush x:Key="ReleaseTabIdleBrush" Color="#20252D"/>
+    <SolidColorBrush x:Key="ReleaseTabSelectedTextBrush" Color="#F4F6FA"/>
+    <SolidColorBrush x:Key="ReleaseTabIdleTextBrush" Color="#AEB7C5"/>
+
+    <!-- Reusable layout surfaces. -->
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#15181E"/>
+    <SolidColorBrush x:Key="CardSurfaceBrush" Color="#15181E"/>
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#303640"/>
+    <SolidColorBrush x:Key="CardSelectedBackgroundBrush" Color="#17243A"/>
+    <SolidColorBrush x:Key="CardSelectedBorderBrush" Color="#326FD1"/>
+    <SolidColorBrush x:Key="InsetBackgroundBrush" Color="#12151A"/>
+    <SolidColorBrush x:Key="InsetSurfaceBrush" Color="#12151A"/>
+    <SolidColorBrush x:Key="InsetBorderBrush" Color="#303640"/>
+    <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="#14171C"/>
+    <SolidColorBrush x:Key="WorkspaceSurfaceBrush" Color="#14171C"/>
+    <SolidColorBrush x:Key="WorkspaceBorderBrush" Color="#272D36"/>
+    <SolidColorBrush x:Key="UtilityBackgroundBrush" Color="#1B1F26"/>
+    <SolidColorBrush x:Key="UtilitySurfaceBrush" Color="#1B1F26"/>
+    <SolidColorBrush x:Key="UtilityForegroundBrush" Color="#AEB7C5"/>
+    <SolidColorBrush x:Key="UtilityTextBrush" Color="#AEB7C5"/>
+
+    <!-- Rail, badges, and account strip. -->
+    <SolidColorBrush x:Key="RailBackgroundBrush" Color="#111318"/>
+    <SolidColorBrush x:Key="RailForegroundBrush" Color="#BEC6D2"/>
+    <SolidColorBrush x:Key="RailDividerBrush" Color="#303640"/>
+    <SolidColorBrush x:Key="RailButtonSurfaceBrush" Color="#191D23"/>
+    <SolidColorBrush x:Key="RailButtonTextBrush" Color="#BEC6D2"/>
+    <SolidColorBrush x:Key="SidebarBorderBrush" Color="#272C34"/>
+    <SolidColorBrush x:Key="PrivacySurfaceBrush" Color="#15181D"/>
+    <SolidColorBrush x:Key="PrivacyIconBrush" Color="#8A94A3"/>
+    <SolidColorBrush x:Key="BadgeBackgroundBrush" Color="#171A20"/>
+    <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#171A20"/>
+    <SolidColorBrush x:Key="BadgeBorderBrush" Color="#2B313B"/>
+    <SolidColorBrush x:Key="BadgeForegroundBrush" Color="#8F99A8"/>
+    <SolidColorBrush x:Key="BadgeTextBrush" Color="#8F99A8"/>
+    <SolidColorBrush x:Key="AccountStripBackgroundBrush" Color="#101318"/>
+    <SolidColorBrush x:Key="AccountStripSurfaceBrush" Color="#101318"/>
+    <SolidColorBrush x:Key="AccountStripBorderBrush" Color="#292F38"/>
+    <SolidColorBrush x:Key="OnAccountColorBrush" Color="#000000"/>
+    <SolidColorBrush x:Key="AccountNeutralBrush" Color="#323945"/>
+    <SolidColorBrush x:Key="UnknownAccountSurfaceBrush" Color="#323945"/>
+
+    <!-- Semantic state colors. Icons ensure color is never the only signal. -->
+    <SolidColorBrush x:Key="InfoForegroundBrush" Color="#8FB8FF"/>
+    <SolidColorBrush x:Key="InfoTextBrush" Color="#8FB8FF"/>
+    <SolidColorBrush x:Key="InfoSurfaceBrush" Color="#17243A"/>
+    <SolidColorBrush x:Key="InfoBorderBrush" Color="#326FD1"/>
+    <SolidColorBrush x:Key="SuccessForegroundBrush" Color="#57D9A3"/>
+    <SolidColorBrush x:Key="SuccessTextBrush" Color="#63D39C"/>
+    <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="#15271F"/>
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#287A58"/>
+    <SolidColorBrush x:Key="WarningForegroundBrush" Color="#E0A33A"/>
+    <SolidColorBrush x:Key="WarningTextBrush" Color="#E0A33A"/>
+    <SolidColorBrush x:Key="WarningStrongTextBrush" Color="#F1BE61"/>
+    <SolidColorBrush x:Key="WarningMutedTextBrush" Color="#C7A873"/>
+    <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#2A2215"/>
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="#6A5225"/>
+    <SolidColorBrush x:Key="WarningButtonSurfaceBrush" Color="#6A4B18"/>
+    <SolidColorBrush x:Key="WarningButtonTextBrush" Color="#FFE0A0"/>
+    <SolidColorBrush x:Key="ErrorForegroundBrush" Color="#FF7188"/>
+    <SolidColorBrush x:Key="ErrorTextBrush" Color="#FF7188"/>
+    <SolidColorBrush x:Key="ErrorMutedTextBrush" Color="#F09AAA"/>
+    <SolidColorBrush x:Key="ErrorSurfaceBrush" Color="#2A171D"/>
+    <SolidColorBrush x:Key="ErrorBorderBrush" Color="#6B2C39"/>
+    <SolidColorBrush x:Key="VioletForegroundBrush" Color="#A99BFF"/>
+    <SolidColorBrush x:Key="VioletTextBrush" Color="#A99BFF"/>
+    <SolidColorBrush x:Key="VioletSurfaceBrush" Color="#2A2348"/>
+    <SolidColorBrush x:Key="VioletBorderBrush" Color="#5E4BA0"/>
+</ResourceDictionary>

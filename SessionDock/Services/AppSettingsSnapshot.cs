@@ -96,6 +96,7 @@ internal static class AppSettingsSnapshot
     {
         target.ActiveAccountKey = source.ActiveAccountKey;
         target.UiSoundsEnabled = source.UiSoundsEnabled;
+        target.UseLightTheme = source.UseLightTheme;
         target.StartupSound = source.StartupSound;
         target.CustomStartupSoundFileName =
             source.CustomStartupSoundFileName;

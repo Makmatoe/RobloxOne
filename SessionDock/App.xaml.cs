@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using SessionDock.Services;
 
@@ -12,8 +13,12 @@ public partial class App : Application
     private readonly string _applicationId;
     private readonly RuntimeSmokeTestOptions? _runtimeSmokeTest;
     private SingleInstanceService? _singleInstance;
+    private AppThemeService? _themeService;
     public UiSoundService SoundService { get; private set; } = null!;
     public bool UiSoundsEnabled { get; set; } = true;
+    internal AppThemeService ThemeService => _themeService ??
+        throw new InvalidOperationException(
+            "The application theme service has not started.");
 
     public App()
         : this(ProductionApplicationId, runtimeSmokeTest: null)
@@ -54,11 +59,16 @@ public partial class App : Application
             Button.ClickEvent,
             new RoutedEventHandler(Button_Click));
         EventManager.RegisterClassHandler(
+            typeof(ToggleButton),
+            ButtonBase.ClickEvent,
+            new RoutedEventHandler(Button_Click));
+        EventManager.RegisterClassHandler(
             typeof(Window),
             FrameworkElement.LoadedEvent,
             new RoutedEventHandler(Window_Loaded),
             handledEventsToo: true);
         base.OnStartup(e);
+        _themeService = new AppThemeService(this);
 
         if (!ApplicationStartup.TryStart(
                 () =>
@@ -110,6 +120,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _singleInstance?.Dispose();
+        _themeService?.Dispose();
         SoundService?.Dispose();
         base.OnExit(e);
     }
@@ -152,6 +163,7 @@ public partial class App : Application
                     "The isolated runtime smoke-test startup failed.",
                     startupFailure);
             }
+            mainWindow.VerifyThemeSwitchForRuntimeSmoke();
 
             void HandleShutdownCompleted(Exception? shutdownFailure)
             {

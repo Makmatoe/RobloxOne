@@ -4,7 +4,7 @@
         Title="Edit account" Width="520" SizeToContent="Height"
         MinWidth="400" MinHeight="340"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
@@ -19,15 +19,17 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Text="Account appearance" Foreground="White"
+                <TextBlock Text="Account appearance"
+                           Foreground="{DynamicResource TextBrush}"
                            FontSize="22" FontWeight="SemiBold"/>
                 <TextBlock x:Name="AccountIdentityText" Grid.Row="1"
-                           Foreground="{StaticResource MutedBrush}"
+                           Foreground="{DynamicResource MutedBrush}"
                            FontSize="12" Margin="0,5,0,0"
                            TextWrapping="Wrap"/>
 
                 <StackPanel Grid.Row="2" Margin="0,20,0,0">
-                    <TextBlock Text="Custom label" Foreground="#D1D7E0"
+                    <TextBlock Text="Custom label"
+                               Foreground="{DynamicResource TextBrush}"
                                FontSize="12" FontWeight="SemiBold"/>
                     <Border Height="48" Margin="0,7,0,0"
                             Style="{StaticResource TextFieldShell}">
@@ -38,48 +40,58 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="3" Margin="0,18,0,0">
-                    <TextBlock Text="Account color" Foreground="#D1D7E0"
+                    <TextBlock Text="Account color"
+                               Foreground="{DynamicResource TextBrush}"
                                FontSize="12" FontWeight="SemiBold"/>
                     <TextBlock Text="Choose the accent used by this account card."
-                               Foreground="{StaticResource MutedBrush}"
+                               Foreground="{DynamicResource MutedBrush}"
                                FontSize="11" Margin="0,4,0,0"
                                TextWrapping="Wrap"/>
                     <WrapPanel x:Name="ColorChoices" Margin="0,10,0,0">
                         <Button Tag="#7C5CFC" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#7C5CFC" Foreground="White" FontSize="18"
+                                Background="#7C5CFC"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Purple"/>
                         <Button Tag="#4D8DFF" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#4D8DFF" Foreground="White" FontSize="18"
+                                Background="#4D8DFF"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Blue"/>
                         <Button Tag="#27B58A" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#27B58A" Foreground="White" FontSize="18"
+                                Background="#27B58A"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Green"/>
                         <Button Tag="#E0A33A" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#E0A33A" Foreground="White" FontSize="18"
+                                Background="#E0A33A"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Gold"/>
                         <Button Tag="#E36B8D" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#E36B8D" Foreground="White" FontSize="18"
+                                Background="#E36B8D"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Rose"/>
                         <Button Tag="#A56DE2" Click="ColorButton_Click"
                                 Width="44" Height="38" Padding="0" Margin="0,0,8,8"
-                                Background="#A56DE2" Foreground="White" FontSize="18"
+                                Background="#A56DE2"
+                                Foreground="{DynamicResource OnAccountColorBrush}" FontSize="18"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                 AutomationProperties.Name="Violet"/>
                     </WrapPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                         <Border x:Name="SelectedColorPreview" Width="30" Height="30"
-                                CornerRadius="9" BorderBrush="White" BorderThickness="2"/>
-                        <TextBlock x:Name="SelectedColorText" Foreground="#D1D7E0"
+                                CornerRadius="9"
+                                BorderBrush="{DynamicResource OnAccountColorBrush}"
+                                BorderThickness="2"/>
+                        <TextBlock x:Name="SelectedColorText"
+                                   Foreground="{DynamicResource TextBrush}"
                                    FontSize="12" Margin="10,0,0,0"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
@@ -88,7 +100,9 @@
                 <WrapPanel Grid.Row="4" HorizontalAlignment="Right"
                            Margin="0,20,0,0">
                     <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                            Background="#20252D" Padding="16,9" Margin="0,0,8,0"/>
+                            Background="{DynamicResource ControlSurfaceBrush}"
+                            Foreground="{DynamicResource ControlTextBrush}"
+                            Padding="16,9" Margin="0,0,8,0"/>
                     <Button Content="Save changes" Click="SaveButton_Click" IsDefault="True"
                             Padding="22,9"
                             AutomationProperties.Name="Save account appearance"/>

@@ -4,7 +4,7 @@
         Title="Running Roblox clients" Width="640" Height="560"
         MinWidth="500" MinHeight="400" MaxWidth="860" MaxHeight="820"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <Border Style="{StaticResource DialogShell}">
@@ -23,26 +23,30 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="Running Roblox clients"
-                               Foreground="{StaticResource TextBrush}"
+                               Foreground="{DynamicResource TextBrush}"
                                FontSize="22" FontWeight="SemiBold"/>
                     <TextBlock Text="Only verified Roblox Player processes owned by your Windows session can be closed."
-                               Foreground="{StaticResource MutedBrush}"
+                               Foreground="{DynamicResource MutedBrush}"
                                FontSize="12" Margin="0,5,0,0"
                                TextWrapping="Wrap"/>
                 </StackPanel>
-                <Border Grid.Column="1" Background="#17243A"
+                <Border Grid.Column="1"
+                        Background="{DynamicResource InfoSurfaceBrush}"
                         CornerRadius="7" Padding="9,5"
                         VerticalAlignment="Top" Margin="14,2,0,0">
                     <TextBlock x:Name="ClientCountText" Text="CHECKING"
-                               Foreground="#8FB8FF" FontSize="9"
+                               Foreground="{DynamicResource InfoTextBrush}"
+                               FontSize="9"
                                FontWeight="SemiBold"/>
                 </Border>
             </Grid>
 
             <Border x:Name="WarningBorder" Grid.Row="1"
                     Visibility="Collapsed" Margin="0,14,0,0"
-                    Padding="11,9" Background="#2A2215"
-                    BorderBrush="#6A5225" BorderThickness="1"
+                    Padding="11,9"
+                    Background="{DynamicResource WarningSurfaceBrush}"
+                    BorderBrush="{DynamicResource WarningBorderBrush}"
+                    BorderThickness="1"
                     CornerRadius="8">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -51,21 +55,24 @@
                     </Grid.ColumnDefinitions>
                     <Path Data="{StaticResource IconWarning}"
                           Width="15" Height="15" Stretch="Uniform"
-                          Fill="Transparent" Stroke="#EBC56B"
+                          Fill="Transparent"
+                          Stroke="{DynamicResource WarningTextBrush}"
                           StrokeThickness="1.8"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round"
                           StrokeLineJoin="Round"
                           VerticalAlignment="Top"/>
                     <TextBlock x:Name="WarningText" Grid.Column="1"
-                               Foreground="#E4C77B" FontSize="11"
+                               Foreground="{DynamicResource WarningTextBrush}"
+                               FontSize="11"
                                TextWrapping="Wrap"
                                AutomationProperties.LiveSetting="Polite"/>
                 </Grid>
             </Border>
 
             <Border Grid.Row="2" Margin="0,14,0,14"
-                    Background="#12151A" BorderBrush="#303640"
+                    Background="{DynamicResource InsetSurfaceBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}"
                     BorderThickness="1" CornerRadius="9" Padding="6">
                 <Grid>
                     <ScrollViewer x:Name="ClientsScrollViewer"
@@ -77,7 +84,7 @@
                     </ScrollViewer>
                     <TextBlock x:Name="EmptyStateText"
                                Text="Checking for running clients…"
-                               Foreground="{StaticResource MutedBrush}"
+                               Foreground="{DynamicResource MutedBrush}"
                                FontSize="13" TextAlignment="Center"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
@@ -92,13 +99,14 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText"
                            Text="Looking for verified Roblox Player processes…"
-                           Foreground="{StaticResource SubtleBrush}"
+                           Foreground="{DynamicResource SubtleBrush}"
                            FontSize="11" TextWrapping="Wrap"
                            VerticalAlignment="Center" Margin="0,0,14,0"
                            AutomationProperties.LiveSetting="Polite"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="RefreshButton"
-                            Background="#20252D" Foreground="#D6DCE5"
+                            Background="{DynamicResource ControlSurfaceBrush}"
+                            Foreground="{DynamicResource ControlTextBrush}"
                             Padding="13,8" Margin="0,0,8,0"
                             Click="RefreshButton_Click"
                             AutomationProperties.Name="Refresh running Roblox clients">
@@ -110,7 +118,8 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="CloseAllButton"
-                            Background="#2A171D" Foreground="#F09AAA"
+                            Background="{DynamicResource ErrorSurfaceBrush}"
+                            Foreground="{DynamicResource ErrorTextBrush}"
                             Padding="13,8" Margin="0,0,8,0"
                             Click="CloseAllButton_Click"
                             AutomationProperties.Name="Close all verified Roblox clients">
@@ -122,8 +131,10 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="DoneButton" Content="Done"
-                            IsCancel="True" Background="#20252D"
-                            Foreground="#D6DCE5" Padding="15,8"
+                            IsCancel="True"
+                            Background="{DynamicResource ControlSurfaceBrush}"
+                            Foreground="{DynamicResource ControlTextBrush}"
+                            Padding="15,8"
                             AutomationProperties.Name="Close running clients dialog"/>
                 </StackPanel>
             </Grid>

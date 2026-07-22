@@ -4,14 +4,10 @@
         Title="SessionDock release notes" Width="680" Height="640"
         MinWidth="460" MinHeight="400" MaxWidth="900" MaxHeight="860"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <Window.Resources>
-        <SolidColorBrush x:Key="ReleaseTabSelectedBrush" Color="#17243A"/>
-        <SolidColorBrush x:Key="ReleaseTabIdleBrush" Color="#20252D"/>
-        <SolidColorBrush x:Key="ReleaseTabSelectedTextBrush" Color="#F4F6FA"/>
-        <SolidColorBrush x:Key="ReleaseTabIdleTextBrush" Color="#AEB7C5"/>
         <Style x:Key="ReleaseTabButton" TargetType="Button"
                BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="15,11"/>
@@ -30,10 +26,10 @@
 
             <StackPanel>
                 <TextBlock Text="Release notes"
-                           Foreground="{StaticResource TextBrush}"
+                           Foreground="{DynamicResource TextBrush}"
                            FontSize="24" FontWeight="SemiBold"/>
                 <TextBlock Text="Changes included with this copy of SessionDock."
-                           Foreground="{StaticResource MutedBrush}"
+                           Foreground="{DynamicResource MutedBrush}"
                            FontSize="12" Margin="0,6,0,0"
                            TextWrapping="Wrap"/>
             </StackPanel>
@@ -45,28 +41,29 @@
                 </Grid.ColumnDefinitions>
                 <Button x:Name="CurrentReleaseButton"
                         Style="{StaticResource ReleaseTabButton}"
-                        Background="{StaticResource ReleaseTabSelectedBrush}"
-                        Foreground="{StaticResource ReleaseTabSelectedTextBrush}"
+                        Background="{DynamicResource AccentSurfaceBrush}"
+                        Foreground="{DynamicResource TextBrush}"
                         Margin="0,0,5,0"
                         Click="CurrentReleaseButton_Click"
                         PreviewKeyDown="ReleaseTabButton_PreviewKeyDown">
                     <StackPanel>
                         <TextBlock Text="CURRENT" FontSize="9"
-                                   Foreground="#8FB8FF" FontWeight="Bold"/>
+                                   Foreground="{DynamicResource InfoTextBrush}"
+                                   FontWeight="Bold"/>
                         <TextBlock x:Name="CurrentVersionText"
                                    FontSize="13" Margin="0,3,0,0"/>
                     </StackPanel>
                 </Button>
                 <Button x:Name="PreviousReleaseButton" Grid.Column="1"
                         Style="{StaticResource ReleaseTabButton}"
-                        Background="{StaticResource ReleaseTabIdleBrush}"
-                        Foreground="{StaticResource ReleaseTabIdleTextBrush}"
+                        Background="{DynamicResource ControlSurfaceBrush}"
+                        Foreground="{DynamicResource ControlTextBrush}"
                         Margin="5,0,0,0"
                         Click="PreviousReleaseButton_Click"
                         PreviewKeyDown="ReleaseTabButton_PreviewKeyDown">
                     <StackPanel>
                         <TextBlock Text="PREVIOUS" FontSize="9"
-                                   Foreground="{StaticResource SubtleBrush}"
+                                   Foreground="{DynamicResource SubtleBrush}"
                                    FontWeight="Bold"/>
                         <TextBlock x:Name="PreviousVersionText"
                                    FontSize="13" Margin="0,3,0,0"/>
@@ -76,28 +73,32 @@
 
             <Grid Grid.Row="2">
                 <Border x:Name="CurrentNotesPanel" Padding="14"
-                        Background="#12151A" CornerRadius="9"
-                        BorderBrush="#303640" BorderThickness="1">
+                        Background="{DynamicResource InsetSurfaceBrush}"
+                        CornerRadius="9"
+                        BorderBrush="{DynamicResource CardBorderBrush}"
+                        BorderThickness="1">
                     <TextBox x:Name="CurrentNotesBox"
                              IsReadOnly="True" IsReadOnlyCaretVisible="True"
                              TextWrapping="Wrap" AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Disabled"
                              Background="Transparent" BorderThickness="0"
-                             Padding="2" Foreground="#E5E9F0"
+                             Padding="2" Foreground="{DynamicResource TextBrush}"
                              FontSize="13" TextBlock.LineHeight="20"/>
                 </Border>
                 <Border x:Name="PreviousNotesPanel" Padding="14"
                         Visibility="Collapsed"
-                        Background="#12151A" CornerRadius="9"
-                        BorderBrush="#303640" BorderThickness="1">
+                        Background="{DynamicResource InsetSurfaceBrush}"
+                        CornerRadius="9"
+                        BorderBrush="{DynamicResource CardBorderBrush}"
+                        BorderThickness="1">
                     <TextBox x:Name="PreviousNotesBox"
                              IsReadOnly="True" IsReadOnlyCaretVisible="True"
                              TextWrapping="Wrap" AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Disabled"
                              Background="Transparent" BorderThickness="0"
-                             Padding="2" Foreground="#E5E9F0"
+                             Padding="2" Foreground="{DynamicResource TextBrush}"
                              FontSize="13" TextBlock.LineHeight="20"/>
                 </Border>
             </Grid>
@@ -108,12 +109,13 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="Bundled with this app — no network connection is used."
-                           Foreground="{StaticResource MutedBrush}"
+                           Foreground="{DynamicResource MutedBrush}"
                            FontSize="11" VerticalAlignment="Center"
                            TextWrapping="Wrap" Margin="0,0,16,0"/>
                 <Button x:Name="DoneButton" Grid.Column="1"
                         Content="Done" IsCancel="True"
-                        Background="#20252D" Foreground="#D6DCE5"
+                        Background="{DynamicResource ControlSurfaceBrush}"
+                        Foreground="{DynamicResource ControlTextBrush}"
                         Padding="17,9"
                         AutomationProperties.Name="Close release notes"/>
             </Grid>

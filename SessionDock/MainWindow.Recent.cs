@@ -23,9 +23,15 @@ public partial class MainWindow
         LaunchTabPanel.Visibility = Visibility.Collapsed;
         RecentTabPanel.Visibility = Visibility.Visible;
         LaunchTabButton.Background = Brushes.Transparent;
-        LaunchTabButton.Foreground = CreateBrush("#9BA4B3");
-        RecentTabButton.Background = CreateBrush("#252A33");
-        RecentTabButton.Foreground = Brushes.White;
+        LaunchTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedBrush");
+        RecentTabButton.SetResourceReference(
+            Control.BackgroundProperty,
+            "SelectedControlSurfaceBrush");
+        RecentTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "SelectedControlTextBrush");
         AutomationProperties.SetItemStatus(LaunchTabButton, "Not selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Selected");
         RenderRecentExperiences();
@@ -35,10 +41,16 @@ public partial class MainWindow
     {
         LaunchTabPanel.Visibility = Visibility.Visible;
         RecentTabPanel.Visibility = Visibility.Collapsed;
-        LaunchTabButton.Background = CreateBrush("#252A33");
-        LaunchTabButton.Foreground = Brushes.White;
+        LaunchTabButton.SetResourceReference(
+            Control.BackgroundProperty,
+            "SelectedControlSurfaceBrush");
+        LaunchTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "SelectedControlTextBrush");
         RecentTabButton.Background = Brushes.Transparent;
-        RecentTabButton.Foreground = CreateBrush("#9BA4B3");
+        RecentTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedBrush");
         AutomationProperties.SetItemStatus(LaunchTabButton, "Selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Not selected");
     }
@@ -68,15 +80,18 @@ public partial class MainWindow
 
         if (filtered.Count == 0)
         {
-            RecentExperiencesList.Children.Add(new TextBlock
+            var emptyState = new TextBlock
             {
                 Text = _settings.RecentExperiences.Count == 0
                     ? "Experiences you successfully launch will appear here."
                     : "No saved experiences match these filters.",
-                Foreground = CreateBrush("#7F8BA0"),
                 FontSize = 13,
                 Margin = new Thickness(2, 18, 0, 0)
-            });
+            };
+            emptyState.SetResourceReference(
+                TextBlock.ForegroundProperty,
+                "SubtleBrush");
+            RecentExperiencesList.Children.Add(emptyState);
             RestoreRecentKeyboardFocus(
                 restoreKeyboardFocus,
                 focusedDestinationKey,
@@ -142,14 +157,17 @@ public partial class MainWindow
         if (items.Count == 0)
             return;
 
-        RecentExperiencesList.Children.Add(new TextBlock
+        var sectionTitle = new TextBlock
         {
             Text = title,
-            Foreground = CreateBrush("#8F99A8"),
             FontSize = 10,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(2, 4, 0, 8)
-        });
+        };
+        sectionTitle.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "BadgeTextBrush");
+        RecentExperiencesList.Children.Add(sectionTitle);
         foreach (var item in items)
             RecentExperiencesList.Children.Add(CreateRecentExperienceCard(item));
     }
@@ -167,13 +185,17 @@ public partial class MainWindow
 
         var card = new Border
         {
-            Background = CreateBrush("#15181E"),
-            BorderBrush = CreateBrush(recent.IsPinned ? "#326FD1" : "#303640"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Margin = new Thickness(0, 0, 0, 6),
             Padding = new Thickness(6)
         };
+        card.SetResourceReference(
+            Border.BackgroundProperty,
+            "CardSurfaceBrush");
+        card.SetResourceReference(
+            Border.BorderBrushProperty,
+            recent.IsPinned ? "AccentBrush" : "CardBorderBrush");
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -192,33 +214,42 @@ public partial class MainWindow
             useButton,
             $"Use {title} with the selected account");
         var labels = new StackPanel();
-        labels.Children.Add(new TextBlock
+        var titleText = new TextBlock
         {
             Text = title,
-            Foreground = Brushes.White,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        labels.Children.Add(new TextBlock
+        };
+        titleText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "TextBrush");
+        labels.Children.Add(titleText);
+        var metadataText = new TextBlock
         {
             Text = $"{type}  •  {account}  •  {timestamp}",
-            Foreground = CreateBrush("#9BA4B3"),
             FontSize = 10,
             Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        metadataText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "MutedBrush");
+        labels.Children.Add(metadataText);
         if (recent.ServerJobId is { Length: > 8 } serverJobId)
         {
-            labels.Children.Add(new TextBlock
+            var serverText = new TextBlock
             {
                 Text = $"Tracked server {serverJobId[..8]}…",
                 ToolTip = $"Roblox server JobId\n{serverJobId}",
-                Foreground = CreateBrush("#7F8998"),
                 FontSize = 10,
                 Margin = new Thickness(0, 3, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis
-            });
+            };
+            serverText.SetResourceReference(
+                TextBlock.ForegroundProperty,
+                "SubtleBrush");
+            labels.Children.Add(serverText);
         }
         useButton.Content = labels;
         useButton.ToolTip = recent.ServerJobId is null
@@ -281,8 +312,8 @@ public partial class MainWindow
         };
         if (fillIcon)
         {
-            icon.Fill = CreateBrush("#8FB8FF");
-            icon.Stroke = CreateBrush("#8FB8FF");
+            icon.SetResourceReference(Shape.FillProperty, "InfoTextBrush");
+            icon.SetResourceReference(Shape.StrokeProperty, "InfoTextBrush");
         }
 
         var button = new Button
@@ -293,10 +324,14 @@ public partial class MainWindow
             Width = 34,
             MinHeight = 34,
             Margin = new Thickness(4, 0, 0, 0),
-            Padding = new Thickness(4),
-            Background = CreateBrush("#20252D"),
-            Foreground = CreateBrush("#D1D7E0")
+            Padding = new Thickness(4)
         };
+        button.SetResourceReference(
+            Control.BackgroundProperty,
+            "ControlSurfaceBrush");
+        button.SetResourceReference(
+            Control.ForegroundProperty,
+            "ControlTextBrush");
         AutomationProperties.SetName(button, tooltip);
         if (iconResourceKey == "IconStar")
         {
@@ -765,13 +800,24 @@ public partial class MainWindow
 
     private static void SetFilterButtonState(Button button, bool active)
     {
-        button.Background = active ? CreateBrush("#252A33") : Brushes.Transparent;
-        button.Foreground = active ? Brushes.White : CreateBrush("#9BA4B3");
+        if (active)
+        {
+            button.SetResourceReference(
+                Control.BackgroundProperty,
+                "SelectedControlSurfaceBrush");
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "SelectedControlTextBrush");
+        }
+        else
+        {
+            button.Background = Brushes.Transparent;
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "MutedBrush");
+        }
         AutomationProperties.SetItemStatus(button, active ? "Selected" : "Not selected");
     }
-
-    private static SolidColorBrush CreateBrush(string color) =>
-        new((Color)ColorConverter.ConvertFromString(color));
 
     private enum RecentTypeFilter
     {
