@@ -17,9 +17,13 @@ SessionDock stores application settings and isolated browser profiles under
   classification, and a server JobId when a best-effort local match succeeds;
 - private-server codes only when the user explicitly saves or launches such a
   destination;
-- sound preferences and the safe local filename of an imported sound;
-- a settings backup and, only after unrecoverable settings corruption, a small
-  marker that keeps automatic browser-profile cleanup paused; and
+- sound preferences, generated built-in sound files, and a local copy under the
+  `Sounds` folder of any startup sound the user explicitly imports;
+- the current settings, the prior successful settings backup, and timestamped
+  preserved copies of settings files that could not be read;
+- small recovery markers that keep automatic browser-profile cleanup paused
+  when settings are uncertain or record an account profile whose requested
+  deletion has not completed yet; and
 - optional local integration configuration or connection metadata created by
   those separately installed integrations.
 
@@ -78,6 +82,14 @@ with the corresponding in-app controls. The account filter also scopes a clear
 operation when one account is selected. Clearing history does not remove pinned
 Favorites unless the user removes those entries separately, and removing an
 account does not silently erase its shared Recent/Favorite records.
+
+An interrupted account removal leaves a bounded local deletion marker alongside
+any profile data that could not yet be deleted, so SessionDock can retry that
+cleanup on a later launch. Preserved corrupt settings copies can contain the
+same account, destination, and history metadata as the settings files they came
+from and remain until the user deletes them. Unused imported-sound copies are
+removed on a best-effort basis; deleting all SessionDock data removes any copies
+that remain.
 
 To remove all SessionDock data, first remove accounts in the app, close
 SessionDock, and then delete `%LOCALAPPDATA%\SessionDock`. This action signs those local

@@ -9,7 +9,7 @@
     <RootNamespace>SessionDock</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>SessionDock.Program</StartupObject>
-    <Version>2.3.0</Version>
+    <Version>2.3.1</Version>
     <Product>SessionDock</Product>
     <Authors>Makmatoe</Authors>
     <Copyright>Copyright (c) 2026 Makmatoe</Copyright>
