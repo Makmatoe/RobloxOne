@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using SessionDock.Models;
@@ -19,60 +20,143 @@ public sealed class RobloxWebSessionService : IDisposable
     private WebView2? _browser;
     private int _generation;
     private bool _isReady;
+    private WebSessionToken? _currentToken;
+    private int _failedGeneration = -1;
 
-    public event EventHandler? RobloxPageLoaded;
+    internal event EventHandler<WebSessionEventArgs>? RobloxPageLoaded;
+    internal event EventHandler<WebSessionUnavailableEventArgs>? SessionUnavailable;
 
-    public bool IsReady => _isReady && _browser?.CoreWebView2 is not null;
+    public bool IsReady => _isReady &&
+        _currentToken is not null &&
+        _browser?.CoreWebView2 is not null;
 
-    public WebView2 BeginBrowserReplacement()
+    internal WebSessionBrowser BeginBrowserReplacement(string accountKey)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountKey);
         ReleaseBrowser();
         _browser = new WebView2 { AllowExternalDrop = false };
-        return _browser;
+        var token = new WebSessionToken(_generation, accountKey);
+        _currentToken = token;
+        return new WebSessionBrowser(_browser, token);
     }
 
     public void ReleaseBrowser()
     {
+        var browser = _browser;
         _generation++;
         _isReady = false;
-        _browser?.Dispose();
+        _currentToken = null;
         _browser = null;
+        try
+        {
+            browser?.Dispose();
+        }
+        catch (Exception exception) when (
+            IsExpectedRuntimeTeardownFailure(exception))
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"WebView2 teardown failed safely: {exception.GetType().Name}.");
+        }
     }
 
-    public async Task<bool> InitializeAsync(
-        WebView2 browser,
+    internal async Task<bool> InitializeAsync(
+        WebSessionBrowser session,
         string userDataDirectory,
         bool showLogin,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(browser);
+        ArgumentNullException.ThrowIfNull(session);
         ArgumentException.ThrowIfNullOrWhiteSpace(userDataDirectory);
-        var generation = _generation;
+        var browser = session.Browser;
+        var token = session.Token;
         cancellationToken.ThrowIfCancellationRequested();
 
-        var environment = await CoreWebView2Environment.CreateAsync(
-            userDataFolder: userDataDirectory);
-        if (!IsCurrent(browser, generation) || cancellationToken.IsCancellationRequested)
+        CoreWebView2Environment environment;
+        try
+        {
+            environment = await CoreWebView2Environment.CreateAsync(
+                userDataFolder: userDataDirectory);
+        }
+        catch (WebView2RuntimeNotFoundException exception)
+        {
+            EnsureCurrent(token);
+            throw new WebSessionUnavailableException(
+                WebSessionUnavailableReason.MissingRuntime,
+                "The Microsoft Edge WebView2 Runtime is not installed or could not be found.",
+                exception);
+        }
+        catch (COMException exception) when (
+            IsExpectedInitializationHResult(exception.HResult))
+        {
+            EnsureCurrent(token);
+            throw new WebSessionUnavailableException(
+                WebSessionUnavailableReason.RuntimeStartFailed,
+                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
+                exception);
+        }
+        if (!IsCurrent(session) || cancellationToken.IsCancellationRequested)
             return false;
 
-        await browser.EnsureCoreWebView2Async(environment);
-        if (!IsCurrent(browser, generation) || cancellationToken.IsCancellationRequested)
+        try
+        {
+            await browser.EnsureCoreWebView2Async(environment);
+        }
+        catch (COMException exception) when (
+            IsExpectedInitializationHResult(exception.HResult))
+        {
+            EnsureCurrent(token);
+            throw new WebSessionUnavailableException(
+                WebSessionUnavailableReason.RuntimeStartFailed,
+                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
+                exception);
+        }
+        catch (Exception exception) when (
+            IsCorrelatedRuntimeFailure(
+                exception,
+                token,
+                exactRuntimeCall: true))
+        {
+            throw CreateRuntimeUnavailableException(exception, token);
+        }
+        if (!IsCurrent(session) || cancellationToken.IsCancellationRequested)
             return false;
 
-        Configure(browser.CoreWebView2);
-        _isReady = true;
-        browser.CoreWebView2.Navigate(showLogin
-            ? "https://www.roblox.com/login"
-            : "https://www.roblox.com/home");
+        try
+        {
+            Configure(browser.CoreWebView2);
+            _isReady = true;
+            _failedGeneration = -1;
+            browser.CoreWebView2.Navigate(showLogin
+                ? "https://www.roblox.com/login"
+                : "https://www.roblox.com/home");
+        }
+        catch (Exception exception) when (
+            IsCorrelatedRuntimeFailure(
+                exception,
+                token,
+                exactRuntimeCall: true))
+        {
+            _isReady = false;
+            throw CreateRuntimeUnavailableException(exception, token);
+        }
         return true;
     }
 
-    public void NavigateToLogin()
+    internal void NavigateToLogin(WebSessionToken token)
     {
-        GetCore().Navigate("https://www.roblox.com/login");
+        try
+        {
+            GetCore(token).Navigate("https://www.roblox.com/login");
+        }
+        catch (Exception exception) when (
+            IsCorrelatedRuntimeFailure(exception, token, exactRuntimeCall: true))
+        {
+            throw CreateRuntimeUnavailableException(exception, token);
+        }
     }
 
-    public async Task<RobloxUser?> GetAuthenticatedUserAsync(
+    internal async Task<RobloxUser?> GetAuthenticatedUserAsync(
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         var requestId = Guid.NewGuid().ToString("N");
@@ -80,6 +164,7 @@ public sealed class RobloxWebSessionService : IDisposable
             requestId,
             RobloxWebScripts.GetAuthenticatedUser(requestId),
             AccountTimeout,
+            token,
             cancellationToken);
         if (message is null ||
             !message.Value.TryGetProperty("user", out var user) ||
@@ -104,8 +189,9 @@ public sealed class RobloxWebSessionService : IDisposable
         return new RobloxUser(id, safeName, displayName!);
     }
 
-    public async Task<LaunchTarget?> ResolvePrivateServerAsync(
+    internal async Task<LaunchTarget?> ResolvePrivateServerAsync(
         string shareCode,
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shareCode);
@@ -114,6 +200,7 @@ public sealed class RobloxWebSessionService : IDisposable
             requestId,
             RobloxWebScripts.ResolvePrivateServer(requestId, shareCode),
             ApiTimeout,
+            token,
             cancellationToken);
         if (message is null ||
             !message.Value.TryGetProperty("placeId", out var placeIdElement) ||
@@ -130,7 +217,8 @@ public sealed class RobloxWebSessionService : IDisposable
             : new LaunchTarget(placeId, linkCode, null);
     }
 
-    public async Task<string?> GetAuthenticationTicketAsync(
+    internal async Task<string?> GetAuthenticationTicketAsync(
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         var requestId = Guid.NewGuid().ToString("N");
@@ -138,6 +226,7 @@ public sealed class RobloxWebSessionService : IDisposable
             requestId,
             RobloxWebScripts.GetAuthenticationTicket(requestId),
             ApiTimeout,
+            token,
             cancellationToken);
         if (message is null ||
             !message.Value.TryGetProperty("ticket", out var ticketElement))
@@ -152,7 +241,8 @@ public sealed class RobloxWebSessionService : IDisposable
             : null;
     }
 
-    public async Task<string?> GetUserLocaleAsync(
+    internal async Task<string?> GetUserLocaleAsync(
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         var requestId = Guid.NewGuid().ToString("N");
@@ -160,6 +250,7 @@ public sealed class RobloxWebSessionService : IDisposable
             requestId,
             RobloxWebScripts.GetUserLocale(requestId),
             LocaleTimeout,
+            token,
             cancellationToken);
         if (message is null ||
             !message.Value.TryGetProperty("locale", out var localeElement))
@@ -174,8 +265,9 @@ public sealed class RobloxWebSessionService : IDisposable
             : null;
     }
 
-    public async Task<string?> GetExperienceNameAsync(
+    internal async Task<string?> GetExperienceNameAsync(
         long placeId,
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(placeId);
@@ -184,6 +276,7 @@ public sealed class RobloxWebSessionService : IDisposable
             requestId,
             RobloxWebScripts.GetExperienceName(requestId, placeId),
             ApiTimeout,
+            token,
             cancellationToken);
         if (message is null ||
             !message.Value.TryGetProperty("name", out var nameElement))
@@ -195,16 +288,18 @@ public sealed class RobloxWebSessionService : IDisposable
         return string.IsNullOrWhiteSpace(name) || name.Length > 200 ? null : name;
     }
 
-    public async Task<bool> ClearProfileAsync(
+    internal async Task<bool> ClearProfileAsync(
+        WebSessionToken token,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureCurrent(token);
         if (!IsReady)
             return false;
 
         try
         {
-            await GetCore().Profile.ClearBrowsingDataAsync(
+            await GetCore(token).Profile.ClearBrowsingDataAsync(
                     CoreWebView2BrowsingDataKinds.AllProfile)
                 .WaitAsync(cancellationToken);
             return true;
@@ -213,7 +308,8 @@ public sealed class RobloxWebSessionService : IDisposable
         {
             throw;
         }
-        catch
+        catch (Exception exception) when (
+            IsCorrelatedRuntimeFailure(exception, token, exactRuntimeCall: true))
         {
             return false;
         }
@@ -240,6 +336,7 @@ public sealed class RobloxWebSessionService : IDisposable
         core.NewWindowRequested += Core_NewWindowRequested;
         core.NavigationStarting += Core_NavigationStarting;
         core.NavigationCompleted += Core_NavigationCompleted;
+        core.ProcessFailed += Core_ProcessFailed;
         core.LaunchingExternalUriScheme += (_, args) => args.Cancel = true;
         core.DownloadStarting += (_, args) =>
         {
@@ -257,10 +354,11 @@ public sealed class RobloxWebSessionService : IDisposable
         string requestId,
         string script,
         TimeSpan timeout,
+        WebSessionToken token,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var core = GetCore();
+        var core = GetCore(token);
         var completion = new TaskCompletionSource<JsonElement?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -286,7 +384,13 @@ public sealed class RobloxWebSessionService : IDisposable
 
                 completion.TrySetResult(root.Clone());
             }
-            catch
+            catch (Exception exception) when (
+                exception is JsonException or ArgumentException or
+                    InvalidOperationException ||
+                IsCorrelatedRuntimeFailure(
+                    exception,
+                    token,
+                    exactRuntimeCall: true))
             {
                 // Ignore unrelated or malformed browser messages.
             }
@@ -295,17 +399,42 @@ public sealed class RobloxWebSessionService : IDisposable
         core.WebMessageReceived += handler;
         try
         {
-            await core.ExecuteScriptAsync(script);
+            try
+            {
+                await core.ExecuteScriptAsync(script);
+            }
+            catch (Exception exception) when (
+                IsCorrelatedRuntimeFailure(
+                    exception,
+                    token,
+                    exactRuntimeCall: true))
+            {
+                throw CreateRuntimeUnavailableException(exception, token);
+            }
+            EnsureCurrent(token);
             var delay = Task.Delay(timeout, cancellationToken);
             var finished = await Task.WhenAny(completion.Task, delay);
             cancellationToken.ThrowIfCancellationRequested();
+            EnsureCurrent(token);
             return finished == completion.Task
                 ? await completion.Task
                 : null;
         }
         finally
         {
-            core.WebMessageReceived -= handler;
+            try
+            {
+                core.WebMessageReceived -= handler;
+            }
+            catch (Exception exception) when (
+                IsCorrelatedRuntimeFailure(
+                    exception,
+                    token,
+                    exactRuntimeCall: true))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Superseded WebView2 handler cleanup failed safely: {exception.GetType().Name}.");
+            }
         }
     }
 
@@ -315,7 +444,22 @@ public sealed class RobloxWebSessionService : IDisposable
     {
         args.Handled = true;
         if (sender is CoreWebView2 core && IsTrustedBrowserLocation(args.Uri))
-            core.Navigate(args.Uri);
+        {
+            try
+            {
+                core.Navigate(args.Uri);
+            }
+            catch (Exception exception) when (
+                _currentToken is { } token &&
+                IsCorrelatedRuntimeFailure(
+                    exception,
+                    token,
+                    exactRuntimeCall: true))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Superseded WebView2 navigation failed safely: {exception.GetType().Name}.");
+            }
+        }
     }
 
     private static void Core_NavigationStarting(
@@ -331,27 +475,158 @@ public sealed class RobloxWebSessionService : IDisposable
         CoreWebView2NavigationCompletedEventArgs args)
     {
         var browser = _browser;
-        if (!args.IsSuccess ||
-            browser is null ||
-            sender != browser.CoreWebView2 ||
-            browser.Source is not { } source ||
-            !IsTrustedScriptHost(source.Host))
+        var token = _currentToken;
+        if (browser is null || token is null)
+            return;
+
+        try
+        {
+            if (!args.IsSuccess ||
+                sender != browser.CoreWebView2 ||
+                browser.Source is not { } source ||
+                !IsTrustedScriptHost(source.Host))
+            {
+                return;
+            }
+        }
+        catch (Exception exception) when (
+            IsCurrent(token.Value) &&
+            IsCorrelatedRuntimeFailure(
+                exception,
+                token.Value,
+                exactRuntimeCall: true))
+        {
+            MarkSessionUnavailable(token.Value);
+            return;
+        }
+
+        if (IsCurrent(token.Value))
+            RobloxPageLoaded?.Invoke(this, new WebSessionEventArgs(token.Value));
+    }
+
+    private void Core_ProcessFailed(
+        object? sender,
+        CoreWebView2ProcessFailedEventArgs args)
+    {
+        if (_currentToken is not { } token ||
+            sender is not CoreWebView2 core ||
+            !ReferenceEquals(core, _browser?.CoreWebView2))
         {
             return;
         }
 
-        RobloxPageLoaded?.Invoke(this, EventArgs.Empty);
+        if (args.ProcessFailedKind is not (
+                CoreWebView2ProcessFailedKind.BrowserProcessExited or
+                CoreWebView2ProcessFailedKind.RenderProcessExited or
+                CoreWebView2ProcessFailedKind.RenderProcessUnresponsive))
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"WebView2 subprocess reported {args.ProcessFailedKind} and was left to runtime recovery.");
+            return;
+        }
+
+        MarkSessionUnavailable(token);
     }
 
-    private bool IsCurrent(WebView2 browser, int generation) =>
-        generation == _generation && ReferenceEquals(browser, _browser);
-
-    private CoreWebView2 GetCore()
+    private void MarkSessionUnavailable(WebSessionToken token)
     {
+        if (!IsCurrent(token) ||
+            !_isReady && _failedGeneration == token.Generation)
+        {
+            return;
+        }
+
+        _isReady = false;
+        _failedGeneration = token.Generation;
+        SessionUnavailable?.Invoke(
+            this,
+            new WebSessionUnavailableEventArgs(
+                token,
+                WebSessionUnavailableReason.ProcessExited));
+    }
+
+    private bool IsCurrent(WebSessionBrowser session) =>
+        IsCurrent(session.Token) && ReferenceEquals(session.Browser, _browser);
+
+    internal bool IsCurrent(WebSessionToken token) =>
+        _currentToken == token && token.Generation == _generation;
+
+    private CoreWebView2 GetCore(WebSessionToken token)
+    {
+        EnsureCurrent(token);
         if (!IsReady)
-            throw new InvalidOperationException("The Roblox web session is not ready.");
+        {
+            throw new WebSessionUnavailableException(
+                _failedGeneration == token.Generation
+                    ? WebSessionUnavailableReason.ProcessExited
+                    : WebSessionUnavailableReason.Closed,
+                "The Roblox web session is no longer available.");
+        }
         return _browser!.CoreWebView2;
     }
+
+    private void EnsureCurrent(WebSessionToken token)
+    {
+        if (!IsCurrent(token))
+        {
+            throw new WebSessionUnavailableException(
+                WebSessionUnavailableReason.Superseded,
+                "A newer Roblox account session replaced this operation.");
+        }
+    }
+
+    private bool IsCorrelatedRuntimeFailure(
+        Exception exception,
+        WebSessionToken token,
+        bool exactRuntimeCall = false)
+    {
+        if (exception is WebSessionUnavailableException)
+            return true;
+        var correlated = exactRuntimeCall ||
+            !IsCurrent(token) ||
+            _failedGeneration == token.Generation;
+        return correlated &&
+            (exception is ObjectDisposedException or InvalidOperationException ||
+             exception is COMException comException &&
+             IsClosedRuntimeHResult(comException.HResult));
+    }
+
+    private WebSessionUnavailableException CreateRuntimeUnavailableException(
+        Exception exception,
+        WebSessionToken token) =>
+        exception as WebSessionUnavailableException ??
+        new WebSessionUnavailableException(
+            IsCurrent(token)
+                ? WebSessionUnavailableReason.ProcessExited
+                : WebSessionUnavailableReason.Superseded,
+            IsCurrent(token)
+                ? "The Roblox web session process exited. Reconnect this account and try again."
+                : "A newer Roblox account session replaced this operation.",
+            exception);
+
+    internal static bool IsExpectedInitializationHResult(int hResult) =>
+        hResult is
+            unchecked((int)0x80070032) or
+            unchecked((int)0x8007139F) or
+            unchecked((int)0x80070578) or
+            unchecked((int)0x80070070) or
+            unchecked((int)0x8007064E) or
+            unchecked((int)0x80070002) or
+            unchecked((int)0x80070050) or
+            unchecked((int)0x80070005) or
+            unchecked((int)0x80004005);
+
+    private static bool IsClosedRuntimeHResult(int hResult) =>
+        hResult is
+            unchecked((int)0x80010108) or
+            unchecked((int)0x800401FD) or
+            unchecked((int)0x80000013);
+
+    private static bool IsExpectedRuntimeTeardownFailure(
+        Exception exception) =>
+        exception is ObjectDisposedException or InvalidOperationException ||
+        exception is COMException comException &&
+        IsClosedRuntimeHResult(comException.HResult);
 
     private static bool IsTrustedBrowserLocation(string location)
     {

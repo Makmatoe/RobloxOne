@@ -241,28 +241,79 @@ public partial class MainWindow
         return button;
     }
 
-    private void RecentExperienceButton_Click(object sender, RoutedEventArgs e)
+    private async void RecentExperienceButton_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            RecentExperienceButtonClickAsync(sender));
+
+    private async Task RecentExperienceButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
 
-        var activeProfile = _activeProfile;
-        if (activeProfile is not null && _pendingProfile is null &&
-            !TryCommitSettingsMutation(
-                () => activeProfile.Destination = recent.Destination,
-                "Recent destination could not be saved",
-                "HISTORY SAVE ERROR"))
+        if (_activeProfile is not { } activeProfile ||
+            _pendingProfile is not null)
         {
             return;
         }
 
-        PlaceIdBox.Text = recent.Destination;
-        ShowLauncherTab();
-        PlaceIdBox.Focus();
-        ResetDestinationViewport();
+        var activeProfileKey = activeProfile.Key;
+        var destination = recent.Destination;
+        var mutationApplied = false;
+        _destinationPersistence.Cancel();
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    var currentProfile = _settings.Accounts.FirstOrDefault(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (currentProfile is null ||
+                        !string.Equals(
+                            _settings.ActiveAccountKey,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    currentProfile.Destination = destination;
+                    mutationApplied = true;
+                },
+                "Recent destination could not be saved",
+                "HISTORY SAVE ERROR",
+                onCommitted: () =>
+                {
+                    if (!mutationApplied ||
+                        !string.Equals(
+                            _activeProfile?.Key,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    activeProfile = _settings.Accounts.First(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    ShowDestinationForProfile(activeProfile);
+                    ShowLauncherTab();
+                    PlaceIdBox.Focus();
+                    ResetDestinationViewport();
+                }))
+        {
+            return;
+        }
+
     }
 
-    private void UseRecentServerButton_Click(object sender, RoutedEventArgs e)
+    private async void UseRecentServerButton_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            UseRecentServerButtonClickAsync(sender));
+
+    private async Task UseRecentServerButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent } ||
             !Guid.TryParse(recent.ServerJobId, out var serverJobId))
@@ -270,44 +321,105 @@ public partial class MainWindow
             return;
         }
 
-        var destination = serverJobId.ToString("D");
-        var activeProfile = _activeProfile;
-        if (activeProfile is not null && _pendingProfile is null &&
-            !TryCommitSettingsMutation(
-                () => activeProfile.Destination = destination,
-                "Tracked server could not be saved",
-                "HISTORY SAVE ERROR"))
+        if (_activeProfile is not { } activeProfile ||
+            _pendingProfile is not null)
         {
             return;
         }
 
-        PlaceIdBox.Text = destination;
-        ShowLauncherTab();
-        PlaceIdBox.Focus();
-        ResetDestinationViewport();
+        var destination = serverJobId.ToString("D");
+        var activeProfileKey = activeProfile.Key;
+        var placeId = recent.PlaceId;
+        var mutationApplied = false;
+        _destinationPersistence.Cancel();
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    var currentProfile = _settings.Accounts.FirstOrDefault(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (currentProfile is null ||
+                        !string.Equals(
+                            _settings.ActiveAccountKey,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    currentProfile.Destination = destination;
+                    mutationApplied = true;
+                },
+                "Tracked server could not be saved",
+                "HISTORY SAVE ERROR",
+                onCommitted: () =>
+                {
+                    if (!mutationApplied ||
+                        !string.Equals(
+                            _activeProfile?.Key,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    activeProfile = _settings.Accounts.First(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    ShowDestinationForProfile(activeProfile);
+                    ShowLauncherTab();
+                    PlaceIdBox.Focus();
+                    ResetDestinationViewport();
+                }))
+        {
+            return;
+        }
+
+        if (!mutationApplied ||
+            !string.Equals(
+                _activeProfile?.Key,
+                activeProfileKey,
+                StringComparison.OrdinalIgnoreCase))
+            return;
         SetStatus(
             "Tracked server selected",
-            $"Launch will try server {serverJobId.ToString("D")[..8]}… for Place {recent.PlaceId}.",
+            $"Launch will try server {serverJobId.ToString("D")[..8]}… for Place {placeId}.",
             "SERVER READY");
     }
 
-    private void PinRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void PinRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => PinRecentButtonClickAsync(sender));
+
+    private async Task PinRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
-        if (!recent.IsPinned &&
-            _settings.RecentExperiences.Count(item => item.IsPinned) >= 50)
+        var favoriteLimitReached = false;
+        await SaveRecentMetadataAsync(() =>
+        {
+            if (!_settings.RecentExperiences.Contains(recent))
+                return;
+            if (!recent.IsPinned &&
+                _settings.RecentExperiences.Count(item => item.IsPinned) >= 50)
+            {
+                favoriteLimitReached = true;
+                return;
+            }
+            recent.IsPinned = !recent.IsPinned;
+        });
+        if (favoriteLimitReached)
         {
             SetStatus(
                 "Favorites limit reached",
                 "Remove one Favorite before pinning another. Recent history is unchanged.",
                 "FAVORITES FULL");
-            return;
         }
-        SaveRecentMetadata(() => recent.IsPinned = !recent.IsPinned);
     }
 
-    private void RenameRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void RenameRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => RenameRecentButtonClickAsync(sender));
+
+    private async Task RenameRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
@@ -322,17 +434,26 @@ public partial class MainWindow
         if (dialog.ShowDialog() != true)
             return;
 
-        SaveRecentMetadata(() =>
+        var destinationKey = RecentDestinationIdentity.CreateKey(recent);
+        var customName = dialog.Value;
+        await SaveRecentMetadataAsync(() =>
         {
+            if (!_settings.RecentExperiences.Contains(recent))
+                return;
             foreach (var matchingEntry in _settings.RecentExperiences.Where(item =>
-                         RecentDestinationIdentity.Matches(item, recent)))
+                         RecentDestinationIdentity.CreateKey(item).Equals(
+                             destinationKey,
+                             StringComparison.Ordinal)))
             {
-                matchingEntry.CustomName = dialog.Value;
+                matchingEntry.CustomName = customName;
             }
         });
     }
 
-    private void RemoveRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void RemoveRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => RemoveRecentButtonClickAsync(sender));
+
+    private async Task RemoveRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
@@ -343,10 +464,14 @@ public partial class MainWindow
             MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes)
             return;
-        SaveRecentMetadata(() => _settings.RecentExperiences.Remove(recent));
+        await SaveRecentMetadataAsync(() =>
+            _settings.RecentExperiences.Remove(recent));
     }
 
-    private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
+    private async void ClearHistoryButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => ClearHistoryButtonClickAsync());
+
+    private async Task ClearHistoryButtonClickAsync()
     {
         var removableCount = _settings.RecentExperiences.Count(
             MatchesClearHistoryScope);
@@ -371,13 +496,24 @@ public partial class MainWindow
         if (result != MessageBoxResult.Yes)
             return;
 
-        SaveRecentMetadata(() =>
-            _settings.RecentExperiences.RemoveAll(MatchesClearHistoryScope));
+        var recentType = _recentTypeFilter switch
+        {
+            RecentTypeFilter.Public => RecentServerType.Public,
+            RecentTypeFilter.Private => RecentServerType.Private,
+            _ => RecentServerType.All
+        };
+        var accountFilter = _recentAccountFilter;
+        await SaveRecentMetadataAsync(() =>
+            _settings.RecentExperiences.RemoveAll(item =>
+                RecentHistoryScope.CanClear(
+                    item,
+                    recentType,
+                    accountFilter)));
     }
 
-    private void SaveRecentExperience(RecentExperience recent)
+    private async Task SaveRecentExperienceAsync(RecentExperience recent)
     {
-        SaveRecentMetadata(() =>
+        await SaveRecentMetadataAsync(() =>
         {
             var matchingDestinationEntries = _settings.RecentExperiences
                 .Where(item => RecentDestinationIdentity.Matches(item, recent))
@@ -410,16 +546,17 @@ public partial class MainWindow
         }, showError: false);
     }
 
-    private void SaveRecentMetadata(
+    private async Task<bool> SaveRecentMetadataAsync(
         Action mutation,
         bool showError = true)
     {
-        TryCommitSettingsMutation(
+        var committed = await TryCommitSettingsMutationAsync(
             mutation,
             "Local metadata could not be saved",
             "HISTORY ERROR",
             showFailure: showError);
         RenderRecentExperiences();
+        return committed;
     }
 
     private bool MatchesRecentFilters(RecentExperience item)

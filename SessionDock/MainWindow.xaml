@@ -298,6 +298,7 @@
                                                      ScrollViewer.HorizontalScrollBarVisibility="Hidden"
                                                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
                                                      TextChanged="PlaceIdBox_TextChanged"
+                                                     LostKeyboardFocus="PlaceIdBox_LostKeyboardFocus"
                                                      KeyDown="PlaceIdBox_KeyDown"
                                                      ToolTip="Place ID, official Roblox game URL, private-server URL, share code, or Server JobId saved from Recent"
                                                      AutomationProperties.Name="Roblox destination"/>
