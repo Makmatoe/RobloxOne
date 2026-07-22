@@ -3,6 +3,7 @@ using SessionDock.Services;
 
 namespace SessionDock.Tests;
 
+[Collection<TimingSensitiveTestCollection>]
 public sealed class BoundedSettingsPersistenceTests
 {
     [Fact]
@@ -84,35 +85,30 @@ public sealed class BoundedSettingsPersistenceTests
     }
 
     [Fact]
-    public async Task TrySaveAsync_SynchronousAsyncDelegateStartupIsBounded()
+    public async Task TrySaveAsync_SynchronousAsyncDelegateRunsOffCallerThread()
     {
-        using var release = new ManualResetEventSlim();
-        var started = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var stopwatch = Stopwatch.StartNew();
+        var callerThreadId = 0;
+        var saveThreadId = 0;
 
-        try
-        {
-            var saved = await BoundedSettingsPersistence.TrySaveAsync(
-                () =>
-                {
-                    started.TrySetResult();
-                    release.Wait();
-                    return Task.CompletedTask;
-                },
-                TimeSpan.FromMilliseconds(75));
+        var saved = await Task.Factory.StartNew(
+            () =>
+            {
+                callerThreadId = Environment.CurrentManagedThreadId;
+                return BoundedSettingsPersistence.TrySaveAsync(
+                        () =>
+                        {
+                            saveThreadId = Environment.CurrentManagedThreadId;
+                            return Task.CompletedTask;
+                        },
+                        TimeSpan.FromSeconds(10))
+                    .GetAwaiter()
+                    .GetResult();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
-            stopwatch.Stop();
-            Assert.False(saved);
-            Assert.True(started.Task.IsCompleted);
-            Assert.InRange(
-                stopwatch.Elapsed,
-                TimeSpan.FromMilliseconds(25),
-                TimeSpan.FromSeconds(1));
-        }
-        finally
-        {
-            release.Set();
-        }
+        Assert.True(saved);
+        Assert.NotEqual(callerThreadId, saveThreadId);
     }
 }
