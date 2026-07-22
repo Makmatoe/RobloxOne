@@ -9,9 +9,7 @@
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <Border Margin="16" Padding="22" CornerRadius="18"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="#293042" BorderThickness="1">
+        <Border Style="{StaticResource DialogShell}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -30,7 +28,7 @@
                 </StackPanel>
 
                 <Border Grid.Row="1" Margin="0,20,0,0" Padding="16,13"
-                        Background="#0D1017" CornerRadius="12">
+                        Background="#12151A" CornerRadius="8">
                     <CheckBox x:Name="UiSoundsCheckBox"
                               Foreground="White" FontSize="13"
                               VerticalContentAlignment="Center">
@@ -40,7 +38,7 @@
                 </Border>
 
                 <StackPanel Grid.Row="2" Margin="0,18,0,0">
-                    <TextBlock Text="STARTUP SOUND" Foreground="#7F8BA0"
+                    <TextBlock Text="STARTUP SOUND" Foreground="#7F8998"
                                FontSize="11" FontWeight="Bold"/>
                     <ComboBox x:Name="StartupSoundComboBox" Margin="0,8,0,0"
                               Height="42" VerticalContentAlignment="Center"
@@ -55,8 +53,8 @@
                 </StackPanel>
 
                 <Border Grid.Row="3" Margin="0,16,0,0" Padding="16"
-                        Background="#0D1017" CornerRadius="12"
-                        BorderBrush="#242B3A" BorderThickness="1">
+                        Background="#12151A" CornerRadius="8"
+                        BorderBrush="#303640" BorderThickness="1">
                     <StackPanel>
                         <TextBlock Text="Custom startup sound" Foreground="White"
                                    FontSize="13" FontWeight="SemiBold"/>
@@ -66,10 +64,10 @@
                                    Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                         <WrapPanel Margin="0,12,0,0">
                             <Button Content="Import audio…" Click="ImportButton_Click"
-                                    Background="#252C3B" Padding="14,8"
+                                    Background="#20252D" Padding="14,8"
                                     Margin="0,0,9,7"/>
                             <Button Content="Preview" Click="PreviewButton_Click"
-                                    Background="#252C3B" Padding="14,8"
+                                    Background="#20252D" Padding="14,8"
                                     Margin="0,0,0,7"/>
                         </WrapPanel>
                     </StackPanel>
@@ -85,7 +83,7 @@
                     <WrapPanel Grid.Row="1" HorizontalAlignment="Right"
                                Margin="0,8,0,0">
                         <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                                Background="#252C3B" Padding="18,9"
+                                Background="#20252D" Padding="16,9"
                                 Margin="0,0,10,0"/>
                         <Button Content="Save" Click="SaveButton_Click" IsDefault="True"
                                 Padding="22,9"/>

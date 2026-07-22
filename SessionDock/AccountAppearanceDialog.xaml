@@ -9,9 +9,7 @@
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <Border Margin="16" Padding="22" CornerRadius="18"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="#293042" BorderThickness="1">
+        <Border Style="{StaticResource DialogShell}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -29,7 +27,7 @@
                            TextWrapping="Wrap"/>
 
                 <StackPanel Grid.Row="2" Margin="0,20,0,0">
-                    <TextBlock Text="Custom label" Foreground="#C8D0DE"
+                    <TextBlock Text="Custom label" Foreground="#D1D7E0"
                                FontSize="12" FontWeight="SemiBold"/>
                     <Border Height="48" Margin="0,7,0,0"
                             Style="{StaticResource TextFieldShell}">
@@ -40,7 +38,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="3" Margin="0,18,0,0">
-                    <TextBlock Text="Account color" Foreground="#C8D0DE"
+                    <TextBlock Text="Account color" Foreground="#D1D7E0"
                                FontSize="12" FontWeight="SemiBold"/>
                     <TextBlock Text="Choose the accent used by this account card."
                                Foreground="{StaticResource MutedBrush}"
@@ -81,7 +79,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                         <Border x:Name="SelectedColorPreview" Width="30" Height="30"
                                 CornerRadius="9" BorderBrush="White" BorderThickness="2"/>
-                        <TextBlock x:Name="SelectedColorText" Foreground="#C8D0DE"
+                        <TextBlock x:Name="SelectedColorText" Foreground="#D1D7E0"
                                    FontSize="12" Margin="10,0,0,0"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
@@ -90,7 +88,7 @@
                 <WrapPanel Grid.Row="4" HorizontalAlignment="Right"
                            Margin="0,20,0,0">
                     <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                            Background="#252C3B" Padding="18,9" Margin="0,0,10,0"/>
+                            Background="#20252D" Padding="16,9" Margin="0,0,8,0"/>
                     <Button Content="Save changes" Click="SaveButton_Click" IsDefault="True"
                             Padding="22,9"
                             AutomationProperties.Name="Save account appearance"/>

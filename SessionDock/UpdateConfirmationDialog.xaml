@@ -7,9 +7,7 @@
         Background="{StaticResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
-    <Border Margin="16" Padding="24" CornerRadius="18"
-            Background="{StaticResource PanelBrush}"
-            BorderBrush="#293042" BorderThickness="1">
+    <Border Style="{StaticResource DialogShell}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -31,8 +29,8 @@
             </StackPanel>
 
             <Border Grid.Row="1" Margin="0,18,0,0" Padding="16,13"
-                    Background="#0D1017" CornerRadius="12"
-                    BorderBrush="#242B3A" BorderThickness="1">
+                    Background="#12151A" CornerRadius="8"
+                    BorderBrush="#303640" BorderThickness="1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -40,10 +38,10 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="SIGNED RELEASE VERIFIED"
-                                   Foreground="#55D6A2" FontSize="11"
+                                   Foreground="#63D39C" FontSize="11"
                                    FontWeight="Bold"/>
                         <TextBlock x:Name="PublishedText"
-                                   Foreground="#C8D0DE" FontSize="12"
+                                   Foreground="#D1D7E0" FontSize="12"
                                    Margin="0,5,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                     <TextBlock x:Name="SizeText" Grid.Column="1"
@@ -54,12 +52,12 @@
             </Border>
 
             <TextBlock Grid.Row="2" Text="RELEASE NOTES"
-                       Foreground="#7F8BA0" FontSize="11"
+                       Foreground="#7F8998" FontSize="11"
                        FontWeight="Bold" Margin="0,18,0,8"/>
 
             <Border Grid.Row="3" MinHeight="120" Padding="14"
-                    Background="#0D1017" CornerRadius="12"
-                    BorderBrush="#242B3A" BorderThickness="1">
+                    Background="#12151A" CornerRadius="8"
+                    BorderBrush="#303640" BorderThickness="1">
                 <TextBox x:Name="ReleaseNotesBox"
                          IsReadOnly="True" IsReadOnlyCaretVisible="True"
                          TextWrapping="Wrap" AcceptsReturn="True"
@@ -87,7 +85,7 @@
                            Margin="0,0,18,0"/>
                 <Button Grid.Column="1" Content="Cancel"
                         Click="CancelButton_Click" IsCancel="True"
-                        Background="#252C3B" Padding="18,9"
+                        Background="#20252D" Padding="16,9"
                         Margin="0,0,10,0"/>
                 <Button Grid.Column="2" Content="Install update"
                         Click="InstallButton_Click" IsDefault="True"

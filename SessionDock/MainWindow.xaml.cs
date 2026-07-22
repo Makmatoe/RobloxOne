@@ -67,11 +67,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        RecentExperiencesScrollViewer.AddHandler(
-            FrameworkElement.RequestBringIntoViewEvent,
-            new RequestBringIntoViewEventHandler(
-                RecentExperiencesScrollViewer_RequestBringIntoView),
-            handledEventsToo: true);
         WindowLayoutService.FitToWorkArea(this);
         var app = (App)Application.Current;
         _soundService = app.SoundService;
@@ -682,7 +677,7 @@ public partial class MainWindow : Window
                     ? "#57D9A3"
                     : isWarning
                         ? "#E0A33A"
-                        : "#9A89FF");
+                        : "#8FB8FF");
         var surface = ColorConverter.ConvertFromString(
             isError
                 ? "#2A171D"
@@ -690,7 +685,7 @@ public partial class MainWindow : Window
                     ? "#15271F"
                     : isWarning
                         ? "#2A2215"
-                        : "#211D39");
+                        : "#17243A");
         var accentBrush = new SolidColorBrush((Color)accent);
         var surfaceBrush = new SolidColorBrush((Color)surface);
         SessionBadge.Foreground = accentBrush;
@@ -770,16 +765,63 @@ public partial class MainWindow : Window
 
     private void RenderAccountList()
     {
+        var restoreKeyboardFocus = AccountsList.IsKeyboardFocusWithin;
+        var focusedAccountKey =
+            (Keyboard.FocusedElement as Button)?.Tag as string;
+        Button? focusedAccountButton = null;
+        Button? activeAccountButton = null;
+
         AccountsList.Children.Clear();
         foreach (var account in _settings.Accounts)
-            AccountsList.Children.Add(CreateAccountButton(account, account.Key == _settings.ActiveAccountKey));
+        {
+            var isActive = account.Key == _settings.ActiveAccountKey;
+            var accountButton = CreateAccountButton(account, isActive);
+            AccountsList.Children.Add(accountButton);
+            if (account.Key.Equals(
+                    focusedAccountKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                focusedAccountButton = accountButton;
+            }
+            if (isActive)
+                activeAccountButton = accountButton;
+        }
 
         if (_pendingProfile is not null)
-            AccountsList.Children.Add(CreateAccountButton(_pendingProfile, selected: true, pending: true));
+        {
+            var pendingButton = CreateAccountButton(
+                _pendingProfile,
+                selected: true,
+                pending: true);
+            AccountsList.Children.Add(pendingButton);
+            if (_pendingProfile.Key.Equals(
+                    focusedAccountKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                focusedAccountButton = pendingButton;
+            }
+        }
 
         AddAccountButton.IsEnabled = !_operationBusy && _pendingProfile is null;
         EditAccountButton.IsEnabled =
             !_operationBusy && _pendingProfile is null && _activeProfile is not null;
+
+        if (restoreKeyboardFocus)
+            RestoreKeyboardFocus(focusedAccountButton ?? activeAccountButton);
+    }
+
+    private static void RestoreKeyboardFocus(Button? button)
+    {
+        if (button is null)
+            return;
+
+        _ = button.Dispatcher.BeginInvoke(() =>
+        {
+            if (!button.IsVisible || !button.IsEnabled)
+                return;
+            button.Focus();
+            button.BringIntoView();
+        });
     }
 
     private Button CreateAccountButton(
@@ -792,7 +834,8 @@ public partial class MainWindow : Window
             Tag = account.Key,
             Background = Brushes.Transparent,
             Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 0, 7),
+            Margin = new Thickness(0, 0, 8, 0),
+            Width = 184,
             IsEnabled = !pending && _pendingProfile is null,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
@@ -807,40 +850,41 @@ public partial class MainWindow : Window
             selected ? "Selected account" : "Not selected");
 
         var accountColor = (Color)ColorConverter.ConvertFromString(
-            account.ColorHex ?? "#7C5CFC");
+            account.ColorHex ?? "#326FD1");
 
         var border = new Border
         {
             Background = new SolidColorBrush(
-                (Color)ColorConverter.ConvertFromString(selected ? "#211D39" : "#151A24")),
+                (Color)ColorConverter.ConvertFromString(selected ? "#17243A" : "#171A20")),
             BorderBrush = new SolidColorBrush(
-                selected ? accountColor : (Color)ColorConverter.ConvertFromString("#151A24")),
+                selected ? accountColor : (Color)ColorConverter.ConvertFromString("#303640")),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(14),
-            MinHeight = 64,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(9, 7, 9, 7),
+            MinHeight = 48,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
 
         var dot = new Border
         {
-            Width = 34,
-            Height = 34,
-            CornerRadius = new CornerRadius(17),
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(7),
             Background = new SolidColorBrush(accountColor)
         };
         dot.Child = CreateAccountIndicator(pending, selected);
 
-        var labels = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+        var labels = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
         labels.Children.Add(new TextBlock
         {
             Text = pending
                 ? "New account"
                 : account.Label ?? $"@{account.Username}",
             Foreground = Brushes.White,
+            FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
@@ -852,7 +896,8 @@ public partial class MainWindow : Window
                     ? $"User ID {account.UserId}"
                     : $"@{account.Username}  •  User ID {account.UserId}",
             Foreground = (Brush)FindResource("MutedBrush"),
-            FontSize = 12
+            FontSize = 10,
+            TextTrimming = TextTrimming.CharacterEllipsis
         });
         Grid.SetColumn(labels, 1);
         grid.Children.Add(dot);
@@ -1000,7 +1045,7 @@ public partial class MainWindow : Window
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
                 Stretch = Stretch.Uniform,
-                Margin = new Thickness(9)
+                Margin = new Thickness(7)
             };
         }
 
@@ -1020,15 +1065,45 @@ public partial class MainWindow : Window
         return new Path
         {
             Data = (Geometry)FindResource("IconCheck"),
-            Stroke = new SolidColorBrush(Color.FromRgb(87, 217, 163)),
-            StrokeThickness = 2.4,
+            Stroke = Brushes.White,
+            StrokeThickness = 2.2,
             StrokeStartLineCap = PenLineCap.Round,
             StrokeEndLineCap = PenLineCap.Round,
             StrokeLineJoin = PenLineJoin.Round,
             Stretch = Stretch.Uniform,
-            Margin = new Thickness(8)
+            Margin = new Thickness(6)
         };
     }
+
+    private void AccountsScrollViewer_PreviewMouseWheel(
+        object sender,
+        MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer scrollViewer ||
+            scrollViewer.ScrollableWidth <= 0)
+        {
+            return;
+        }
+
+        var targetOffset = CalculateHorizontalWheelOffset(
+            scrollViewer.HorizontalOffset,
+            scrollViewer.ScrollableWidth,
+            e.Delta);
+        if (targetOffset == scrollViewer.HorizontalOffset)
+            return;
+
+        scrollViewer.ScrollToHorizontalOffset(targetOffset);
+        e.Handled = true;
+    }
+
+    internal static double CalculateHorizontalWheelOffset(
+        double currentOffset,
+        double scrollableWidth,
+        int wheelDelta) =>
+        Math.Clamp(
+            currentOffset - wheelDelta / 3d,
+            0,
+            Math.Max(0, scrollableWidth));
 
     private async void AccountButton_Click(object sender, RoutedEventArgs e) =>
         await RunWindowOperationAsync(cancellationToken =>

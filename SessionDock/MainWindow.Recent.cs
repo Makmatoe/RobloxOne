@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using SessionDock.Models;
@@ -14,15 +15,6 @@ public partial class MainWindow
     private long _recentAccountFilter;
     private bool _updatingRecentFilters;
 
-    private static void RecentExperiencesScrollViewer_RequestBringIntoView(
-        object sender,
-        RequestBringIntoViewEventArgs e)
-    {
-        // The inner viewer makes the focused card visible first. Reopening the
-        // routed event then lets the outer Launch Center reveal the list itself.
-        e.Handled = false;
-    }
-
     private void LaunchTabButton_Click(object sender, RoutedEventArgs e) =>
         ShowLauncherTab();
 
@@ -31,8 +23,8 @@ public partial class MainWindow
         LaunchTabPanel.Visibility = Visibility.Collapsed;
         RecentTabPanel.Visibility = Visibility.Visible;
         LaunchTabButton.Background = Brushes.Transparent;
-        LaunchTabButton.Foreground = CreateBrush("#98A3B8");
-        RecentTabButton.Background = CreateBrush("#2A3142");
+        LaunchTabButton.Foreground = CreateBrush("#9BA4B3");
+        RecentTabButton.Background = CreateBrush("#252A33");
         RecentTabButton.Foreground = Brushes.White;
         AutomationProperties.SetItemStatus(LaunchTabButton, "Not selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Selected");
@@ -43,16 +35,28 @@ public partial class MainWindow
     {
         LaunchTabPanel.Visibility = Visibility.Visible;
         RecentTabPanel.Visibility = Visibility.Collapsed;
-        LaunchTabButton.Background = CreateBrush("#2A3142");
+        LaunchTabButton.Background = CreateBrush("#252A33");
         LaunchTabButton.Foreground = Brushes.White;
         RecentTabButton.Background = Brushes.Transparent;
-        RecentTabButton.Foreground = CreateBrush("#98A3B8");
+        RecentTabButton.Foreground = CreateBrush("#9BA4B3");
         AutomationProperties.SetItemStatus(LaunchTabButton, "Selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Not selected");
     }
 
     private void RenderRecentExperiences()
     {
+        var restoreKeyboardFocus =
+            RecentExperiencesList.IsKeyboardFocusWithin;
+        var focusedButton = Keyboard.FocusedElement as Button;
+        var focusedRecent = focusedButton?.Tag as RecentExperience;
+        var focusedDestinationKey = focusedRecent is null
+            ? null
+            : RecentDestinationIdentity.CreateKey(focusedRecent);
+        var focusedAccountUserId = focusedRecent?.AccountUserId ?? 0;
+        var focusedActionIndex = focusedButton?.Parent is Grid focusedGrid
+            ? focusedGrid.Children.IndexOf(focusedButton)
+            : -1;
+
         PopulateAccountFilter();
         UpdateClearHistoryButton();
         RecentExperiencesList.Children.Clear();
@@ -73,13 +77,64 @@ public partial class MainWindow
                 FontSize = 13,
                 Margin = new Thickness(2, 18, 0, 0)
             });
+            RestoreRecentKeyboardFocus(
+                restoreKeyboardFocus,
+                focusedDestinationKey,
+                focusedAccountUserId,
+                focusedActionIndex);
             return;
         }
 
         var favorites = filtered.Where(item => item.IsPinned).ToList();
         var recent = filtered.Where(item => !item.IsPinned).ToList();
-        AddRecentSection("FAVORITES", favorites);
-        AddRecentSection("RECENT", recent);
+        AddRecentSection("Favorites", favorites);
+        AddRecentSection("Recent", recent);
+        RestoreRecentKeyboardFocus(
+            restoreKeyboardFocus,
+            focusedDestinationKey,
+            focusedAccountUserId,
+            focusedActionIndex);
+    }
+
+    private void RestoreRecentKeyboardFocus(
+        bool shouldRestore,
+        string? destinationKey,
+        long accountUserId,
+        int actionIndex)
+    {
+        if (!shouldRestore || destinationKey is null)
+            return;
+
+        Button? focusTarget = null;
+        foreach (var card in RecentExperiencesList.Children.OfType<Border>())
+        {
+            if (card.Child is not Grid grid)
+                continue;
+
+            var cardRecent = grid.Children
+                .OfType<Button>()
+                .Select(button => button.Tag)
+                .OfType<RecentExperience>()
+                .FirstOrDefault();
+            if (cardRecent is null ||
+                cardRecent.AccountUserId != accountUserId ||
+                !RecentDestinationIdentity.CreateKey(cardRecent).Equals(
+                    destinationKey,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (actionIndex >= 0 &&
+                actionIndex < grid.Children.Count &&
+                grid.Children[actionIndex] is Button actionButton)
+            {
+                focusTarget = actionButton;
+            }
+            break;
+        }
+
+        RestoreKeyboardFocus(focusTarget ?? RecentTabButton);
     }
 
     private void AddRecentSection(string title, IReadOnlyList<RecentExperience> items)
@@ -90,9 +145,9 @@ public partial class MainWindow
         RecentExperiencesList.Children.Add(new TextBlock
         {
             Text = title,
-            Foreground = CreateBrush("#68748A"),
+            Foreground = CreateBrush("#8F99A8"),
             FontSize = 10,
-            FontWeight = FontWeights.Bold,
+            FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(2, 4, 0, 8)
         });
         foreach (var item in items)
@@ -112,12 +167,12 @@ public partial class MainWindow
 
         var card = new Border
         {
-            Background = CreateBrush("#131720"),
-            BorderBrush = CreateBrush(recent.IsPinned ? "#5D4BB1" : "#272E3D"),
+            Background = CreateBrush("#15181E"),
+            BorderBrush = CreateBrush(recent.IsPinned ? "#326FD1" : "#303640"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Margin = new Thickness(0, 0, 0, 9),
-            Padding = new Thickness(8)
+            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 0, 6),
+            Padding = new Thickness(6)
         };
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -133,21 +188,24 @@ public partial class MainWindow
             Padding = new Thickness(6),
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        AutomationProperties.SetName(
+            useButton,
+            $"Use {title} with the selected account");
         var labels = new StackPanel();
         labels.Children.Add(new TextBlock
         {
             Text = title,
             Foreground = Brushes.White,
-            FontSize = 14,
+            FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         labels.Children.Add(new TextBlock
         {
             Text = $"{type}  •  {account}  •  {timestamp}",
-            Foreground = CreateBrush("#7F8BA0"),
-            FontSize = 11,
-            Margin = new Thickness(0, 4, 0, 0),
+            Foreground = CreateBrush("#9BA4B3"),
+            FontSize = 10,
+            Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         if (recent.ServerJobId is { Length: > 8 } serverJobId)
@@ -156,7 +214,7 @@ public partial class MainWindow
             {
                 Text = $"Tracked server {serverJobId[..8]}…",
                 ToolTip = $"Roblox server JobId\n{serverJobId}",
-                Foreground = CreateBrush("#68748A"),
+                Foreground = CreateBrush("#7F8998"),
                 FontSize = 10,
                 Margin = new Thickness(0, 3, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis
@@ -223,8 +281,8 @@ public partial class MainWindow
         };
         if (fillIcon)
         {
-            icon.Fill = CreateBrush("#B8A8FF");
-            icon.Stroke = CreateBrush("#B8A8FF");
+            icon.Fill = CreateBrush("#8FB8FF");
+            icon.Stroke = CreateBrush("#8FB8FF");
         }
 
         var button = new Button
@@ -232,12 +290,12 @@ public partial class MainWindow
             Tag = recent,
             Content = icon,
             ToolTip = tooltip,
-            Width = 38,
-            MinHeight = 38,
-            Margin = new Thickness(5, 0, 0, 0),
+            Width = 34,
+            MinHeight = 34,
+            Margin = new Thickness(4, 0, 0, 0),
             Padding = new Thickness(4),
-            Background = CreateBrush("#252C3B"),
-            Foreground = CreateBrush("#C4CCDA")
+            Background = CreateBrush("#20252D"),
+            Foreground = CreateBrush("#D1D7E0")
         };
         AutomationProperties.SetName(button, tooltip);
         if (iconResourceKey == "IconStar")
@@ -707,8 +765,8 @@ public partial class MainWindow
 
     private static void SetFilterButtonState(Button button, bool active)
     {
-        button.Background = active ? CreateBrush("#2A3142") : Brushes.Transparent;
-        button.Foreground = active ? Brushes.White : CreateBrush("#98A3B8");
+        button.Background = active ? CreateBrush("#252A33") : Brushes.Transparent;
+        button.Foreground = active ? Brushes.White : CreateBrush("#9BA4B3");
         AutomationProperties.SetItemStatus(button, active ? "Selected" : "Not selected");
     }
 

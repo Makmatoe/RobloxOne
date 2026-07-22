@@ -10,9 +10,7 @@
     <Grid>
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <Border Margin="16" Padding="26" CornerRadius="20"
-                    Background="{StaticResource PanelBrush}"
-                    BorderBrush="#293042" BorderThickness="1">
+            <Border Style="{StaticResource DialogShell}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -27,11 +25,11 @@
                             <ColumnDefinition Width="52"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Border Width="46" Height="46" CornerRadius="14"
-                                Background="#2A2348" VerticalAlignment="Top">
+                        <Border Width="44" Height="44" CornerRadius="10"
+                                Background="#17243A" VerticalAlignment="Top">
                             <Path Data="{StaticResource IconIntegration}"
                                   Width="22" Height="22" Stretch="Uniform"
-                                  Fill="Transparent" Stroke="#A99BFF"
+                                  Fill="Transparent" Stroke="#8FB8FF"
                                   StrokeThickness="1.8" StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -46,8 +44,8 @@
                     </Grid>
 
                     <Border Grid.Row="1" Margin="0,24,0,0" Padding="18"
-                            Background="#0D1017" CornerRadius="14"
-                            BorderBrush="#293042" BorderThickness="1">
+                            Background="#12151A" CornerRadius="10"
+                            BorderBrush="#3A424D" BorderThickness="1">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="42"/>
@@ -55,11 +53,11 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Border x:Name="StateIconShell" Width="34" Height="34"
-                                    CornerRadius="10" Background="#222938"
+                                    CornerRadius="8" Background="#20252D"
                                     VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <Path x:Name="StateIcon" Data="{StaticResource IconActivity}"
                                       Width="17" Height="17" Stretch="Uniform"
-                                      Fill="Transparent" Stroke="#8E99AD"
+                                      Fill="Transparent" Stroke="#9BA4B3"
                                       StrokeThickness="1.8" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -74,10 +72,10 @@
                                            Margin="0,5,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                             <Border Grid.Column="2" x:Name="StateBadge"
-                                    Background="#222938" CornerRadius="8"
+                                    Background="#20252D" CornerRadius="8"
                                     Padding="9,5" VerticalAlignment="Top">
                                 <TextBlock x:Name="StateBadgeText" Text="CHECKING"
-                                           Foreground="#AAB4C6" FontSize="9"
+                                           Foreground="#BEC6D2" FontSize="9"
                                            FontWeight="Bold"/>
                             </Border>
                         </Grid>
@@ -110,7 +108,7 @@
                     </Border>
 
                     <StackPanel Grid.Row="3" Margin="0,22,0,0">
-                        <TextBlock Text="SETUP AND CONTROLS" Foreground="#7F8BA0"
+                        <TextBlock Text="SETUP AND CONTROLS" Foreground="#7F8998"
                                    FontSize="11" FontWeight="Bold"/>
                         <TextBlock Text="Install HandleScope from its official release page and verify its published checksum, then use these explicit controls. SessionDock checks the expected local path but cannot authenticate an unsigned executable's publisher. It never downloads, installs, elevates, or silently starts HandleScope."
                                    Foreground="{StaticResource MutedBrush}" FontSize="12"
@@ -119,7 +117,7 @@
                         <WrapPanel Margin="0,15,0,0">
                             <Button x:Name="GetHandleScopeButton"
                                     Click="GetHandleScopeButton_Click"
-                                    Background="#252C3B" Foreground="#D8DDEA"
+                                    Background="#20252D" Foreground="#D6DCE5"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Get HandleScope from official releases">
                                 <StackPanel Orientation="Horizontal">
@@ -129,7 +127,7 @@
                                 </StackPanel>
                             </Button>
                             <Button x:Name="RefreshButton" Click="RefreshButton_Click"
-                                    Background="#252C3B" Foreground="#D8DDEA"
+                                    Background="#20252D" Foreground="#D6DCE5"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Refresh HandleScope status">
                                 <StackPanel Orientation="Horizontal">
@@ -157,7 +155,7 @@
                                 </StackPanel>
                             </Button>
                             <Button x:Name="DisableButton" Click="DisableButton_Click"
-                                    Background="#252C3B" Foreground="#D8DDEA"
+                                    Background="#20252D" Foreground="#D6DCE5"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Disable HandleScope integration">
                                 <StackPanel Orientation="Horizontal">
@@ -168,7 +166,7 @@
                             </Button>
                             <Button x:Name="TestConnectionButton"
                                     Click="TestConnectionButton_Click"
-                                    Background="#252C3B" Foreground="#D8DDEA"
+                                    Background="#20252D" Foreground="#D6DCE5"
                                     Padding="14,10" Margin="0,0,8,8"
                                     AutomationProperties.Name="Test HandleScope connection">
                                 <StackPanel Orientation="Horizontal">
@@ -192,7 +190,7 @@
                         </WrapPanel>
 
                         <TextBlock x:Name="ActionStatusText" MinHeight="18"
-                                   Foreground="#9AA6BA" FontSize="11"
+                                   Foreground="#9BA4B3" FontSize="11"
                                    Margin="0,3,0,0" TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite"/>
                     </StackPanel>
@@ -203,11 +201,11 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Testing contacts only the checked loopback health endpoint. It never closes a handle."
-                                   Foreground="#667287" FontSize="10"
+                                   Foreground="#7F8998" FontSize="10"
                                    Margin="0,0,18,0" VerticalAlignment="Center"
                                    TextWrapping="Wrap"/>
                         <Button Grid.Column="1" Content="Close" Click="CloseButton_Click"
-                                IsCancel="True" Background="#252C3B"
+                                IsCancel="True" Background="#20252D"
                                 Padding="20,10"/>
                     </Grid>
                 </Grid>

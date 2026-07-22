@@ -9,9 +9,7 @@
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <Border Margin="16" Padding="22" CornerRadius="18"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="#293042" BorderThickness="1">
+        <Border Style="{StaticResource DialogShell}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -35,7 +33,7 @@
                 <WrapPanel Grid.Row="3" HorizontalAlignment="Right"
                            Margin="0,20,0,0">
                     <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                            Background="#252C3B" Padding="18,9" Margin="0,0,10,0"/>
+                            Background="#20252D" Padding="16,9" Margin="0,0,8,0"/>
                     <Button Content="Save" Click="SaveButton_Click" IsDefault="True"
                             Padding="22,9"/>
                 </WrapPanel>
