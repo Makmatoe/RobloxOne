@@ -11,7 +11,7 @@ public sealed class ReleaseDescriptorPolicyTests
     private const string PackageHash =
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private const string PackageFile =
-        "RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg";
+        "SessionDockApp-2.3.1-win-x64-sessiondock-full.nupkg";
 
     [Fact]
     public void Verify_ValidSignedDescriptor_ReturnsRelease()
@@ -19,7 +19,7 @@ public sealed class ReleaseDescriptorPolicyTests
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var verified = Verify(CreateSignedDescriptor(key), CreateAsset(), key);
 
-        Assert.Equal(new Version(2, 2, 0), verified.Version);
+        Assert.Equal(new Version(2, 3, 1), verified.Version);
         Assert.Equal(
             "Security and reliability improvements.",
             verified.Descriptor.ReleaseNotes);
@@ -33,7 +33,7 @@ public sealed class ReleaseDescriptorPolicyTests
 
         var verified = Verify(CreateSignedDescriptor(key), asset, key);
 
-        Assert.Equal("2.2.0", verified.Descriptor.Version);
+        Assert.Equal("2.3.1", verified.Descriptor.Version);
     }
 
     [Fact]
@@ -69,7 +69,8 @@ public sealed class ReleaseDescriptorPolicyTests
     public void Verify_CurrentIdentityBeforeCanonicalRelease_IsRejected()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        const string package = "RobloxOne-2.1.5-win-x64-sessiondock-full.nupkg";
+        const string package =
+            "SessionDockApp-2.1.5-win-x64-sessiondock-full.nupkg";
         var descriptor = SignDescriptor(
             CreateUnsignedDescriptor() with
             {
@@ -88,10 +89,33 @@ public sealed class ReleaseDescriptorPolicyTests
     }
 
     [Fact]
+    public void Verify_CurrentIdentityBeforeCorrectivePackageIdentity_IsRejected()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        const string package =
+            "SessionDockApp-2.3.0-win-x64-sessiondock-full.nupkg";
+        var descriptor = SignDescriptor(
+            CreateUnsignedDescriptor() with
+            {
+                Version = "2.3.0",
+                Tag = "v2.3.0",
+                PackageFile = package
+            },
+            key);
+        var asset = CreateAsset() with
+        {
+            Version = "2.3.0",
+            FileName = package
+        };
+
+        Assert.Throws<ReleaseTrustException>(() => Verify(descriptor, asset, key));
+    }
+
+    [Fact]
     public void Verify_LegacyIdentityAfterMigrationRelease_IsRejected()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        const string package = "RobloxOne-2.2.0-win-x64-stable-full.nupkg";
+        const string package = "RobloxOne-2.3.1-win-x64-stable-full.nupkg";
         var descriptor = SignDescriptor(
             CreateUnsignedDescriptor() with
             {
@@ -225,10 +249,10 @@ public sealed class ReleaseDescriptorPolicyTests
     }
 
     [Theory]
-    [InlineData("../RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData(@"..\RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData("nested/RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
-    [InlineData(@"C:\RobloxOne-2.2.0-win-x64-sessiondock-full.nupkg")]
+    [InlineData("../SessionDockApp-2.3.1-win-x64-sessiondock-full.nupkg")]
+    [InlineData(@"..\SessionDockApp-2.3.1-win-x64-sessiondock-full.nupkg")]
+    [InlineData("nested/SessionDockApp-2.3.1-win-x64-sessiondock-full.nupkg")]
+    [InlineData(@"C:\SessionDockApp-2.3.1-win-x64-sessiondock-full.nupkg")]
     public void Verify_PathLikePackageName_IsRejected(string unsafeName)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -328,8 +352,8 @@ public sealed class ReleaseDescriptorPolicyTests
             ReleaseDescriptorPolicy.Repository,
             ReleaseDescriptorPolicy.Channel,
             ReleaseDescriptorPolicy.KeyId,
-            "2.2.0",
-            "v2.2.0",
+            "2.3.1",
+            "v2.3.1",
             PublishedAt.ToString("O"),
             PackageFile,
             ReleaseDescriptorPolicy.MinimumPackageSize,
@@ -348,7 +372,7 @@ public sealed class ReleaseDescriptorPolicyTests
         };
 
     private static ReleaseAssetIdentity CreateAsset() => new(
-        "2.2.0",
+        "2.3.1",
         PackageFile,
         ReleaseDescriptorPolicy.MinimumPackageSize,
         PackageHash);

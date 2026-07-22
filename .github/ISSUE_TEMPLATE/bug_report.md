@@ -31,9 +31,10 @@ Describe what happened and what you expected.
 
 ## Evidence
 
-Add sanitized logs or screenshots if useful. Remove usernames, user IDs,
-private-server information, local paths containing your Windows username, and
-all authentication data.
+Add screenshots and the exact on-screen error text if useful. Remove usernames,
+user IDs, private-server information, local paths containing your Windows
+username, and all authentication data. Never upload the SessionDock application
+data folder as evidence.
 
 ## Additional context
 

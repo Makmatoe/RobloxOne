@@ -4,14 +4,12 @@
         Title="Batch launch" Width="560" SizeToContent="Height"
         MinWidth="420" MinHeight="400"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-    <Border Margin="16" Padding="22" CornerRadius="18"
-            Background="{StaticResource PanelBrush}"
-            BorderBrush="#293042" BorderThickness="1">
+    <Border Style="{StaticResource DialogShell}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -22,16 +20,18 @@
             </Grid.RowDefinitions>
 
             <StackPanel>
-                <TextBlock Text="Batch launch" Foreground="White"
+                <TextBlock Text="Batch launch"
+                           Foreground="{DynamicResource TextBrush}"
                            FontSize="22" FontWeight="SemiBold"/>
                 <TextBlock Text="Each account uses its own saved destination. A blank account uses the first selected account's destination."
-                           Foreground="{StaticResource MutedBrush}" FontSize="13"
+                           Foreground="{DynamicResource MutedBrush}" FontSize="13"
                            Margin="0,6,0,0" TextWrapping="Wrap"/>
                 <TextBlock Text="Starting the batch closes every currently running verified Roblox Player instance."
-                           Foreground="#E0A33A" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource WarningTextBrush}"
+                           FontSize="12" FontWeight="SemiBold"
                            Margin="0,9,0,0" TextWrapping="Wrap"/>
                 <TextBlock Text="SessionDock verifies every selected sign-in first, so an unavailable account cannot close your clients before the batch starts."
-                           Foreground="#8E99AD" FontSize="11"
+                           Foreground="{DynamicResource MutedBrush}" FontSize="11"
                            Margin="0,6,0,0" TextWrapping="Wrap"/>
             </StackPanel>
 
@@ -40,20 +40,26 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="ACCOUNTS" Foreground="#7F8BA0" FontSize="11"
+                <TextBlock Text="ACCOUNTS"
+                           Foreground="{DynamicResource SubtleBrush}" FontSize="11"
                            FontWeight="Bold" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Content="All" Click="SelectAllButton_Click"
-                            Background="Transparent" Foreground="#9A89FF"
+                            Background="Transparent"
+                            Foreground="{DynamicResource InfoTextBrush}"
                             Padding="8,4" FontSize="12"/>
                     <Button Content="None" Click="SelectNoneButton_Click"
-                            Background="Transparent" Foreground="#7F8BA0"
+                            Background="Transparent"
+                            Foreground="{DynamicResource SubtleBrush}"
                             Padding="8,4" FontSize="12"/>
                 </StackPanel>
             </Grid>
 
-            <Border Grid.Row="2" Height="210" Background="#0D1017" CornerRadius="12"
-                    BorderBrush="#242B3A" BorderThickness="1" Padding="8">
+            <Border Grid.Row="2" Height="210"
+                    Background="{DynamicResource InsetSurfaceBrush}"
+                    CornerRadius="8"
+                    BorderBrush="{DynamicResource CardBorderBrush}"
+                    BorderThickness="1" Padding="8">
                 <ListBox x:Name="AccountsList" Background="Transparent"
                          BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemContainerStyle>
@@ -78,14 +84,17 @@
                                             Background="{Binding ColorHex}"
                                             VerticalAlignment="Center"/>
                                     <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                                        <TextBlock Text="{Binding DisplayName}" Foreground="White"
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   Foreground="{DynamicResource TextBrush}"
                                                    FontSize="14" FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding Identity}" Foreground="#7F8BA0"
+                                        <TextBlock Text="{Binding Identity}"
+                                                   Foreground="{DynamicResource SubtleBrush}"
                                                    FontSize="11" Margin="0,3,0,0"/>
                                         <TextBlock Text="{Binding DestinationSummary}"
                                                    ToolTip="{Binding DestinationToolTip}"
-                                                   Foreground="#9A89FF" FontSize="11"
+                                                   Foreground="{DynamicResource InfoTextBrush}"
+                                                   FontSize="11"
                                                    Margin="0,3,0,0"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
@@ -102,10 +111,11 @@
                     <ColumnDefinition Width="190"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Delay between launches" Foreground="#C8D0DE"
+                    <TextBlock Text="Delay between launches"
+                               Foreground="{DynamicResource TextBrush}"
                                FontSize="13" FontWeight="SemiBold"/>
                     <TextBlock Text="Waits after hooks finish, before switching accounts."
-                               Foreground="{StaticResource MutedBrush}" FontSize="11"
+                               Foreground="{DynamicResource MutedBrush}" FontSize="11"
                                Margin="0,4,12,0" TextWrapping="Wrap"/>
                 </StackPanel>
                 <ComboBox x:Name="DelayComboBox" Grid.Column="1" SelectedIndex="2"
@@ -126,12 +136,15 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock x:Name="ValidationText" Foreground="#FF7188" FontSize="12"
+                <TextBlock x:Name="ValidationText"
+                           Foreground="{DynamicResource ErrorTextBrush}" FontSize="12"
                            TextWrapping="Wrap" MinHeight="18"/>
                 <StackPanel Grid.Row="1" Orientation="Horizontal"
                             HorizontalAlignment="Right" Margin="0,8,0,0">
                     <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                            Background="#252C3B" Padding="18,9" Margin="0,0,10,0"/>
+                            Background="{DynamicResource ControlSurfaceBrush}"
+                            Foreground="{DynamicResource ControlTextBrush}"
+                            Padding="16,9" Margin="0,0,8,0"/>
                     <Button Content="Start batch" Click="StartButton_Click" IsDefault="True"
                             Padding="22,9" AutomationProperties.Name="Start batch launch"/>
                 </StackPanel>

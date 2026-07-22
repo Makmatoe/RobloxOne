@@ -110,7 +110,8 @@ internal sealed class HandleScopeConnectionLoader
                 baseUrl!,
                 document.Token,
                 document.ApiVersion!,
-                document.ProcessId.Value);
+                document.ProcessId.Value,
+                document.StartedAtUtc.Value);
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException or JsonException or
@@ -206,4 +207,5 @@ internal sealed record HandleScopeConnection(
     Uri BaseUrl,
     string Token,
     string ApiVersion,
-    int ApiProcessId);
+    int ApiProcessId,
+    DateTimeOffset StartedAtUtc);

@@ -41,15 +41,33 @@ manual reinstall.
 4. Add `SessionDock/ReleaseNotes/<version>.md`. Keep notes user-focused,
    displayable, and free of secrets or untrusted HTML.
 5. Restore, build, test, and run repository validation locally.
-6. Confirm the publish inventory contains only the application, MIT license,
+6. Publish and execute the isolated runtime smoke before tagging:
+
+   ```powershell
+   ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 `
+       -OutputDirectory artifacts/runtime-smoke -CI
+   ./scripts/Test-RuntimeSmoke.ps1
+   ```
+
+   The smoke starts the published executable hidden with a unique, previously
+   nonexistent directory directly under the current user's temporary folder.
+   It never uses the normal SessionDock or legacy RobloxOne data roots. It
+   requires a clean signed-out startup, isolated settings and sound storage,
+   the production window-closing path, and a zero exit code within 20 seconds,
+   then removes only that validated temporary directory.
+7. Confirm the publish inventory contains only the application, MIT license,
    dependency notices, and pinned upstream license files.
-7. Review dependency vulnerability output, the SPDX SBOM, and the complete
+8. Review dependency vulnerability output, the SPDX SBOM, and the complete
    release diff.
-8. Confirm no release or draft already exists for the version.
-9. Merge through the protected branch after required checks pass.
+9. Confirm no release or draft already exists for the version.
+10. Merge through the protected branch after required checks pass.
 
 The project version, notes filename, tag, package version, descriptor version,
 and Velopack version must agree. Every mismatch fails closed.
+
+The Velopack package ID is `SessionDockApp`. It must never equal the current
+data directory name `SessionDock` or the historic combined install/data name
+`RobloxOne`. Changing this invariant is a data-loss-sensitive release change.
 
 ## Publish
 
@@ -104,7 +122,14 @@ Before announcing a release:
   parsing, single launch, Recent, cancellation, and optional integrations;
 - confirm the top-right update button reports no newer version;
 - from the preceding installed version, verify update discovery, signed notes,
-  download, restart, retained local data, and final version; and
+  download, restart, retained local data, and final version, except at the
+  deliberate 2.3.0-to-2.3.1 package-ID boundary, which must use the
+  side-by-side corrective-install test below;
+- for the 2.3.1 corrective boundary, install side-by-side with a disposable
+  Roblox One 2.1.4/SessionDock 2.3.0 fixture whose legacy root contains
+  `current`, `packages`, `Update.exe`, settings, and browser profiles; verify
+  that only allowlisted user data is copied, both accounts remain visible, and
+  every legacy source and installer file remains byte-identical; and
 - verify the checksums and GitHub attestation for every asset.
 
 ```powershell

@@ -39,7 +39,7 @@ try {
     }
     New-Item -ItemType Directory -Path $output -Force | Out-Null
     Invoke-CheckedCommand dotnet tool run vpk -- pack `
-        '--packId' 'RobloxOne' `
+        '--packId' 'SessionDockApp' `
         '--packVersion' $version `
         '--packDir' $appOutput `
         '--mainExe' 'SessionDock.exe' `

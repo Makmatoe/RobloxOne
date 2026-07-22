@@ -13,16 +13,22 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private const int MaximumHealthResponseBytes = 16 * 1024;
     private const string RequiredPolicy = "roblox-singleton-event-v1";
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartPendingDuration = TimeSpan.FromSeconds(5);
 
     private readonly string _localAppDataRoot;
     private readonly string _installRoot;
     private readonly string _executablePath;
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HandleScopeIntegrationConfigurationStore _configurationStore;
-    private readonly Func<int, string, bool> _isExpectedProcess;
-    private readonly Func<ProcessStartInfo, bool> _startProcess;
+    private readonly IHandleScopeProcessVerifier _processVerifier;
+    private readonly Func<ProcessStartInfo, int?> _startProcess;
     private readonly Func<string, bool>? _isReparsePoint;
+    private readonly TimeProvider _timeProvider;
     private readonly HttpClient _client;
+    private readonly object _startLock = new();
+    private long _startPendingTimestamp;
+    private bool _hasPendingStart;
+    private int? _startedProcessId;
     private bool _disposed;
 
     public HandleScopeIntegrationService()
@@ -31,9 +37,10 @@ public sealed class HandleScopeIntegrationService : IDisposable
                 Environment.SpecialFolder.LocalApplicationData),
             AppDataPaths.RootDirectory,
             CreateSecureHandler(),
-            isExpectedProcess: null,
+            processVerifier: null,
             startProcess: null,
-            isReparsePoint: null)
+            isReparsePoint: null,
+            timeProvider: null)
     {
     }
 
@@ -41,9 +48,10 @@ public sealed class HandleScopeIntegrationService : IDisposable
         string localAppDataRoot,
         string sessionDockDataRoot,
         HttpMessageHandler handler,
-        Func<int, string, bool>? isExpectedProcess,
-        Func<ProcessStartInfo, bool>? startProcess,
-        Func<string, bool>? isReparsePoint)
+        IHandleScopeProcessVerifier? processVerifier,
+        Func<ProcessStartInfo, int?>? startProcess,
+        Func<string, bool>? isReparsePoint,
+        TimeProvider? timeProvider = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localAppDataRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionDockDataRoot);
@@ -72,9 +80,13 @@ public sealed class HandleScopeIntegrationService : IDisposable
             _localAppDataRoot,
             configurationPath,
             isReparsePoint);
-        _isExpectedProcess = isExpectedProcess ?? IsExpectedProcess;
+        _processVerifier = processVerifier ?? new HandleScopeProcessVerifier(
+            _localAppDataRoot,
+            _executablePath,
+            isReparsePoint);
         _startProcess = startProcess ?? StartProcess;
         _isReparsePoint = isReparsePoint;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _client = new HttpClient(handler, disposeHandler: true)
         {
             Timeout = RequestTimeout
@@ -86,7 +98,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(InspectLocal());
+        return Task.FromResult(ApplyTransientStartState(InspectLocal()));
     }
 
     public async Task<HandleScopeIntegrationResult> TestConnectionAsync(
@@ -103,12 +115,13 @@ public sealed class HandleScopeIntegrationService : IDisposable
         {
             var connection = _connectionLoader.Load();
             if (connection is null ||
-                !_isExpectedProcess(
-                    connection.ApiProcessId,
-                    _executablePath))
+                !_processVerifier.IsExpected(connection))
             {
-                return Result(HandleScopeIntegrationState.InstalledStopped);
+                return ApplyVerifiedStartedProcessState(Result(
+                    HandleScopeIntegrationState.InstalledStopped));
             }
+
+            TrackObservedProcess(connection.ApiProcessId);
 
             var health = await ProbeHealthAsync(
                 connection.BaseUrl,
@@ -177,40 +190,62 @@ public sealed class HandleScopeIntegrationService : IDisposable
         if (local.State is not HandleScopeIntegrationState.InstalledStopped)
             return Task.FromResult(local);
 
-        try
+        lock (_startLock)
         {
-            if (InspectInstall() is not InstallInspection.Valid)
-                return Task.FromResult(Result(
-                    HandleScopeIntegrationState.ConfigurationError));
-
-            var startInfo = new ProcessStartInfo
+            try
             {
-                FileName = _executablePath,
-                WorkingDirectory = _installRoot,
-                Arguments = string.Empty,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                ErrorDialog = false,
-                Verb = string.Empty,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-            cancellationToken.ThrowIfCancellationRequested();
-            if (startInfo.ArgumentList.Count != 0 || !_startProcess(startInfo))
+                var started = GetVerifiedStartedProcessStateNoLock();
+                if (started is not null)
+                    return Task.FromResult(Result(started.Value));
+
+                if (InspectInstall() is not InstallInspection.Valid)
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.ConfigurationError));
+
+                var existing = _connectionLoader.Load();
+                if (existing is not null && _processVerifier.IsExpected(existing))
+                {
+                    TrackObservedProcessNoLock(existing.ApiProcessId);
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.RunningUntested));
+                }
+
+                var runningProcessId =
+                    _processVerifier.FindExpectedRunningProcessId();
+                if (runningProcessId is > 0)
+                {
+                    TrackObservedProcessNoLock(runningProcessId.Value);
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.RunningUntested));
+                }
+
+                var startInfo = CreateApiStartInfo(
+                    _executablePath,
+                    _installRoot);
+                cancellationToken.ThrowIfCancellationRequested();
+                var processId = startInfo.ArgumentList.Count == 0
+                    ? _startProcess(startInfo)
+                    : null;
+                if (processId is null or <= 0)
+                {
+                    return Task.FromResult(Result(
+                        HandleScopeIntegrationState.ConfigurationError));
+                }
+
+                _startedProcessId = processId.Value;
+                _startPendingTimestamp = _timeProvider.GetTimestamp();
+                _hasPendingStart = true;
+                return Task.FromResult(Result(
+                    HandleScopeIntegrationState.StartPending));
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or
+                    InvalidOperationException or ArgumentException or
+                    Win32Exception or NotSupportedException)
             {
                 return Task.FromResult(Result(
                     HandleScopeIntegrationState.ConfigurationError));
             }
-
-            return Task.FromResult(Result(
-                HandleScopeIntegrationState.InstalledStopped));
-        }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or
-                InvalidOperationException or ArgumentException or
-                Win32Exception or NotSupportedException)
-        {
-            return Task.FromResult(Result(
-                HandleScopeIntegrationState.ConfigurationError));
         }
     }
 
@@ -236,6 +271,38 @@ public sealed class HandleScopeIntegrationService : IDisposable
         ActivityHeadersPropagator = null
     };
 
+    internal static ProcessStartInfo CreateApiStartInfo(
+        string executablePath,
+        string installRoot,
+        IReadOnlyDictionary<string, string?>? inheritedEnvironment = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installRoot);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = installRoot,
+            Arguments = string.Empty,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            ErrorDialog = false,
+            Verb = string.Empty,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        if (inheritedEnvironment is not null)
+        {
+            startInfo.Environment.Clear();
+            foreach (var variable in inheritedEnvironment)
+            {
+                if (variable.Value is not null)
+                    startInfo.Environment[variable.Key] = variable.Value;
+            }
+        }
+
+        LocalApiLaunchHook.RemoveConfigurationFromChildEnvironment(startInfo);
+        return startInfo;
+    }
+
     private Task<HandleScopeIntegrationResult> SetEnabledAsync(
         bool enabled,
         bool repairExisting,
@@ -255,7 +322,83 @@ public sealed class HandleScopeIntegrationService : IDisposable
                     writeResult is HandleScopeConfigurationWriteResult.RepairRequired));
         }
 
-        return Task.FromResult(InspectLocal());
+        return Task.FromResult(ApplyTransientStartState(InspectLocal()));
+    }
+
+    private HandleScopeIntegrationResult ApplyTransientStartState(
+        HandleScopeIntegrationResult result)
+    {
+        if (result.State is not HandleScopeIntegrationState.InstalledStopped)
+            return result;
+
+        lock (_startLock)
+        {
+            if (_startedProcessId is null)
+                return result;
+
+            return Result(IsStartPendingNoLock()
+                ? HandleScopeIntegrationState.StartPending
+                : HandleScopeIntegrationState.RunningUntested);
+        }
+    }
+
+    private bool IsStartPendingNoLock() =>
+        _hasPendingStart &&
+        _timeProvider.GetElapsedTime(_startPendingTimestamp) <
+            StartPendingDuration;
+
+    private HandleScopeIntegrationResult ApplyVerifiedStartedProcessState(
+        HandleScopeIntegrationResult result)
+    {
+        lock (_startLock)
+        {
+            var state = GetVerifiedStartedProcessStateNoLock();
+            if (state is not null)
+                return Result(state.Value);
+
+            var runningProcessId =
+                _processVerifier.FindExpectedRunningProcessId();
+            if (runningProcessId is not > 0)
+                return result;
+
+            TrackObservedProcessNoLock(runningProcessId.Value);
+            return Result(HandleScopeIntegrationState.RunningUntested);
+        }
+    }
+
+    private HandleScopeIntegrationState? GetVerifiedStartedProcessStateNoLock()
+    {
+        if (_startedProcessId is not { } processId)
+            return null;
+        if (IsStartPendingNoLock())
+            return HandleScopeIntegrationState.StartPending;
+        if (!_processVerifier.IsExpectedStartedProcess(processId))
+        {
+            ClearStartedProcessNoLock();
+            return null;
+        }
+
+        return HandleScopeIntegrationState.RunningUntested;
+    }
+
+    private void TrackObservedProcess(int processId)
+    {
+        lock (_startLock)
+            TrackObservedProcessNoLock(processId);
+    }
+
+    private void TrackObservedProcessNoLock(int processId)
+    {
+        _startedProcessId = processId;
+        _hasPendingStart = false;
+        _startPendingTimestamp = 0;
+    }
+
+    private void ClearStartedProcessNoLock()
+    {
+        _startedProcessId = null;
+        _hasPendingStart = false;
+        _startPendingTimestamp = 0;
     }
 
     private HandleScopeIntegrationResult InspectLocal()
@@ -486,35 +629,10 @@ public sealed class HandleScopeIntegrationService : IDisposable
         }
     }
 
-    private static bool IsExpectedProcess(int processId, string executablePath)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(processId);
-            using var current = Process.GetCurrentProcess();
-            var actualPath = process.MainModule?.FileName;
-            return !process.HasExited &&
-                process.SessionId == current.SessionId &&
-                process.ProcessName.Equals(
-                    "HandleScope.Api",
-                    StringComparison.OrdinalIgnoreCase) &&
-                actualPath is not null &&
-                Path.GetFullPath(actualPath).Equals(
-                    Path.GetFullPath(executablePath),
-                    StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException or InvalidOperationException or
-                Win32Exception or NotSupportedException)
-        {
-            return false;
-        }
-    }
-
-    private static bool StartProcess(ProcessStartInfo startInfo)
+    private static int? StartProcess(ProcessStartInfo startInfo)
     {
         using var process = Process.Start(startInfo);
-        return process is not null;
+        return process?.Id;
     }
 
     private static HandleScopeIntegrationResult Result(

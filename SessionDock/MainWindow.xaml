@@ -1,296 +1,355 @@
 <Window x:Class="SessionDock.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SessionDock" Width="1180" Height="820" MinWidth="860" MinHeight="520"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource BackgroundBrush}"
-        FontFamily="Segoe UI Variable Text" UseLayoutRounding="True"
+        xmlns:local="clr-namespace:SessionDock"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="SessionDock" Width="1080" Height="720"
+        MinWidth="800" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="False"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="Segoe UI Variable Text"
+        UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display">
-    <Grid>
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="64"
+                            ResizeBorderThickness="6"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SubtleBrush}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="RailIconButton" TargetType="Button"
+               BasedOn="{StaticResource IconOnlyButton}">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Background" Value="{DynamicResource RailButtonSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource RailButtonTextBrush}"/>
+        </Style>
+
+        <Style x:Key="RailThemeToggle" TargetType="ToggleButton"
+               BasedOn="{StaticResource IconOnlyToggleButton}">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Background" Value="{DynamicResource RailButtonSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource RailButtonTextBrush}"/>
+        </Style>
+
+        <Style x:Key="QuietButton" TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{DynamicResource ControlSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ControlTextBrush}"/>
+        </Style>
+
+        <Style x:Key="SegmentButton" TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="Padding" Value="12,8"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{DynamicResource BackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="292"/>
+            <ColumnDefinition Width="64"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Account library and local tools stay separate from the launch workspace. -->
-        <Border Grid.Column="0" Background="#0E1118"
-                BorderBrush="#202634" BorderThickness="0,0,1,0">
-            <Grid Margin="24,28">
+        <!-- Slim utility rail. Account management lives in the strip above the workspace. -->
+        <Border Grid.Column="0"
+                Background="{DynamicResource SidebarBrush}"
+                BorderBrush="{DynamicResource SidebarBorderBrush}"
+                BorderThickness="0,0,1,0">
+            <Grid Margin="12,12,12,12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="46"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Border Width="44" Height="44" CornerRadius="14"
-                            Background="{StaticResource AccentBrush}">
-                        <TextBlock Text="SD" Foreground="White" FontSize="16"
-                                   FontWeight="Bold" HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="12,1,0,0">
-                        <TextBlock Text="SESSIONDOCK" Foreground="White"
-                                   FontWeight="Bold" FontSize="16"/>
-                        <TextBlock Text="Local launch workspace"
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12"
-                                   Margin="0,3,0,0"/>
-                    </StackPanel>
-                </Grid>
-
-                <Grid Grid.Row="1" Margin="0,28,0,22">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid>
-                        <TextBlock Text="ACCOUNT LIBRARY" Foreground="#68748A"
-                                   FontSize="11" FontWeight="Bold"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="LOCAL" HorizontalAlignment="Right"
-                                   Foreground="#536077" FontSize="9" FontWeight="Bold"
-                                   VerticalAlignment="Center"/>
-                    </Grid>
-                    <ScrollViewer Grid.Row="1" Margin="0,12,0,8"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="AccountsList"/>
-                    </ScrollViewer>
-                    <StackPanel Grid.Row="2">
-                        <Button x:Name="AddAccountButton"
-                                Click="AddAccountButton_Click" Background="#191E2A"
-                                Foreground="#A99BFF" Padding="12,10"
-                                HorizontalContentAlignment="Left"
-                                AutomationProperties.Name="Add account"
-                                ToolTip="Create another isolated local Roblox session">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Style="{StaticResource ButtonIcon}"
-                                      Data="{StaticResource IconAdd}" Margin="0,0,9,0"/>
-                                <TextBlock Text="Add account" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Grid Margin="0,5,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Button x:Name="EditAccountButton"
-                                    Click="EditAccountButton_Click" Background="Transparent"
-                                    Foreground="#8E99AD" Padding="8,9" Margin="0,0,3,0"
-                                    AutomationProperties.Name="Edit selected account"
-                                    ToolTip="Customize the selected account label and color">
-                                <StackPanel Orientation="Horizontal">
-                                    <Path Style="{StaticResource ButtonIcon}"
-                                          Data="{StaticResource IconEdit}" Margin="0,0,7,0"/>
-                                    <TextBlock Text="Edit" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="SoundSettingsButton" Grid.Column="1"
-                                    Click="SoundSettingsButton_Click" Background="Transparent"
-                                    Foreground="#8E99AD" Padding="8,9" Margin="3,0,0,0"
-                                    AutomationProperties.Name="Sound settings"
-                                    ToolTip="Choose interface and startup sounds">
-                                <StackPanel Orientation="Horizontal">
-                                    <Path Style="{StaticResource ButtonIcon}"
-                                          Data="{StaticResource IconSound}" Margin="0,0,7,0"/>
-                                    <TextBlock Text="Sounds" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                        </Grid>
-                    </StackPanel>
-                </Grid>
+                <Border Width="40" Height="40" CornerRadius="10"
+                        Background="{DynamicResource AccentBrush}"
+                        ToolTip="SessionDock — local Roblox launcher">
+                    <TextBlock Text="SD" Foreground="{DynamicResource OnAccentTextBrush}" FontSize="13"
+                               FontWeight="Bold" HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
 
                 <StackPanel Grid.Row="2">
-                    <TextBlock Text="LOCAL TOOLS" Foreground="#68748A"
-                               FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <Button x:Name="IntegrationsButton"
-                            Click="IntegrationsButton_Click"
-                            Background="#191E2A" Foreground="#A99BFF" Padding="12,10"
-                            Margin="0,0,0,7" HorizontalContentAlignment="Left"
-                            AutomationProperties.Name="Manage integrations"
-                            ToolTip="Set up the optional HandleScope integration">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Style="{StaticResource ButtonIcon}"
-                                  Data="{StaticResource IconIntegration}" Margin="0,0,9,0"/>
-                            <TextBlock Text="Integrations" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="CloseAllInstancesButton"
-                            Click="CloseAllInstancesButton_Click"
-                            Background="#21171D" Foreground="#ED93A4" Padding="12,10"
-                            HorizontalContentAlignment="Left"
-                            AutomationProperties.Name="Close all Roblox instances"
-                            ToolTip="Close every verified RobloxPlayerBeta process, including background instances">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Style="{StaticResource ButtonIcon}"
-                                  Data="{StaticResource IconCloseAll}" Margin="0,0,9,0"/>
-                            <TextBlock Text="Close all" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="ResetButton"
-                            Click="ResetButton_Click" Background="Transparent"
-                            Foreground="#727E93" Padding="4,9" Margin="0,5,0,0"
-                            HorizontalContentAlignment="Left"
-                            AutomationProperties.Name="Remove selected account"
-                            ToolTip="Clear and remove the selected local account profile">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Style="{StaticResource ButtonIcon}"
-                                  Data="{StaticResource IconTrash}" Margin="0,0,9,0"/>
-                            <TextBlock Text="Remove" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Border Height="1" Background="#202634" Margin="0,10,0,12"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="20"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                    <ToggleButton x:Name="ThemeToggleButton"
+                                  Style="{StaticResource RailThemeToggle}"
+                                  IsChecked="True"
+                                  Click="ThemeToggleButton_Click"
+                                  Margin="0,0,0,6"
+                                  AutomationProperties.Name="Dark theme on — switch to light"
+                                  AutomationProperties.HelpText="Switch SessionDock between dark and light appearance"
+                                  ToolTip="Dark theme on — switch to light">
+                        <Path x:Name="ThemeToggleIcon"
+                              Style="{StaticResource ButtonIcon}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                              Data="{StaticResource IconMoon}"/>
+                    </ToggleButton>
+                    <Button x:Name="SoundSettingsButton"
+                            Style="{StaticResource RailIconButton}"
+                            Click="SoundSettingsButton_Click"
+                            Margin="0,0,0,6"
+                            AutomationProperties.Name="Sound settings"
+                            ToolTip="Sound settings">
                         <Path Style="{StaticResource ButtonIcon}"
-                              Data="{StaticResource IconLock}" Width="13" Height="13"
-                              Stroke="#566176" HorizontalAlignment="Left"
-                              VerticalAlignment="Top" Margin="1,1,0,0"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="Accounts, history, and sessions stay on this PC."
-                                   Foreground="#566176" FontSize="11"
-                                   TextWrapping="Wrap"/>
-                    </Grid>
+                              Data="{StaticResource IconSound}"/>
+                    </Button>
+                    <Button x:Name="IntegrationsButton"
+                            Style="{StaticResource RailIconButton}"
+                            Click="IntegrationsButton_Click"
+                            Margin="0,0,0,6"
+                            AutomationProperties.Name="Manage integrations"
+                            ToolTip="Manage integrations">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconIntegration}"/>
+                    </Button>
+                    <Button x:Name="RunningClientsButton"
+                            Style="{StaticResource RailIconButton}"
+                            Click="RunningClientsButton_Click"
+                            Margin="0,0,0,10"
+                            AutomationProperties.Name="Manage running Roblox clients"
+                            AutomationProperties.HelpText="View and close individual verified Roblox Player processes"
+                            ToolTip="View and close running Roblox clients">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconClients}"/>
+                    </Button>
+                    <Border Height="1" Background="{DynamicResource CardBorderBrush}" Margin="4,0,4,10"/>
+                    <Border Width="40" Height="32" CornerRadius="8"
+                            Background="{DynamicResource PrivacySurfaceBrush}"
+                            ToolTip="Accounts, history, and sessions stay on this PC">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconLock}"
+                              Width="14" Height="14" Stroke="{DynamicResource PrivacyIconBrush}"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"/>
+                    </Border>
                 </StackPanel>
             </Grid>
         </Border>
 
+        <!-- Main launch workspace. -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
+                <RowDefinition Height="64"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Auto">
-            <Grid Margin="24,24,24,12" MinWidth="500" MinHeight="520">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
 
+            <Grid Margin="20,10,20,7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Choose where to play"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="22" FontWeight="SemiBold"/>
+                    <TextBlock Text="Select an account, enter a destination, and launch."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11" Margin="0,2,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Button x:Name="ReleaseNotesButton"
+                            Style="{StaticResource IconOnlyButton}"
+                            Width="34" Height="34" Padding="8"
+                            Margin="0,0,6,0"
+                            Background="{DynamicResource UtilitySurfaceBrush}" Foreground="{DynamicResource UtilityTextBrush}"
+                            Click="ReleaseNotesButton_Click"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            AutomationProperties.Name="View current and previous release notes"
+                            AutomationProperties.HelpText="Shows changes in the installed release and the release before it"
+                            ToolTip="View included SessionDock release notes">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconReleaseNotes}"/>
+                    </Button>
+                    <Button x:Name="InstallUpdateButton"
+                            Style="{StaticResource IconOnlyButton}"
+                            Width="34" Height="34" Padding="8"
+                            Margin="0,0,8,0"
+                            Background="{DynamicResource UtilitySurfaceBrush}" Foreground="{DynamicResource UtilityTextBrush}"
+                            Click="InstallUpdateButton_Click"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            AutomationProperties.Name="Check for signed updates"
+                            ToolTip="Check GitHub for a signed SessionDock update">
+                        <Path Style="{StaticResource ButtonIcon}"
+                              Data="{StaticResource IconUpdate}"/>
+                    </Button>
+                    <Border Background="{DynamicResource BadgeSurfaceBrush}" CornerRadius="8"
+                            BorderBrush="{DynamicResource BadgeBorderBrush}" BorderThickness="1"
+                            Padding="10,6">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="6" Height="6" CornerRadius="3"
+                                    Background="{DynamicResource SuccessTextBrush}" Margin="0,0,7,0"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock Text="LOCAL" Foreground="{DynamicResource BadgeTextBrush}"
+                                       FontSize="9" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="1" Height="24" Margin="12,0,8,0"
+                            Background="{DynamicResource StrokeBrush}"/>
+                    <local:WindowCaptionControls x:Name="CaptionControls"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- The account selector remains visible in both Launch and Recent. -->
+            <Border Grid.Row="1" Padding="20,5"
+                    Background="{DynamicResource AccountStripSurfaceBrush}" BorderBrush="{DynamicResource AccountStripBorderBrush}"
+                    BorderThickness="0,1,0,1" MinHeight="64">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="LAUNCH CENTER"
-                                   Foreground="{StaticResource AccentBrush}"
-                                   FontSize="11" FontWeight="Bold"/>
-                        <TextBlock Text="Choose where to play."
-                                   Foreground="White" FontSize="34"
-                                   FontWeight="SemiBold" Margin="0,7,0,0"/>
-                        <TextBlock Text="Your account sessions and launch history remain local."
-                                   Foreground="{StaticResource MutedBrush}"
-                                   FontSize="14" Margin="0,7,0,0"/>
+                    <StackPanel Width="58" VerticalAlignment="Center">
+                        <TextBlock Text="ACCOUNT" Style="{StaticResource SectionLabel}"/>
+                        <TextBlock Text="Local slot" Foreground="{DynamicResource SubtleBrush}"
+                                   FontSize="9" Margin="0,2,0,0"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                VerticalAlignment="Top">
-                        <Button x:Name="InstallUpdateButton"
+                    <ScrollViewer x:Name="AccountsScrollViewer" Grid.Column="1"
+                                  Margin="8,0,12,0"
+                                  VerticalAlignment="Center"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  PanningMode="HorizontalOnly"
+                                  PreviewMouseWheel="AccountsScrollViewer_PreviewMouseWheel"
+                                  AutomationProperties.Name="Saved accounts">
+                        <StackPanel x:Name="AccountsList" Orientation="Horizontal"/>
+                    </ScrollViewer>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button x:Name="AddAccountButton"
                                 Style="{StaticResource IconOnlyButton}"
                                 Width="34" Height="34" Padding="8"
-                                Margin="0,0,8,0"
-                                Background="#151A24" Foreground="#8E99AD"
-                                Click="InstallUpdateButton_Click"
-                                AutomationProperties.Name="Check for signed updates"
-                                ToolTip="Check GitHub for a signed SessionDock update">
+                                Background="{DynamicResource ControlSurfaceBrush}" Foreground="{DynamicResource InfoTextBrush}"
+                                Click="AddAccountButton_Click"
+                                AutomationProperties.Name="Add account"
+                                ToolTip="Add another isolated Roblox account">
                             <Path Style="{StaticResource ButtonIcon}"
-                                  Data="{StaticResource IconUpdate}"/>
+                                  Data="{StaticResource IconAdd}"/>
                         </Button>
-                        <Border Background="#151A24" CornerRadius="10"
-                                BorderBrush="#252D3B" BorderThickness="1"
-                                Padding="12,7">
-                            <TextBlock Text="LOCAL ONLY" Foreground="#718097"
-                                       FontSize="9" FontWeight="Bold"/>
-                        </Border>
+                        <Button x:Name="EditAccountButton"
+                                Style="{StaticResource IconOnlyButton}"
+                                Width="34" Height="34" Padding="8"
+                                Margin="6,0,0,0"
+                                Background="{DynamicResource ControlSurfaceBrush}" Foreground="{DynamicResource ControlTextBrush}"
+                                Click="EditAccountButton_Click"
+                                AutomationProperties.Name="Edit selected account"
+                                ToolTip="Change the selected account label and color">
+                            <Path Style="{StaticResource ButtonIcon}"
+                                  Data="{StaticResource IconEdit}"/>
+                        </Button>
+                        <Button x:Name="ResetButton"
+                                Style="{StaticResource IconOnlyButton}"
+                                Width="34" Height="34" Padding="8"
+                                Margin="6,0,0,0"
+                                Background="{DynamicResource ErrorSurfaceBrush}" Foreground="{DynamicResource ErrorMutedTextBrush}"
+                                Click="ResetButton_Click"
+                                AutomationProperties.Name="Remove selected account"
+                                ToolTip="Clear and remove the selected local account profile">
+                            <Path Style="{StaticResource ButtonIcon}"
+                                  Data="{StaticResource IconTrash}"/>
+                        </Button>
                     </StackPanel>
                 </Grid>
+            </Border>
 
-                <!-- Launch and Recent are destination workspaces only. -->
-                <Grid Grid.Row="1" Margin="0,26,0,0" MinHeight="400">
-                    <Border x:Name="LauncherPanel"
-                            Background="{StaticResource PanelBrush}" CornerRadius="22"
-                            BorderBrush="#242B3A" BorderThickness="1" Padding="28"
-                            MinHeight="400">
+            <Grid Grid.Row="2" Margin="20,10,20,8">
+                <Border x:Name="LauncherPanel"
+                        Background="{DynamicResource PanelBrush}"
+                        BorderBrush="{DynamicResource StrokeBrush}"
+                        BorderThickness="1" CornerRadius="12"
+                        Padding="18,16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
                         <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="LaunchTabButton"
+                                        Style="{StaticResource SegmentButton}"
+                                        Click="LaunchTabButton_Click"
+                                        Background="{DynamicResource SelectedControlSurfaceBrush}" Foreground="{DynamicResource SelectedControlTextBrush}"
+                                        Margin="0,0,6,0"
+                                        AutomationProperties.Name="Launch"
+                                        AutomationProperties.ItemStatus="Selected"
+                                        ToolTip="Open the launch destination workspace">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Style="{StaticResource ButtonIcon}"
+                                              Data="{StaticResource IconLaunch}"
+                                              Width="14" Height="14" Margin="0,0,7,0"/>
+                                        <TextBlock Text="Launch"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="RecentTabButton"
+                                        Style="{StaticResource SegmentButton}"
+                                        Click="RecentTabButton_Click"
+                                        AutomationProperties.Name="Recent"
+                                        AutomationProperties.ItemStatus="Not selected"
+                                        ToolTip="Show recently launched experiences">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Style="{StaticResource ButtonIcon}"
+                                              Data="{StaticResource IconHistory}"
+                                              Width="14" Height="14" Margin="0,0,7,0"/>
+                                        <TextBlock Text="Recent"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2"
+                                       Text="Destination saved per account"
+                                       Foreground="{DynamicResource SubtleBrush}"
+                                       FontSize="10" VerticalAlignment="Center"/>
+                        </Grid>
 
-                            <Grid Margin="0,0,0,22">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="LaunchTabButton"
-                                            Click="LaunchTabButton_Click"
-                                            Background="#2A3142" Padding="14,8"
-                                            Margin="0,0,8,0"
-                                            AutomationProperties.Name="Launch"
-                                            AutomationProperties.ItemStatus="Selected"
-                                            ToolTip="Open the launch destination workspace">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Path Style="{StaticResource ButtonIcon}"
-                                                  Data="{StaticResource IconLaunch}"
-                                                  Width="15" Height="15" Margin="0,0,8,0"/>
-                                            <TextBlock Text="Launch" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <Button x:Name="RecentTabButton"
-                                            Click="RecentTabButton_Click"
-                                            Background="Transparent" Foreground="#98A3B8"
-                                            Padding="12,8"
-                                            AutomationProperties.Name="Recent"
-                                            AutomationProperties.ItemStatus="Not selected"
-                                            ToolTip="Show recently launched experiences">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Path Style="{StaticResource ButtonIcon}"
-                                                  Data="{StaticResource IconHistory}"
-                                                  Width="16" Height="16" Margin="0,0,8,0"/>
-                                            <TextBlock Text="Recent" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                    </Button>
-                                </StackPanel>
-                                <TextBlock Grid.Column="2"
-                                           Text="One destination per account"
-                                           Foreground="#657086" FontSize="10"
-                                           VerticalAlignment="Center"/>
-                            </Grid>
-
-                            <Grid x:Name="LaunchTabPanel" Grid.Row="1" MinHeight="310">
+                        <ScrollViewer x:Name="LaunchTabPanel" Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      PanningMode="VerticalOnly">
+                            <Grid Margin="0,14,0,0">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
+
                                 <StackPanel>
-                                    <TextBlock Text="Destination" Foreground="White"
-                                               FontSize="18" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Paste a Place ID, official experience URL, private-server link, code= value, or a tracked Server JobId."
-                                               Foreground="{StaticResource MutedBrush}"
-                                               FontSize="13" Margin="0,5,0,0"
+                                    <TextBlock Text="Destination"
+                                               Foreground="{DynamicResource TextBrush}"
+                                               FontSize="16" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Place ID, Roblox URL, private-server link, share code, or tracked Job ID."
+                                               Foreground="{DynamicResource MutedBrush}"
+                                               FontSize="12" Margin="0,4,0,0"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
 
-                                <StackPanel Grid.Row="1" Margin="0,18,0,0">
+                                <StackPanel Grid.Row="1" Margin="0,14,0,0">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Height="50"
+                                        <Border Height="46"
                                                 Style="{StaticResource TextFieldShell}">
                                             <TextBox x:Name="PlaceIdBox"
                                                      Style="{StaticResource EmbeddedTextBox}"
@@ -298,84 +357,86 @@
                                                      ScrollViewer.HorizontalScrollBarVisibility="Hidden"
                                                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
                                                      TextChanged="PlaceIdBox_TextChanged"
+                                                     LostKeyboardFocus="PlaceIdBox_LostKeyboardFocus"
                                                      KeyDown="PlaceIdBox_KeyDown"
-                                                     ToolTip="Place ID, official Roblox game URL, private-server URL, share code, or Server JobId saved from Recent"
+                                                     ToolTip="Place ID, official Roblox URL, private-server link, share code, or tracked Server JobId"
                                                      AutomationProperties.Name="Roblox destination"/>
                                         </Border>
                                         <Button x:Name="SetDestinationForAllButton"
-                                                Grid.Column="1" Height="50" MinWidth="132"
-                                                Margin="10,0,0,0" Padding="16,12"
-                                                Background="#252C3B" IsEnabled="False"
+                                                Grid.Column="1" Height="46" MinWidth="116"
+                                                Margin="8,0,0,0" Padding="13,9"
+                                                Style="{StaticResource QuietButton}"
+                                                IsEnabled="False"
                                                 Click="SetDestinationForAllButton_Click"
                                                 ToolTip="Copy this valid destination to every saved account"
                                                 AutomationProperties.Name="Set destination for all accounts">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Style="{StaticResource ButtonIcon}"
                                                       Data="{StaticResource IconBatch}"
-                                                      Margin="0,0,7,0"/>
-                                                <TextBlock Text="Set for all" FontSize="13"
-                                                           VerticalAlignment="Center"/>
+                                                      Width="14" Height="14" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Set for all"/>
                                             </StackPanel>
                                         </Button>
                                     </Grid>
                                     <TextBlock x:Name="DestinationValidationText"
                                                Visibility="Collapsed"
-                                               Foreground="#ED93A4" FontSize="11"
-                                               Margin="4,7,4,0" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource ErrorMutedTextBrush}" FontSize="11"
+                                               Margin="3,7,3,0" TextWrapping="Wrap"
                                                AutomationProperties.LiveSetting="Polite"/>
                                     <Border x:Name="ServerJobIdWarningPanel"
                                             Visibility="Collapsed"
-                                            Margin="0,9,0,0" Padding="12,10"
-                                            Background="#201A0D" BorderBrush="#5D4819"
-                                            BorderThickness="1" CornerRadius="10">
+                                            Margin="0,8,0,0" Padding="11,9"
+                                            Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBorderBrush}"
+                                            BorderThickness="1" CornerRadius="8">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="22"/>
+                                                <ColumnDefinition Width="21"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
                                             <Path Data="{StaticResource IconWarning}"
-                                                  Width="17" Height="17"
+                                                  Width="15" Height="15"
                                                   Stretch="Uniform" Fill="Transparent"
-                                                  Stroke="#F0C96B" StrokeThickness="1.8"
+                                                  Stroke="{DynamicResource WarningTextBrush}" StrokeThickness="1.8"
                                                   StrokeStartLineCap="Round"
                                                   StrokeEndLineCap="Round"
                                                   StrokeLineJoin="Round"
                                                   VerticalAlignment="Top"/>
                                             <TextBlock Grid.Column="1"
-                                                       Text="Tracked Job ID: if Roblox cannot find this server, it may automatically close the Player shortly after launch."
-                                                       Foreground="#E7C977" FontSize="11"
+                                                       Text="Tracked Job ID: Roblox may close the Player if this server is no longer available."
+                                                       Foreground="{DynamicResource WarningMutedTextBrush}" FontSize="11"
                                                        TextWrapping="Wrap"
                                                        AutomationProperties.LiveSetting="Polite"/>
                                         </Grid>
                                     </Border>
                                 </StackPanel>
 
-                                <Border Grid.Row="2" Margin="0,20,0,20"
-                                        Background="#0D1017" CornerRadius="14"
-                                        BorderBrush="#202737" BorderThickness="1"
-                                        Padding="18" VerticalAlignment="Stretch">
+                                <Border Grid.Row="2" Margin="0,16,0,16"
+                                        Background="{DynamicResource InsetSurfaceBrush}" CornerRadius="8"
+                                        BorderBrush="{DynamicResource InsetBorderBrush}" BorderThickness="1"
+                                        Padding="13,11">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="38"/>
+                                            <ColumnDefinition Width="30"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="32" Height="32" CornerRadius="10"
-                                                Background="#211D39"
+                                        <Border Width="26" Height="26" CornerRadius="7"
+                                                Background="{DynamicResource AccentSurfaceBrush}"
                                                 VerticalAlignment="Center">
                                             <Path Style="{StaticResource ButtonIcon}"
                                                   Data="{StaticResource IconAccount}"
-                                                  Stroke="#A99BFF" Width="17" Height="17"
+                                                  Stroke="{DynamicResource InfoTextBrush}" Width="14" Height="14"
                                                   HorizontalAlignment="Center"
                                                   VerticalAlignment="Center"/>
                                         </Border>
-                                        <StackPanel Grid.Column="1" Margin="12,0,0,0"
+                                        <StackPanel Grid.Column="1" Margin="9,0,0,0"
                                                     VerticalAlignment="Center">
-                                            <TextBlock Text="The selected account controls this launch"
-                                                       Foreground="#D7DDEA" FontSize="13"
+                                            <TextBlock Text="Launching with the selected account"
+                                                       Foreground="{DynamicResource ControlTextBrush}" FontSize="12"
                                                        FontWeight="SemiBold"/>
-                                            <TextBlock Text="Its destination is remembered separately; Recent remains shared across accounts."
-                                                       Foreground="#778399" FontSize="11"
-                                                       Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Each account remembers its own destination; history remains shared."
+                                                       Foreground="{DynamicResource SubtleBrush}"
+                                                       FontSize="10" Margin="0,2,0,0"
+                                                       TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
@@ -386,231 +447,244 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <Button x:Name="SignInButton"
-                                            Click="SignInButton_Click" Background="#252C3B"
-                                            Visibility="Collapsed" Margin="0,0,12,0"
+                                            Style="{StaticResource QuietButton}"
+                                            Click="SignInButton_Click"
+                                            Visibility="Collapsed"
                                             HorizontalAlignment="Left"
                                             AutomationProperties.Name="Sign in to Roblox"
                                             ToolTip="Open the official Roblox sign-in page for this account">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Style="{StaticResource ButtonIcon}"
-                                                  Data="{StaticResource IconBrowser}" Margin="0,0,8,0"/>
-                                            <TextBlock x:Name="SignInButtonLabel" Text="Sign in"
-                                                       VerticalAlignment="Center"/>
+                                                  Data="{StaticResource IconBrowser}"
+                                                  Width="15" Height="15" Margin="0,0,7,0"/>
+                                            <TextBlock x:Name="SignInButtonLabel" Text="Sign in"/>
                                         </StackPanel>
                                     </Button>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                                         <Button x:Name="BatchLaunchButton"
-                                                Click="BatchLaunchButton_Click" MinWidth="145"
-                                                IsEnabled="False" Margin="0,0,10,0"
-                                                Background="#252C3B"
+                                                Style="{StaticResource QuietButton}"
+                                                Click="BatchLaunchButton_Click"
+                                                MinWidth="118" IsEnabled="False"
+                                                Margin="0,0,8,0"
                                                 AutomationProperties.Name="Batch launch"
-                                                ToolTip="Launch each account's saved destination; blanks use the first selected account">
+                                                ToolTip="Launch each selected account's saved destination">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Style="{StaticResource ButtonIcon}"
-                                                      Data="{StaticResource IconBatch}" Margin="0,0,8,0"/>
-                                                <TextBlock Text="Batch" VerticalAlignment="Center"/>
+                                                      Data="{StaticResource IconBatch}"
+                                                      Width="15" Height="15" Margin="0,0,7,0"/>
+                                                <TextBlock Text="Batch"/>
                                             </StackPanel>
                                         </Button>
                                         <Button x:Name="LaunchButton"
-                                                Click="LaunchButton_Click" MinWidth="210"
-                                                IsEnabled="False"
+                                                Click="LaunchButton_Click"
+                                                MinWidth="170" IsEnabled="False"
                                                 AutomationProperties.Name="Launch Roblox"
                                                 ToolTip="Launch immediately with the selected account">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Style="{StaticResource ButtonIcon}"
-                                                      Data="{StaticResource IconLaunch}" Margin="0,0,9,0"/>
-                                                <TextBlock x:Name="LaunchButtonLabel" Text="Launch"
-                                                           VerticalAlignment="Center"/>
+                                                      Data="{StaticResource IconLaunch}"
+                                                      Width="15" Height="15" Margin="0,0,7,0"/>
+                                                <TextBlock x:Name="LaunchButtonLabel" Text="Launch"/>
                                             </StackPanel>
                                         </Button>
                                     </StackPanel>
                                 </Grid>
                             </Grid>
+                        </ScrollViewer>
 
-                            <Grid x:Name="RecentTabPanel" Grid.Row="1"
-                                  Visibility="Collapsed" MinHeight="310">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Recent experiences" Foreground="White"
-                                               FontSize="18" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Select an item to reuse its saved destination with the active account."
-                                               Foreground="{StaticResource MutedBrush}"
-                                               FontSize="13" Margin="0,5,0,0"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <Grid Grid.Row="1" Margin="0,15,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button x:Name="AllTypeFilterButton" Content="All"
-                                                Click="AllTypeFilterButton_Click"
-                                                Padding="11,7" Background="#2A3142"
-                                                Margin="0,0,6,0"
-                                                AutomationProperties.ItemStatus="Selected"/>
-                                        <Button x:Name="PublicFilterButton" Content="Public"
-                                                Click="PublicFilterButton_Click"
-                                                Padding="11,7" Background="Transparent"
-                                                Foreground="#98A3B8" Margin="0,0,6,0"
-                                                AutomationProperties.ItemStatus="Not selected"/>
-                                        <Button x:Name="PrivateFilterButton" Content="Private"
-                                                Click="PrivateFilterButton_Click"
-                                                Padding="11,7" Background="Transparent"
-                                                Foreground="#98A3B8"
-                                                AutomationProperties.ItemStatus="Not selected"/>
-                                    </StackPanel>
-                                    <ComboBox x:Name="AccountFilterCombo" Grid.Column="2"
-                                              Width="190" Height="36"
-                                              SelectionChanged="AccountFilterCombo_SelectionChanged"
-                                              Background="#252C3B" Foreground="White"
-                                              BorderBrush="#343D50" Padding="8,4"
-                                              AutomationProperties.Name="Recent account filter"/>
-                                </Grid>
-                                <ScrollViewer Grid.Row="2" Margin="0,14,0,14"
-                                              VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="RecentExperiencesList"/>
-                                </ScrollViewer>
-                                <Grid Grid.Row="3">
-                                    <TextBlock x:Name="RecentPrivacyText"
-                                               Text="History is shared across accounts and stored only on this PC."
-                                               Foreground="#68748A" FontSize="11"
-                                               VerticalAlignment="Center"/>
-                                    <Button x:Name="ClearHistoryButton"
-                                            Style="{StaticResource IconOnlyButton}"
-                                            HorizontalAlignment="Right"
-                                            Click="ClearHistoryButton_Click"
-                                            Background="Transparent" Foreground="#8B96AA"
-                                            AutomationProperties.Name="Clear history"
-                                            ToolTip="Remove non-favorite history in the selected type">
-                                        <Path Style="{StaticResource ButtonIcon}"
-                                              Data="{StaticResource IconTrash}"/>
-                                    </Button>
-                                </Grid>
-                            </Grid>
-                        </Grid>
-                    </Border>
-
-                    <Border x:Name="BrowserPanel" Visibility="Collapsed"
-                            Background="{StaticResource PanelBrush}" CornerRadius="22"
-                            BorderBrush="#242B3A" BorderThickness="1"
-                            ClipToBounds="True" MinHeight="400">
-                        <Grid>
+                        <Grid x:Name="RecentTabPanel" Grid.Row="1"
+                              Visibility="Collapsed" Margin="0,14,0,0">
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="68"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <Grid Background="#171B25">
-                                <StackPanel Orientation="Horizontal" Margin="20,0,118,0"
-                                            VerticalAlignment="Center">
-                                    <Border Width="9" Height="9" CornerRadius="5"
-                                            Background="#7C5CFC" Margin="0,0,10,0"/>
-                                    <StackPanel>
-                                        <TextBlock Text="Official Roblox sign-in"
-                                                   Foreground="White" FontSize="14"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Text="Extensions are unavailable here; right-click Paste or press Ctrl+V."
-                                                   Foreground="#7F8BA0" FontSize="10"
-                                                   Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-                                    </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Recent experiences"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Reuse a destination with the currently selected account."
+                                           Foreground="{DynamicResource MutedBrush}"
+                                           FontSize="12" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <Grid Grid.Row="1" Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="AllTypeFilterButton" Content="All"
+                                            Style="{StaticResource SegmentButton}"
+                                            Click="AllTypeFilterButton_Click"
+                                            Background="{DynamicResource SelectedControlSurfaceBrush}" Foreground="{DynamicResource SelectedControlTextBrush}"
+                                            Padding="10,7" Margin="0,0,4,0"
+                                            AutomationProperties.ItemStatus="Selected"/>
+                                    <Button x:Name="PublicFilterButton" Content="Public"
+                                            Style="{StaticResource SegmentButton}"
+                                            Click="PublicFilterButton_Click"
+                                            Padding="10,7" Margin="0,0,4,0"
+                                            AutomationProperties.ItemStatus="Not selected"/>
+                                    <Button x:Name="PrivateFilterButton" Content="Private"
+                                            Style="{StaticResource SegmentButton}"
+                                            Click="PrivateFilterButton_Click"
+                                            Padding="10,7"
+                                            AutomationProperties.ItemStatus="Not selected"/>
                                 </StackPanel>
-                                <Button HorizontalAlignment="Right"
-                                        Margin="0,10,12,10" Padding="18,7"
-                                        Background="#293041"
-                                        AutomationProperties.Name="Back to launcher"
-                                        ToolTip="Back to the launch workspace"
-                                        Click="BrowserBackButton_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Style="{StaticResource ButtonIcon}"
-                                              Data="{StaticResource IconBack}" Margin="0,0,8,0"/>
-                                        <TextBlock Text="Back" VerticalAlignment="Center"/>
-                                    </StackPanel>
+                                <ComboBox x:Name="AccountFilterCombo" Grid.Column="2"
+                                          Width="168" Height="34"
+                                          SelectionChanged="AccountFilterCombo_SelectionChanged"
+                                          Padding="8,4"
+                                          AutomationProperties.Name="Recent account filter"/>
+                                <Button x:Name="ClearHistoryButton" Grid.Column="3"
+                                        Style="{StaticResource IconOnlyButton}"
+                                        Width="32" Height="32" Padding="7"
+                                        Margin="8,0,0,0"
+                                        Click="ClearHistoryButton_Click"
+                                        Background="Transparent" Foreground="{DynamicResource MutedBrush}"
+                                        AutomationProperties.Name="Clear history"
+                                        ToolTip="Remove non-favorite history in the selected type">
+                                    <Path Style="{StaticResource ButtonIcon}"
+                                          Data="{StaticResource IconTrash}"/>
                                 </Button>
                             </Grid>
-                            <Grid x:Name="BrowserHost" Grid.Row="1"/>
+                            <ScrollViewer x:Name="RecentExperiencesScrollViewer"
+                                          Grid.Row="2" Margin="0,6,0,4"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          PanningMode="VerticalOnly"
+                                          AutomationProperties.Name="Recent experiences list">
+                                <StackPanel x:Name="RecentExperiencesList"/>
+                            </ScrollViewer>
+                            <Grid Grid.Row="3">
+                                <TextBlock x:Name="RecentPrivacyText"
+                                           Text="Shared across accounts • stored only on this PC"
+                                           Foreground="{DynamicResource SubtleBrush}"
+                                           FontSize="10" VerticalAlignment="Center"/>
+                            </Grid>
                         </Grid>
-                    </Border>
-                </Grid>
-            </Grid>
-            </ScrollViewer>
-
-                <!-- General status is independent from the destination workspace. -->
-                <Border Grid.Row="1" Margin="24,8,24,0" Padding="16"
-                        Background="#10141D" CornerRadius="18"
-                        BorderBrush="#242B3A" BorderThickness="1" MinHeight="102">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Border x:Name="StatusIconBorder" Width="50" Height="50"
-                                MinWidth="50" MinHeight="50" CornerRadius="15"
-                                Background="#1C2230" VerticalAlignment="Center">
-                            <Path x:Name="StatusIconGlyph" Width="23" Height="23"
-                                  Margin="13" Data="{StaticResource IconActivity}"
-                                  Stroke="{StaticResource AccentBrush}"
-                                  StrokeThickness="2.2"
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
-                                  StrokeLineJoin="Round" Stretch="Uniform"/>
-                        </Border>
-                        <StackPanel Grid.Column="1" Margin="16,0,18,0"
-                                    VerticalAlignment="Center">
-                            <TextBlock Text="CURRENT ACTIVITY" Foreground="#657086"
-                                       FontSize="9" FontWeight="Bold"/>
-                            <TextBlock x:Name="StatusTitle"
-                                       Text="Checking your Roblox session…"
-                                       Foreground="White" FontSize="15"
-                                       FontWeight="SemiBold" Margin="0,5,0,0"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock x:Name="StatusDetail"
-                                       Text="This normally takes only a moment."
-                                       Foreground="{StaticResource MutedBrush}"
-                                       FontSize="12" Margin="0,4,0,0"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                            <Border x:Name="SessionBadgeBorder"
-                                    Background="#17251F" CornerRadius="9" Padding="11,6"
-                                    HorizontalAlignment="Right">
-                                <TextBlock x:Name="SessionBadge" Text="CHECKING SESSION"
-                                           Foreground="#57D9A3" FontSize="10"
-                                           FontWeight="Bold"/>
-                            </Border>
-                            <Button x:Name="CancelBatchButton"
-                                    Visibility="Collapsed" IsEnabled="False"
-                                    Click="CancelBatchButton_Click"
-                                    Content="Cancel batch" Margin="0,7,0,0"
-                                    Padding="10,6" FontSize="11"
-                                    HorizontalAlignment="Right"
-                                    Background="#2A171D" Foreground="#ED93A4"
-                                    AutomationProperties.Name="Cancel batch launch"/>
-                        </StackPanel>
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="2" Margin="24,12,24,16">
+                <Border x:Name="BrowserPanel" Visibility="Collapsed"
+                        Background="{DynamicResource PanelBrush}"
+                        BorderBrush="{DynamicResource StrokeBrush}"
+                        BorderThickness="1" CornerRadius="12"
+                        ClipToBounds="True">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="54"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid Background="{DynamicResource WorkspaceSurfaceBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" Margin="16,0,12,0"
+                                        VerticalAlignment="Center">
+                                <Border Width="7" Height="7" CornerRadius="4"
+                                        Background="{DynamicResource AccentBrush}"
+                                        Margin="0,0,9,0"/>
+                                <StackPanel>
+                                    <TextBlock Text="Official Roblox sign-in"
+                                               Foreground="{DynamicResource TextBrush}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Use Ctrl+V or right-click to paste"
+                                               Foreground="{DynamicResource SubtleBrush}"
+                                               FontSize="9" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Style="{StaticResource QuietButton}"
+                                    Margin="0,9,10,9" Padding="13,7"
+                                    AutomationProperties.Name="Back to launcher"
+                                    ToolTip="Back to the launch workspace"
+                                    Click="BrowserBackButton_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource ButtonIcon}"
+                                          Data="{StaticResource IconBack}"
+                                          Width="14" Height="14" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Back"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <Grid x:Name="BrowserHost" Grid.Row="1"/>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Compact activity strip. -->
+            <Border Grid.Row="3" Margin="20,0,20,0" Padding="12,7"
+                    Background="{DynamicResource WorkspaceSurfaceBrush}" CornerRadius="10"
+                    BorderBrush="{DynamicResource WorkspaceBorderBrush}" BorderThickness="1" MinHeight="56">
+                <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="34"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="Roblox Player and Microsoft Edge WebView2 are required."
-                               Foreground="#586378" FontSize="11"
-                               TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Grid.Column="1"
-                               Text="Not affiliated with Roblox Corporation."
-                               Foreground="#4D586C" FontSize="11"
-                               Margin="16,0,0,0"
-                               HorizontalAlignment="Right"/>
+                    <Border x:Name="StatusIconBorder" Width="30" Height="30"
+                            CornerRadius="8" Background="{DynamicResource InfoSurfaceBrush}"
+                            VerticalAlignment="Center">
+                        <Path x:Name="StatusIconGlyph" Width="15" Height="15"
+                              Data="{StaticResource IconActivity}"
+                               Stroke="{DynamicResource InfoTextBrush}"
+                              StrokeThickness="2"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round" Stretch="Uniform"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,14,0"
+                                VerticalAlignment="Center">
+                        <TextBlock x:Name="StatusTitle"
+                                   Text="Checking your Roblox session…"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock x:Name="StatusDetail"
+                                   Text="This normally takes only a moment."
+                                   Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="10" Margin="0,2,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                        <Border x:Name="SessionBadgeBorder"
+                                Background="{DynamicResource SuccessSurfaceBrush}" CornerRadius="7"
+                                Padding="9,5" HorizontalAlignment="Right">
+                            <TextBlock x:Name="SessionBadge" Text="CHECKING SESSION"
+                                       Foreground="{DynamicResource SuccessTextBrush}" FontSize="9"
+                                       FontWeight="SemiBold"/>
+                        </Border>
+                        <Button x:Name="CancelBatchButton"
+                                Visibility="Collapsed" IsEnabled="False"
+                                Click="CancelBatchButton_Click"
+                                Content="Cancel batch" Margin="0,5,0,0"
+                                Padding="8,5" FontSize="10"
+                                HorizontalAlignment="Right"
+                                Background="{DynamicResource ErrorSurfaceBrush}" Foreground="{DynamicResource ErrorMutedTextBrush}"
+                                AutomationProperties.Name="Cancel batch launch"/>
+                    </StackPanel>
                 </Grid>
+            </Border>
+
+            <Grid Grid.Row="4" Margin="20,5,20,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Roblox Player and Microsoft Edge WebView2 are required."
+                           Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="1"
+                           Text="Not affiliated with Roblox Corporation."
+                           Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                           Margin="14,0,0,0"/>
             </Grid>
+        </Grid>
     </Grid>
 </Window>

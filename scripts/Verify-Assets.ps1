@@ -213,7 +213,7 @@ if ($signatureBytes.Length -ne 64) {
     throw 'Descriptor signature must be one P-256 signature.'
 }
 
-$packageName = "RobloxOne-$($descriptor.version)-$ExpectedChannel-full.nupkg"
+$packageName = "SessionDockApp-$($descriptor.version)-$ExpectedChannel-full.nupkg"
 $portableName = 'SessionDock-win-x64-Portable.zip'
 $setupName = 'SessionDock-win-x64-Setup.exe'
 $sbomName = "SessionDock-$($descriptor.version)-sbom.spdx.json"
@@ -285,7 +285,7 @@ Assert-ExactSet `
     -Actual @($feed.PSObject.Properties.Name) `
     -Description 'Velopack release feed asset'
 $packageSha1 = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA1).Hash
-if ($feed.PackageId -cne 'RobloxOne' -or
+if ($feed.PackageId -cne 'SessionDockApp' -or
     $feed.Version -cne [string] $descriptor.version -or
     $feed.Type -cne 'Full' -or
     $feed.FileName -cne $packageName -or
@@ -308,7 +308,7 @@ if ($legacyFeed -cne "$packageSha1 $packageName $($packageInfo.Length)") {
 $expectedPackageEntries = @(
     '[Content_Types].xml',
     '_rels/.rels',
-    'RobloxOne.nuspec',
+    'SessionDockApp.nuspec',
     'lib/app/LICENSE.md',
     'lib/app/SessionDock.exe',
     'lib/app/SessionDock_ExecutionStub.exe',
@@ -348,7 +348,7 @@ try {
     Assert-ExecutableVersion `
         -Path $packagedMainExecutable `
         -ExpectedVersion ([string] $descriptor.version)
-    $nuspecPath = Join-Path $packageExtraction 'RobloxOne.nuspec'
+    $nuspecPath = Join-Path $packageExtraction 'SessionDockApp.nuspec'
     $versionMetadataPath = Join-Path $packageExtraction 'lib/app/sq.version'
     Assert-FileHashEqual `
         -Expected $nuspecPath `
@@ -357,7 +357,7 @@ try {
     $versionMetadataHash = (Get-FileHash -LiteralPath $versionMetadataPath -Algorithm SHA256).Hash
     [xml] $nuspec = Get-Content -LiteralPath $nuspecPath -Raw
     $metadata = $nuspec.package.metadata
-    if ((Get-XmlChildText $metadata 'id') -cne 'RobloxOne' -or
+    if ((Get-XmlChildText $metadata 'id') -cne 'SessionDockApp' -or
         (Get-XmlChildText $metadata 'version') -cne [string] $descriptor.version -or
         (Get-XmlChildText $metadata 'channel') -cne $ExpectedChannel -or
         (Get-XmlChildText $metadata 'title') -cne 'SessionDock' -or
@@ -366,7 +366,7 @@ try {
         (Get-XmlChildText $metadata 'mainExe') -cne 'SessionDock.exe' -or
         (Get-XmlChildText $metadata 'rid') -cne 'win-x64' -or
         (Get-XmlChildText $metadata 'machineArchitecture') -cne 'x64' -or
-        (Get-XmlChildText $metadata 'shortcutAumid') -cne 'velopack.RobloxOne' -or
+        (Get-XmlChildText $metadata 'shortcutAumid') -cne 'velopack.SessionDockApp' -or
         (Get-XmlChildText $metadata 'os') -cne 'win' -or
         (Get-XmlChildText $metadata 'shortcutLocations') -cne 'Desktop,StartMenuRoot' -or
         (Get-NormalizedNotes (Get-XmlChildText $metadata 'releaseNotes')) -cne [string] $descriptor.releaseNotes) {

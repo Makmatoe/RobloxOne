@@ -11,15 +11,29 @@ internal sealed class HandleScopeApiBootstrapper
     private const int MaximumHealthResponseBytes = 64 * 1024;
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HttpClient _client;
+    private readonly IHandleScopeProcessVerifier _processVerifier;
 
     public HandleScopeApiBootstrapper(
         HandleScopeConnectionLoader connectionLoader,
         HttpClient client)
+        : this(
+            connectionLoader,
+            client,
+            HandleScopeProcessVerifier.CreateDefault())
+    {
+    }
+
+    internal HandleScopeApiBootstrapper(
+        HandleScopeConnectionLoader connectionLoader,
+        HttpClient client,
+        IHandleScopeProcessVerifier processVerifier)
     {
         ArgumentNullException.ThrowIfNull(connectionLoader);
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(processVerifier);
         _connectionLoader = connectionLoader;
         _client = client;
+        _processVerifier = processVerifier;
     }
 
     public async Task<HandleScopeConnection?> GetExistingAsync(
@@ -27,7 +41,7 @@ internal sealed class HandleScopeApiBootstrapper
     {
         var existing = _connectionLoader.Load();
         if (existing is not null &&
-            IsExpectedApiProcess(existing.ApiProcessId) &&
+            _processVerifier.IsExpected(existing) &&
             await IsReadyAsync(existing, cancellationToken))
         {
             return existing;
@@ -109,23 +123,4 @@ internal sealed class HandleScopeApiBootstrapper
         return root.EnumerateObject().All(property => names.Add(property.Name));
     }
 
-    private static bool IsExpectedApiProcess(int processId)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(processId);
-            using var current = Process.GetCurrentProcess();
-            return !process.HasExited &&
-                   process.ProcessName.Equals(
-                       "HandleScope.Api",
-                       StringComparison.OrdinalIgnoreCase) &&
-                   process.SessionId == current.SessionId;
-        }
-        catch (Exception ex) when (
-            ex is ArgumentException or InvalidOperationException or
-                System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            return false;
-        }
-    }
 }

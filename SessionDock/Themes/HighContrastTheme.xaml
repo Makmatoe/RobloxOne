@@ -1,0 +1,112 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- High Contrast deliberately uses only operating-system colors. -->
+    <SolidColorBrush x:Key="BackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="SidebarBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="PanelBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="RaisedPanelBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="StrokeBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="TextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SubtleBrush" Color="{x:Static SystemColors.GrayTextColor}"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="AccentSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="FocusBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="OnAccentTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonPressedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionButtonHoverTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionClosePressedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+
+    <SolidColorBrush x:Key="FieldBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="FieldBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="FieldHoverBorderBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="FieldCaretBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SelectionBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="MenuBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="MenuBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="MenuHoverBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="MenuSelectedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="MenuSelectedTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="ControlBackgroundBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="ControlForegroundBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="ControlHoverBorderBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ControlSurfaceBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="ControlTextBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="SelectedControlSurfaceBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="SelectedControlTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="ReleaseTabSelectedBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ReleaseTabIdleBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="ReleaseTabSelectedTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="ReleaseTabIdleTextBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="CardSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="CardBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="CardSelectedBackgroundBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="CardSelectedBorderBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="InsetBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="InsetSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="InsetBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="WorkspaceSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="WorkspaceBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="UtilityBackgroundBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="UtilitySurfaceBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="UtilityForegroundBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="UtilityTextBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+
+    <SolidColorBrush x:Key="RailBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="RailForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="RailDividerBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="RailButtonSurfaceBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="RailButtonTextBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="SidebarBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="PrivacySurfaceBrush" Color="{x:Static SystemColors.ControlColor}"/>
+    <SolidColorBrush x:Key="PrivacyIconBrush" Color="{x:Static SystemColors.ControlTextColor}"/>
+    <SolidColorBrush x:Key="BadgeBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="BadgeBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="BadgeForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="BadgeTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="AccountStripBackgroundBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="AccountStripSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="AccountStripBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="OnAccountColorBrush" Color="#000000"/>
+    <SolidColorBrush x:Key="AccountNeutralBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="UnknownAccountSurfaceBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+
+    <SolidColorBrush x:Key="InfoForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="InfoTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="InfoSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="InfoBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SuccessForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SuccessTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningStrongTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningMutedTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="WarningButtonSurfaceBrush" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="WarningButtonTextBrush" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="ErrorForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="ErrorTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="ErrorMutedTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="ErrorSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="ErrorBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="VioletForegroundBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="VioletTextBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="VioletSurfaceBrush" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="VioletBorderBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+</ResourceDictionary>

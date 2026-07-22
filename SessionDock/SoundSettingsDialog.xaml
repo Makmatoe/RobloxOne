@@ -4,14 +4,12 @@
         Title="Sound settings" Width="520" SizeToContent="Height"
         MinWidth="400" MinHeight="360"
         ResizeMode="CanResizeWithGrip" WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Segoe UI Variable Text"
         UseLayoutRounding="True" ShowInTaskbar="False">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-        <Border Margin="16" Padding="22" CornerRadius="18"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="#293042" BorderThickness="1">
+        <Border Style="{StaticResource DialogShell}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -22,17 +20,19 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel>
-                    <TextBlock Text="Sound settings" Foreground="White"
+                    <TextBlock Text="Sound settings"
+                               Foreground="{DynamicResource TextBrush}"
                                FontSize="22" FontWeight="SemiBold"/>
                     <TextBlock Text="Choose subtle interface feedback and the sound played when SessionDock opens."
-                               Foreground="{StaticResource MutedBrush}" FontSize="13"
+                               Foreground="{DynamicResource MutedBrush}" FontSize="13"
                                Margin="0,6,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <Border Grid.Row="1" Margin="0,20,0,0" Padding="16,13"
-                        Background="#0D1017" CornerRadius="12">
+                        Background="{DynamicResource InsetSurfaceBrush}"
+                        CornerRadius="8">
                     <CheckBox x:Name="UiSoundsCheckBox"
-                              Foreground="White" FontSize="13"
+                              Foreground="{DynamicResource TextBrush}" FontSize="13"
                               VerticalContentAlignment="Center">
                         <TextBlock Text="Play subtle sounds when buttons are selected"
                                    TextWrapping="Wrap"/>
@@ -40,7 +40,8 @@
                 </Border>
 
                 <StackPanel Grid.Row="2" Margin="0,18,0,0">
-                    <TextBlock Text="STARTUP SOUND" Foreground="#7F8BA0"
+                    <TextBlock Text="STARTUP SOUND"
+                               Foreground="{DynamicResource SubtleBrush}"
                                FontSize="11" FontWeight="Bold"/>
                     <ComboBox x:Name="StartupSoundComboBox" Margin="0,8,0,0"
                               Height="42" VerticalContentAlignment="Center"
@@ -55,21 +56,28 @@
                 </StackPanel>
 
                 <Border Grid.Row="3" Margin="0,16,0,0" Padding="16"
-                        Background="#0D1017" CornerRadius="12"
-                        BorderBrush="#242B3A" BorderThickness="1">
+                        Background="{DynamicResource InsetSurfaceBrush}"
+                        CornerRadius="8"
+                        BorderBrush="{DynamicResource CardBorderBrush}"
+                        BorderThickness="1">
                     <StackPanel>
-                        <TextBlock Text="Custom startup sound" Foreground="White"
+                        <TextBlock Text="Custom startup sound"
+                                   Foreground="{DynamicResource TextBrush}"
                                    FontSize="13" FontWeight="SemiBold"/>
                         <TextBlock x:Name="ImportedSoundText"
                                    Text="No custom sound imported"
-                                   Foreground="{StaticResource MutedBrush}" FontSize="11"
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11"
                                    Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                         <WrapPanel Margin="0,12,0,0">
                             <Button Content="Import audio…" Click="ImportButton_Click"
-                                    Background="#252C3B" Padding="14,8"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
+                                    Padding="14,8"
                                     Margin="0,0,9,7"/>
                             <Button Content="Preview" Click="PreviewButton_Click"
-                                    Background="#252C3B" Padding="14,8"
+                                    Background="{DynamicResource ControlSurfaceBrush}"
+                                    Foreground="{DynamicResource ControlTextBrush}"
+                                    Padding="14,8"
                                     Margin="0,0,0,7"/>
                         </WrapPanel>
                     </StackPanel>
@@ -80,12 +88,15 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock x:Name="ValidationText" Foreground="#FF7188"
+                    <TextBlock x:Name="ValidationText"
+                               Foreground="{DynamicResource ErrorTextBrush}"
                                FontSize="12" TextWrapping="Wrap" MinHeight="18"/>
                     <WrapPanel Grid.Row="1" HorizontalAlignment="Right"
                                Margin="0,8,0,0">
                         <Button Content="Cancel" Click="CancelButton_Click" IsCancel="True"
-                                Background="#252C3B" Padding="18,9"
+                                Background="{DynamicResource ControlSurfaceBrush}"
+                                Foreground="{DynamicResource ControlTextBrush}"
+                                Padding="16,9"
                                 Margin="0,0,10,0"/>
                         <Button Content="Save" Click="SaveButton_Click" IsDefault="True"
                                 Padding="22,9"/>

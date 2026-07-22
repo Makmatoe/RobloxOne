@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -12,189 +13,675 @@ namespace SessionDock;
 
 public partial class MainWindow : Window
 {
+    private static readonly TimeSpan ShutdownTimeout =
+        TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartupProfileDeletionTimeout =
+        TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartupOrphanProfileCleanupTimeout =
+        TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DestinationPersistenceDelay =
+        TimeSpan.FromMilliseconds(450);
     private readonly SettingsService _settingsService = new();
     private readonly RobloxClientService _robloxClient = new();
+    private readonly RunningClientRegistry _runningClients = new();
     private readonly RobloxServerTracker _serverTracker = new();
     private readonly RobloxWebSessionService _webSession = new();
     private readonly UiSoundService _soundService;
     private readonly CompositeLaunchHook _launchHook = new(
         new HandleScopeLaunchHook(),
         new LocalApiLaunchHook());
-    private readonly CancellationTokenSource _launchHookCancellation = new();
+    private readonly WindowOperationLifetime _operationLifetime = new();
     private readonly SemaphoreSlim _accountCheckLock = new(1, 1);
+    private readonly HashSet<string> _sessionImportedSoundFileNames = new(
+        StringComparer.OrdinalIgnoreCase);
+    private readonly TaskCompletionSource<Exception?> _startupCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly AppSettings _settings;
-    private readonly string? _startupNotice;
+    private readonly SerializedSettingsWriter _settingsWriter;
+    private readonly SettingsMutationCoordinator _settingsMutations;
+    private readonly DestinationPersistenceDebouncer _destinationPersistence;
+    private readonly AccountVerificationGate _accountVerificationGate = new();
+    private string? _startupNotice;
     private AccountProfile? _activeProfile;
     private AccountProfile? _pendingProfile;
     private RobloxUser? _currentUser;
+    private WebSessionToken? _webSessionToken;
+    private WebSessionToken? _pendingAccountCheckToken;
     private CancellationTokenSource? _browserSwitchCancellation;
     private CancellationTokenSource? _batchCancellation;
     private bool _launchInProgress;
     private bool _operationBusy;
     private bool _destinationTrackingEnabled;
+    private string? _destinationDraftAccountKey;
+    private string? _destinationDraftValue;
+    private string? _destinationPersistedValue;
+    private long _destinationOwnerEpoch;
+    private long _destinationRevision;
+    private bool _destinationDraftDirty;
+    private bool _destinationDraftValid = true;
+    private bool _shutdownComplete;
+
+    internal Task<Exception?> StartupCompletion => _startupCompletion.Task;
+
+    internal event Action<Exception?>? ShutdownCompleted;
+
+    internal void VerifyThemeSwitchForRuntimeSmoke()
+    {
+        Dispatcher.VerifyAccess();
+        var themeService = ((App)Application.Current).ThemeService;
+        if (themeService.IsHighContrastActive)
+            return;
+
+        var originalPreference = themeService.UseLightThemePreference;
+        var originalBackground = GetSolidColor(Background, "window background");
+        try
+        {
+            themeService.ApplyPreference(!originalPreference);
+            var expectedBackground = GetSolidColor(
+                (Brush)FindResource("BackgroundBrush"),
+                "active background resource");
+            var switchedBackground = GetSolidColor(
+                Background,
+                "switched window background");
+            if (switchedBackground != expectedBackground ||
+                switchedBackground == originalBackground)
+            {
+                throw new InvalidOperationException(
+                    "The existing main window did not adopt the switched theme.");
+            }
+
+            var generatedEmptyState = RecentExperiencesList.Children
+                .OfType<TextBlock>()
+                .FirstOrDefault();
+            if (generatedEmptyState is not null)
+            {
+                var expectedSubtle = GetSolidColor(
+                    (Brush)FindResource("SubtleBrush"),
+                    "active subtle resource");
+                var actualSubtle = GetSolidColor(
+                    generatedEmptyState.Foreground,
+                    "generated recent-list foreground");
+                if (actualSubtle != expectedSubtle)
+                {
+                    throw new InvalidOperationException(
+                        "A generated recent-list element retained the old theme.");
+                }
+            }
+        }
+        finally
+        {
+            themeService.ApplyPreference(originalPreference);
+        }
+    }
+
+    private static Color GetSolidColor(Brush brush, string description) =>
+        brush is SolidColorBrush solidColorBrush
+            ? solidColorBrush.Color
+            : throw new InvalidOperationException(
+                $"The {description} is not a solid theme brush.");
 
     public MainWindow()
     {
         InitializeComponent();
+        CaptionControls.AttachToWindow(this);
         WindowLayoutService.FitToWorkArea(this);
         var app = (App)Application.Current;
         _soundService = app.SoundService;
         InstallUpdateButton.ToolTip =
             $"Check for signed updates (current {_updateService.CurrentVersion})";
         _settings = _settingsService.Load();
-        var removedOrphanedProfiles =
-            _settingsService.CleanupOrphanedSessionDirectories(_settings);
-        _startupNotice = removedOrphanedProfiles > 0
-            ? string.Join(
-                Environment.NewLine + Environment.NewLine,
-                new[]
-                {
-                    _settingsService.LoadNotice,
-                    $"Removed {removedOrphanedProfiles} incomplete local account profile(s) left by an interrupted sign-in."
-                }.Where(message => !string.IsNullOrWhiteSpace(message)))
-            : _settingsService.LoadNotice;
+        app.ThemeService.ApplyPreference(_settings.UseLightTheme);
+        UpdateThemeTogglePresentation();
+        app.ThemeService.ThemeChanged += ThemeService_ThemeChanged;
+        _settingsWriter = new SerializedSettingsWriter(_settingsService.Save);
+        _settingsMutations = new SettingsMutationCoordinator(
+            _settings,
+            _settingsWriter);
+        _destinationPersistence = new DestinationPersistenceDebouncer(
+            DestinationPersistenceDelay,
+            PersistDestinationRequestAsync);
+        _startupNotice = _settingsService.LoadNotice;
         app.UiSoundsEnabled = _settings.UiSoundsEnabled;
         _webSession.RobloxPageLoaded += WebSession_RobloxPageLoaded;
+        _webSession.SessionUnavailable += WebSession_SessionUnavailable;
         _activeProfile = FindActiveSavedProfile();
         ShowDestinationForProfile(_activeProfile);
         _destinationTrackingEnabled = true;
         RenderAccountList();
         RenderRecentExperiences();
         Loaded += MainWindow_Loaded;
+        Closing += MainWindow_Closing;
         Closed += MainWindow_Closed;
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(MainWindowLoadedAsync);
+
+    private async Task MainWindowLoadedAsync(CancellationToken cancellationToken)
     {
-        _soundService.PlayStartup(
-            _settings.StartupSound,
-            _settings.CustomStartupSoundFileName);
-        if (!string.IsNullOrWhiteSpace(_startupNotice))
+        SetOperationBusy(true);
+        try
         {
-            MessageBox.Show(
-                this,
-                _startupNotice,
-                "Local settings recovery",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            await RetryPendingProfileDeletionsAsync(cancellationToken);
+            var orphanCleanup = await new BoundedOrphanProfileCleanup().RunAsync(
+                cleanupCancellationToken =>
+                    _settingsService.CleanupOrphanedSessionDirectories(
+                        _settings,
+                        cleanupCancellationToken),
+                StartupOrphanProfileCleanupTimeout,
+                cancellationToken);
+            if (orphanCleanup.RemovedProfiles > 0)
+            {
+                AppendStartupNotice(
+                    $"Removed {orphanCleanup.RemovedProfiles} incomplete local account profile(s) left by an interrupted sign-in.");
+            }
+            if (orphanCleanup.BudgetExpired)
+            {
+                AppendStartupNotice(
+                    "SessionDock limited incomplete-profile cleanup during startup so the window could remain responsive. Any unfinished profile is preserved for another cleanup attempt on the next start.");
+            }
+
+            await ReconcileImportedSoundsAsync(cancellationToken);
+            _soundService.PlayStartup(
+                _settings.StartupSound,
+                _settings.CustomStartupSoundFileName);
+            if (!string.IsNullOrWhiteSpace(_startupNotice))
+            {
+                MessageBox.Show(
+                    this,
+                    _startupNotice,
+                    "Local settings recovery",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                _settingsService.AcknowledgeLoadNotice();
+            }
+            if (_activeProfile is null)
+            {
+                SetSignedOutState();
+            }
+            else
+            {
+                await InitializeBrowserAsync(
+                    _activeProfile,
+                    showLogin: false,
+                    cancellationToken);
+            }
+
+            _startupCompletion.TrySetResult(null);
         }
-        if (_activeProfile is null)
+        catch (Exception exception)
         {
-            SetSignedOutState();
+            _startupCompletion.TrySetResult(exception);
+            throw;
+        }
+        finally
+        {
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
+        }
+    }
+
+    private void AppendStartupNotice(string notice)
+    {
+        _startupNotice = string.IsNullOrWhiteSpace(_startupNotice)
+            ? notice
+            : $"{_startupNotice}{Environment.NewLine}{Environment.NewLine}{notice}";
+    }
+
+    private async Task RetryPendingProfileDeletionsAsync(
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> journaledKeys;
+        try
+        {
+            journaledKeys = await Task.Run(
+                _settingsService.GetJournaledProfileDeletionKeys,
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            LocalDataException.IsExpectedPersistenceFailure(exception))
+        {
+            AppendStartupNotice(
+                "SessionDock could not inspect its account-removal journal, so all browser profiles were left untouched.");
             return;
         }
 
-        await InitializeBrowserAsync(_activeProfile, showLogin: false);
+        if (journaledKeys.Count == 0)
+            return;
+
+        var journaledSet = journaledKeys.ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        var prepared = false;
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    _settings.PendingProfileDeletionKeys = journaledKeys
+                        .Concat(_settings.PendingProfileDeletionKeys)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(SettingsService.MaximumPendingProfileDeletions)
+                        .ToList();
+                    _settings.Accounts.RemoveAll(account =>
+                        journaledSet.Contains(account.Key));
+                    if (_settings.ActiveAccountKey is not null &&
+                        journaledSet.Contains(_settings.ActiveAccountKey))
+                    {
+                        _settings.ActiveAccountKey =
+                            _settings.Accounts.FirstOrDefault()?.Key;
+                    }
+                    prepared = true;
+                },
+                "Pending account removal could not be restored",
+                "CLEANUP WARNING",
+                "SessionDock preserved the removal journal and left all browser profiles untouched. It will retry after local settings become writable.",
+                onCommitted: () =>
+                {
+                    _activeProfile = FindActiveSavedProfile();
+                    _pendingProfile = null;
+                    _currentUser = null;
+                    ShowDestinationForProfile(_activeProfile);
+                    RenderAccountList();
+                }) ||
+            !prepared)
+        {
+            AppendStartupNotice(
+                "One or more confirmed account removals could not yet be restored to local settings. Their browser data was preserved for a later retry.");
+            return;
+        }
+
+        var replayResult = await new PendingProfileDeletionReplay().ReplayAsync(
+            journaledKeys,
+            (accountKey, replayCancellationToken) =>
+                _settingsService.DeletePendingProfileOnceAsync(
+                    accountKey,
+                    _settings,
+                    replayCancellationToken),
+            StartupProfileDeletionTimeout,
+            cancellationToken);
+        var deletedKeys = replayResult.DeletedKeys;
+
+        var journalClearFailed = false;
+        if (deletedKeys.Count > 0 &&
+            await AcknowledgePendingProfileDeletionsAsync(deletedKeys))
+        {
+            foreach (var accountKey in deletedKeys)
+            {
+                if (!await Task.Run(
+                        () => _settingsService.ClearProfileDeletionJournal(
+                            accountKey),
+                        CancellationToken.None))
+                {
+                    journalClearFailed = true;
+                }
+            }
+
+            AppendStartupNotice(
+                $"Finished clearing {deletedKeys.Count} previously removed account profile(s).");
+        }
+
+        if (deletedKeys.Count < journaledKeys.Count || journalClearFailed ||
+            _settings.PendingProfileDeletionKeys.Count > 0)
+        {
+            AppendStartupNotice(replayResult.BudgetExpired
+                ? "SessionDock limited account-profile cleanup during startup so the window could remain responsive. Unfinished removals were preserved and will be retried on the next start."
+                : "Some isolated browser data from a removed account is still locked or its cleanup acknowledgement could not be saved. SessionDock will retry on the next start.");
+        }
     }
 
-    private async Task InitializeBrowserAsync(AccountProfile profile, bool showLogin)
+    private async Task<bool> AcknowledgePendingProfileDeletionsAsync(
+        IReadOnlyCollection<string> accountKeys)
+    {
+        var keys = accountKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var acknowledged = 0;
+        var committed = await TryCommitSettingsMutationAsync(
+            () =>
+            {
+                if (_settings.Accounts.Any(account =>
+                        keys.Contains(account.Key)))
+                {
+                    return;
+                }
+
+                acknowledged = _settings.PendingProfileDeletionKeys.RemoveAll(
+                    key => keys.Contains(key));
+            },
+            "Account cleanup could not be confirmed",
+            "CLEANUP WARNING",
+            "The browser data was cleared, but SessionDock could not save that acknowledgement. It will safely retry on the next start.");
+        return committed && acknowledged > 0;
+    }
+
+    private async Task ReconcileImportedSoundsAsync(
+        CancellationToken cancellationToken)
+    {
+        var retention = await Task.Run(
+            () => _settingsService.CaptureImportedSoundRetention(
+                _settings.CustomStartupSoundFileName),
+            cancellationToken);
+        await Task.Run(
+            () => _soundService.ReconcileImportedSounds(
+                retention,
+                _sessionImportedSoundFileNames.ToArray(),
+                cancellationToken),
+            cancellationToken);
+    }
+
+    private async Task<bool> InitializeBrowserAsync(
+        AccountProfile profile,
+        bool showLogin,
+        CancellationToken cancellationToken = default)
     {
         _browserSwitchCancellation?.Cancel();
         _browserSwitchCancellation?.Dispose();
-        _browserSwitchCancellation = new CancellationTokenSource();
-        var cancellationToken = _browserSwitchCancellation.Token;
+        _browserSwitchCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _operationLifetime.Token,
+            cancellationToken);
+        var browserCancellationToken = _browserSwitchCancellation.Token;
         _currentUser = null;
         LaunchButton.IsEnabled = false;
 
-        var browser = _webSession.BeginBrowserReplacement();
+        var session = _webSession.BeginBrowserReplacement(profile.Key);
+        _webSessionToken = session.Token;
+        var browser = session.Browser;
         BrowserHost.Children.Clear();
         BrowserHost.Children.Add(browser);
 
         try
         {
-            await _webSession.InitializeAsync(
-                browser,
+            return await _webSession.InitializeAsync(
+                session,
                 _settingsService.GetSessionDataDirectory(profile),
                 showLogin,
-                cancellationToken);
+                browserCancellationToken);
         }
         catch (OperationCanceledException)
         {
             // A newer account selection superseded this browser initialization.
+            return false;
         }
-        catch (Exception ex)
+        catch (WebSessionUnavailableException exception) when (
+            exception.Reason == WebSessionUnavailableReason.Superseded ||
+            _operationLifetime.IsShuttingDown)
         {
-            SetStatus("Web sign-in could not start", ex.Message, "SESSION ERROR");
+            return false;
+        }
+        catch (WebSessionUnavailableException exception)
+        {
+            SetStatus(
+                "Web sign-in could not start",
+                exception.Message,
+                "SESSION ERROR");
             SignInButton.Visibility = Visibility.Visible;
+            return false;
         }
     }
 
-    private async void WebSession_RobloxPageLoaded(object? sender, EventArgs e) =>
-        await CheckAuthenticatedAccountAsync(skipIfBusy: true);
-
-    private async Task CheckAuthenticatedAccountAsync(bool skipIfBusy = false)
+    private async void WebSession_RobloxPageLoaded(
+        object? sender,
+        WebSessionEventArgs e)
     {
-        if (!_webSession.IsReady)
+        if (!_accountVerificationGate.ShouldRunAutomaticVerification(e.Token))
+            return;
+
+        await RunWindowOperationAsync(cancellationToken =>
+            CheckAuthenticatedAccountAsync(
+                e.Token,
+                skipIfBusy: true,
+                cancellationToken));
+    }
+
+    private async void WebSession_SessionUnavailable(
+        object? sender,
+        WebSessionUnavailableEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            HandleWebSessionUnavailableAsync(e));
+
+    private Task HandleWebSessionUnavailableAsync(
+        WebSessionUnavailableEventArgs e)
+    {
+        if (!HasCurrentWebSessionAffinity(e.Token))
+            return Task.CompletedTask;
+
+        _currentUser = null;
+        LaunchButton.IsEnabled = false;
+        SignInButton.Visibility = Visibility.Visible;
+        SignInButtonLabel.Text = "Reconnect";
+        AutomationProperties.SetName(SignInButton, "Reconnect Roblox sign-in");
+        SetStatus(
+            "Roblox web session stopped",
+            "The isolated browser process became unavailable. Reconnect this account before launching again.",
+            "SESSION ERROR");
+        return Task.CompletedTask;
+    }
+
+    private Task CheckAuthenticatedAccountAsync(
+        bool skipIfBusy = false,
+        CancellationToken cancellationToken = default) =>
+        _webSessionToken is { } token
+            ? CheckAuthenticatedAccountAsync(
+                token,
+                skipIfBusy,
+                cancellationToken)
+            : Task.CompletedTask;
+
+    private async Task CheckAuthenticatedAccountAsync(
+        WebSessionToken token,
+        bool skipIfBusy,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentWebSessionOwner(token))
             return;
 
         if (skipIfBusy)
         {
-            if (!await _accountCheckLock.WaitAsync(0))
+            if (!await _accountCheckLock.WaitAsync(0, cancellationToken))
+            {
+                _pendingAccountCheckToken = token;
                 return;
+            }
         }
         else
         {
-            await _accountCheckLock.WaitAsync();
+            await _accountCheckLock.WaitAsync(cancellationToken);
         }
 
         try
         {
-            _currentUser = await _webSession.GetAuthenticatedUserAsync();
-            if (_currentUser is null)
+            var tokenToCheck = token;
+            while (true)
             {
-                SetSignedOutState();
-                return;
-            }
+                _pendingAccountCheckToken = null;
+                await CheckAuthenticatedAccountCoreAsync(
+                    tokenToCheck,
+                    cancellationToken);
 
-            if (_pendingProfile is not null)
-            {
-                var duplicate = _settings.Accounts.FirstOrDefault(
-                    account => account.UserId == _currentUser.Id);
-                if (duplicate is not null)
+                var pendingToken = _pendingAccountCheckToken;
+                if (pendingToken is null ||
+                    !IsCurrentWebSessionOwner(pendingToken.Value))
                 {
-                    SetStatus(
-                        "Account already added",
-                        $"@{_currentUser.Name} already has a saved account slot. Sign out on the Roblox page and use a different account.",
-                        "DUPLICATE ACCOUNT");
-                    LaunchButton.IsEnabled = false;
                     return;
                 }
 
-                _pendingProfile.UserId = _currentUser.Id;
-                _pendingProfile.Username = _currentUser.Name;
-                _settings.Accounts.Add(_pendingProfile);
-                _settings.ActiveAccountKey = _pendingProfile.Key;
-                _activeProfile = _pendingProfile;
-                _pendingProfile = null;
-                _settingsService.Save(_settings);
-                RenderAccountList();
+                tokenToCheck = pendingToken.Value;
             }
-
-            if (_activeProfile is null || _activeProfile.UserId != _currentUser.Id)
-            {
-                SetStatus(
-                    "Different account detected",
-                    $"This slot belongs to @{_activeProfile?.Username}. Sign out of @{_currentUser.Name} and reconnect the correct account.",
-                    "ACCOUNT BLOCKED");
-                LaunchButton.IsEnabled = false;
-                SignInButton.Visibility = Visibility.Visible;
-                SignInButtonLabel.Text = "Fix sign-in";
-                AutomationProperties.SetName(SignInButton, "Fix Roblox sign-in");
-                return;
-            }
-
-            BrowserPanel.Visibility = Visibility.Collapsed;
-            LauncherPanel.Visibility = Visibility.Visible;
-            SetReadyState();
-        }
-        catch
-        {
-            SetSignedOutState();
         }
         finally
         {
             _accountCheckLock.Release();
         }
+    }
+
+    private async Task CheckAuthenticatedAccountCoreAsync(
+        WebSessionToken token,
+        CancellationToken cancellationToken)
+    {
+        RobloxUser? detectedUser;
+        try
+        {
+            detectedUser = await _webSession.GetAuthenticatedUserAsync(
+                token,
+                cancellationToken);
+        }
+        catch (WebSessionUnavailableException exception) when (
+            exception.Reason == WebSessionUnavailableReason.Superseded)
+        {
+            return;
+        }
+        catch (WebSessionUnavailableException exception)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"Account verification failed safely: {exception.Reason}.");
+            if (HasCurrentWebSessionAffinity(token))
+                SetSignedOutState();
+            return;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentWebSessionOwner(token))
+            return;
+
+        _currentUser = detectedUser;
+        if (detectedUser is null)
+        {
+            SetSignedOutState();
+            return;
+        }
+
+        if (_pendingProfile is not null)
+        {
+            var pendingKey = _pendingProfile.Key;
+            var promotionApplied = false;
+            var duplicateDetected = false;
+            if (!await TryCommitSettingsMutationAsync(
+                    () =>
+                    {
+                        if (!IsCurrentWebSessionOwner(token) ||
+                            _pendingProfile?.Key != pendingKey)
+                        {
+                            return;
+                        }
+
+                        if (_settings.Accounts.Any(account =>
+                                account.UserId == detectedUser.Id))
+                        {
+                            duplicateDetected = true;
+                            return;
+                        }
+
+                        _pendingProfile.UserId = detectedUser.Id;
+                        _pendingProfile.Username = detectedUser.Name;
+                        _settings.Accounts.Add(_pendingProfile);
+                        _settings.ActiveAccountKey = pendingKey;
+                        promotionApplied = true;
+                    },
+                    "Account could not be saved",
+                    "ACCOUNT SAVE ERROR",
+                    "The Roblox sign-in succeeded, but SessionDock could not save this account slot. The temporary slot was kept so you can retry after making %LOCALAPPDATA%\\SessionDock writable.",
+                    onCommitted: () =>
+                    {
+                        if (!promotionApplied)
+                            return;
+                        _activeProfile = _settings.Accounts.FirstOrDefault(account =>
+                            account.Key.Equals(
+                                pendingKey,
+                                StringComparison.OrdinalIgnoreCase));
+                        _pendingProfile = null;
+                        RenderAccountList();
+                    }))
+            {
+                LaunchButton.IsEnabled = false;
+                return;
+            }
+
+            if (!IsCurrentWebSessionOwner(token))
+                return;
+
+            if (duplicateDetected)
+            {
+                SetStatus(
+                    "Account already added",
+                    $"@{detectedUser.Name} already has a saved account slot. Sign out on the Roblox page and use a different account.",
+                    "DUPLICATE ACCOUNT");
+                LaunchButton.IsEnabled = false;
+                return;
+            }
+
+            if (!promotionApplied)
+                return;
+        }
+
+        if (!IsCurrentWebSessionOwner(token) ||
+            _activeProfile is null ||
+            _activeProfile.UserId != detectedUser.Id)
+        {
+            if (!IsCurrentWebSessionOwner(token))
+                return;
+            SetStatus(
+                "Different account detected",
+                $"This slot belongs to @{_activeProfile?.Username}. Sign out of @{detectedUser.Name} and reconnect the correct account.",
+                "ACCOUNT BLOCKED");
+            LaunchButton.IsEnabled = false;
+            SignInButton.Visibility = Visibility.Visible;
+            SignInButtonLabel.Text = "Fix sign-in";
+            AutomationProperties.SetName(SignInButton, "Fix Roblox sign-in");
+            return;
+        }
+
+        BrowserPanel.Visibility = Visibility.Collapsed;
+        LauncherPanel.Visibility = Visibility.Visible;
+        SetReadyState();
+    }
+
+    private bool IsCurrentWebSessionOwner(WebSessionToken token)
+    {
+        return HasCurrentWebSessionAffinity(token) &&
+            _webSession.IsUsable(token);
+    }
+
+    private bool HasCurrentWebSessionAffinity(WebSessionToken token)
+    {
+        var owner = _pendingProfile ?? _activeProfile;
+        return _webSessionToken == token &&
+            _webSession.IsCurrent(token) &&
+            owner?.Key.Equals(
+                token.AccountKey,
+                StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private bool TryGetCurrentWebSessionToken(
+        AccountProfile profile,
+        out WebSessionToken token)
+    {
+        if (_webSessionToken is { } currentToken &&
+            profile.Key.Equals(
+                currentToken.AccountKey,
+                StringComparison.OrdinalIgnoreCase) &&
+            IsCurrentWebSessionOwner(currentToken))
+        {
+            token = currentToken;
+            return true;
+        }
+
+        token = default;
+        return false;
+    }
+
+    private bool TryGetAffineWebSessionToken(
+        AccountProfile profile,
+        out WebSessionToken token)
+    {
+        if (_webSessionToken is { } currentToken &&
+            profile.Key.Equals(
+                currentToken.AccountKey,
+                StringComparison.OrdinalIgnoreCase) &&
+            HasCurrentWebSessionAffinity(currentToken))
+        {
+            token = currentToken;
+            return true;
+        }
+
+        token = default;
+        return false;
     }
 
     private void SetSignedOutState()
@@ -218,7 +705,8 @@ public partial class MainWindow : Window
 
     private void SetReadyState()
     {
-        if (_currentUser is null || _activeProfile is null)
+        if (_currentUser is null || _activeProfile is null ||
+            !TryGetCurrentWebSessionToken(_activeProfile, out _))
             return;
 
         SetStatus(
@@ -239,48 +727,166 @@ public partial class MainWindow : Window
         SessionBadge.Text = badge;
 
         var tone = StatusToneClassifier.Classify(badge);
-        var isError = tone == StatusTone.Error;
-        var isSuccess = tone == StatusTone.Success;
-        var isWarning = tone == StatusTone.Warning;
-
-        var accent = ColorConverter.ConvertFromString(
-            isError
-                ? "#FF7188"
-                : isSuccess
-                    ? "#57D9A3"
-                    : isWarning
-                        ? "#E0A33A"
-                        : "#9A89FF");
-        var surface = ColorConverter.ConvertFromString(
-            isError
-                ? "#2A171D"
-                : isSuccess
-                    ? "#15271F"
-                    : isWarning
-                        ? "#2A2215"
-                        : "#211D39");
-        var accentBrush = new SolidColorBrush((Color)accent);
-        var surfaceBrush = new SolidColorBrush((Color)surface);
-        SessionBadge.Foreground = accentBrush;
-        SessionBadgeBorder.Background = surfaceBrush;
+        var foregroundResource = tone switch
+        {
+            StatusTone.Error => "ErrorTextBrush",
+            StatusTone.Success => "SuccessTextBrush",
+            StatusTone.Warning => "WarningTextBrush",
+            _ => "InfoTextBrush"
+        };
+        var surfaceResource = tone switch
+        {
+            StatusTone.Error => "ErrorSurfaceBrush",
+            StatusTone.Success => "SuccessSurfaceBrush",
+            StatusTone.Warning => "WarningSurfaceBrush",
+            _ => "InfoSurfaceBrush"
+        };
+        SessionBadge.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            foregroundResource);
+        SessionBadgeBorder.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
         StatusIconGlyph.Data = (Geometry)FindResource(
-            isError ? "IconError" : isSuccess ? "IconCheck" : "IconActivity");
-        StatusIconGlyph.Stroke = accentBrush;
-        StatusIconBorder.Background = surfaceBrush;
+            tone == StatusTone.Error
+                ? "IconError"
+                : tone == StatusTone.Success
+                    ? "IconCheck"
+                    : "IconActivity");
+        StatusIconGlyph.SetResourceReference(
+            Shape.StrokeProperty,
+            foregroundResource);
+        StatusIconBorder.SetResourceReference(
+            Border.BackgroundProperty,
+            surfaceResource);
+    }
+
+    private Task RunWindowOperationAsync(
+        Func<CancellationToken, Task> operation) =>
+        _operationLifetime.RunAsync(
+            operation,
+            IsExpectedWindowOperationFailure,
+            HandleExpectedWindowOperationFailure);
+
+    private static bool IsExpectedWindowOperationFailure(Exception exception) =>
+        LocalDataException.IsExpectedPersistenceFailure(exception) ||
+        WebSessionException.IsExpectedLifecycleFailure(exception);
+
+    private void HandleExpectedWindowOperationFailure(Exception exception)
+    {
+        System.Diagnostics.Trace.WriteLine(
+            $"Local operation failed safely: {exception.GetType().Name}.");
+        if (exception is WebSessionUnavailableException webSessionFailure)
+        {
+            if (webSessionFailure.Reason ==
+                WebSessionUnavailableReason.Superseded)
+            {
+                return;
+            }
+            SetStatus(
+                "Roblox web session became unavailable",
+                webSessionFailure.Message,
+                "SESSION ERROR");
+            SignInButton.Visibility = Visibility.Visible;
+            return;
+        }
+        SetStatus(
+            "Local operation could not be completed",
+            "SessionDock could not access a required local file or folder. Check that %LOCALAPPDATA%\\SessionDock is writable and not locked, then try again.",
+            "LOCAL DATA ERROR");
+    }
+
+    private async Task<bool> TryCommitSettingsMutationAsync(
+        Action mutation,
+        string failureTitle,
+        string failureBadge = "SETTINGS ERROR",
+        string? failureDetail = null,
+        bool showFailure = true,
+        Action? onCommitted = null)
+    {
+        var result = await _settingsMutations.CommitAsync(
+            mutation,
+            onCommitted);
+        if (result.Committed)
+        {
+            return true;
+        }
+
+        if (result.Closed)
+            return false;
+
+        System.Diagnostics.Trace.WriteLine(
+            $"Settings update failed safely: {result.Failure!.GetType().Name}.");
+        if (showFailure && !_operationLifetime.IsShuttingDown)
+        {
+            SetStatus(
+                failureTitle,
+                failureDetail ??
+                    "SessionDock could not confirm the local settings update, so the in-memory change was rolled back. Check that %LOCALAPPDATA%\\SessionDock is writable and not locked, then try again.",
+                failureBadge);
+        }
+        return false;
     }
 
     private void RenderAccountList()
     {
+        var restoreKeyboardFocus = AccountsList.IsKeyboardFocusWithin;
+        var focusedAccountKey =
+            (Keyboard.FocusedElement as Button)?.Tag as string;
+        Button? focusedAccountButton = null;
+        Button? activeAccountButton = null;
+
         AccountsList.Children.Clear();
         foreach (var account in _settings.Accounts)
-            AccountsList.Children.Add(CreateAccountButton(account, account.Key == _settings.ActiveAccountKey));
+        {
+            var isActive = account.Key == _settings.ActiveAccountKey;
+            var accountButton = CreateAccountButton(account, isActive);
+            AccountsList.Children.Add(accountButton);
+            if (account.Key.Equals(
+                    focusedAccountKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                focusedAccountButton = accountButton;
+            }
+            if (isActive)
+                activeAccountButton = accountButton;
+        }
 
         if (_pendingProfile is not null)
-            AccountsList.Children.Add(CreateAccountButton(_pendingProfile, selected: true, pending: true));
+        {
+            var pendingButton = CreateAccountButton(
+                _pendingProfile,
+                selected: true,
+                pending: true);
+            AccountsList.Children.Add(pendingButton);
+            if (_pendingProfile.Key.Equals(
+                    focusedAccountKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                focusedAccountButton = pendingButton;
+            }
+        }
 
         AddAccountButton.IsEnabled = !_operationBusy && _pendingProfile is null;
         EditAccountButton.IsEnabled =
             !_operationBusy && _pendingProfile is null && _activeProfile is not null;
+
+        if (restoreKeyboardFocus)
+            RestoreKeyboardFocus(focusedAccountButton ?? activeAccountButton);
+    }
+
+    private static void RestoreKeyboardFocus(Button? button)
+    {
+        if (button is null)
+            return;
+
+        _ = button.Dispatcher.BeginInvoke(() =>
+        {
+            if (!button.IsVisible || !button.IsEnabled)
+                return;
+            button.Focus();
+            button.BringIntoView();
+        });
     }
 
     private Button CreateAccountButton(
@@ -293,8 +899,9 @@ public partial class MainWindow : Window
             Tag = account.Key,
             Background = Brushes.Transparent,
             Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 0, 7),
-            IsEnabled = !pending,
+            Margin = new Thickness(0, 0, 8, 0),
+            Width = 184,
+            IsEnabled = !pending && _pendingProfile is null,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         button.Click += AccountButton_Click;
@@ -308,53 +915,61 @@ public partial class MainWindow : Window
             selected ? "Selected account" : "Not selected");
 
         var accountColor = (Color)ColorConverter.ConvertFromString(
-            account.ColorHex ?? "#7C5CFC");
+            account.ColorHex ?? "#326FD1");
 
         var border = new Border
         {
-            Background = new SolidColorBrush(
-                (Color)ColorConverter.ConvertFromString(selected ? "#211D39" : "#151A24")),
-            BorderBrush = new SolidColorBrush(
-                selected ? accountColor : (Color)ColorConverter.ConvertFromString("#151A24")),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(14),
-            MinHeight = 64,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(9, 7, 9, 7),
+            MinHeight = 48,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
+        border.SetResourceReference(
+            Border.BackgroundProperty,
+            selected ? "CardSelectedBackgroundBrush" : "CardSurfaceBrush");
+        border.SetResourceReference(
+            Border.BorderBrushProperty,
+            selected ? "CardSelectedBorderBrush" : "CardBorderBrush");
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
 
         var dot = new Border
         {
-            Width = 34,
-            Height = 34,
-            CornerRadius = new CornerRadius(17),
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(7),
             Background = new SolidColorBrush(accountColor)
         };
-        dot.Child = CreateAccountIndicator(pending, selected);
+        dot.Child = CreateAccountIndicator(pending, selected, accountColor);
 
-        var labels = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-        labels.Children.Add(new TextBlock
+        var labels = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
+        var title = new TextBlock
         {
             Text = pending
                 ? "New account"
                 : account.Label ?? $"@{account.Username}",
-            Foreground = Brushes.White,
+            FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        labels.Children.Add(new TextBlock
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+        labels.Children.Add(title);
+        var subtitle = new TextBlock
         {
             Text = pending
                 ? "Finish sign-in"
                 : account.Label is null
                     ? $"User ID {account.UserId}"
                     : $"@{account.Username}  •  User ID {account.UserId}",
-            Foreground = (Brush)FindResource("MutedBrush"),
-            FontSize = 12
-        });
+            FontSize = 10,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        subtitle.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "MutedBrush");
+        labels.Children.Add(subtitle);
         Grid.SetColumn(labels, 1);
         grid.Children.Add(dot);
         grid.Children.Add(labels);
@@ -363,29 +978,115 @@ public partial class MainWindow : Window
         return button;
     }
 
-    private void EditAccountButton_Click(object sender, RoutedEventArgs e)
+    private async void EditAccountButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => EditAccountButtonClickAsync());
+
+    private async Task EditAccountButtonClickAsync()
     {
         if (_operationBusy || _pendingProfile is not null || _activeProfile is null)
             return;
 
-        var dialog = new AccountAppearanceDialog(_activeProfile) { Owner = this };
+        var editedProfile = _activeProfile;
+        var profileKey = editedProfile.Key;
+        var dialog = new AccountAppearanceDialog(editedProfile) { Owner = this };
         if (dialog.ShowDialog() != true)
             return;
 
-        _activeProfile.Label = dialog.AccountLabel;
-        _activeProfile.ColorHex = dialog.SelectedColor;
-        try
+        var accountLabel = dialog.AccountLabel;
+        var selectedColor = dialog.SelectedColor;
+        var mutationApplied = false;
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    var profile = _settings.Accounts.FirstOrDefault(account =>
+                        account.Key.Equals(
+                            profileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (profile is null)
+                        return;
+                    profile.Label = accountLabel;
+                    profile.ColorHex = selectedColor;
+                    mutationApplied = true;
+                },
+                "Account appearance could not be saved",
+                onCommitted: () =>
+                {
+                    if (mutationApplied)
+                        RenderAccountList();
+                }))
         {
-            _settingsService.Save(_settings);
+            return;
         }
-        catch (Exception ex)
-        {
-            SetStatus("Account appearance could not be saved", ex.Message, "SETTINGS ERROR");
-        }
-        RenderAccountList();
+        if (!mutationApplied)
+            return;
     }
 
-    private void SoundSettingsButton_Click(object sender, RoutedEventArgs e)
+    private async void ThemeToggleButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => ThemeToggleButtonClickAsync());
+
+    private async Task ThemeToggleButtonClickAsync()
+    {
+        var useLightTheme = ThemeToggleButton.IsChecked != true;
+        UpdateThemeTogglePresentation();
+        if (_operationBusy || useLightTheme == _settings.UseLightTheme)
+            return;
+
+        SetOperationBusy(true);
+        try
+        {
+            await TryCommitSettingsMutationAsync(
+                () => _settings.UseLightTheme = useLightTheme,
+                "Theme could not be saved",
+                onCommitted: () =>
+                {
+                    ((App)Application.Current).ThemeService.ApplyPreference(
+                        useLightTheme);
+                    UpdateThemeTogglePresentation();
+                });
+        }
+        finally
+        {
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
+        }
+    }
+
+    private void UpdateThemeTogglePresentation()
+    {
+        var isDarkTheme = !_settings.UseLightTheme;
+        ThemeToggleButton.IsChecked = isDarkTheme;
+        ThemeToggleIcon.Data = (Geometry)FindResource(
+            isDarkTheme ? "IconMoon" : "IconSun");
+
+        var mode = isDarkTheme ? "Dark" : "Light";
+        var target = isDarkTheme ? "light" : "dark";
+        var highContrastSuffix =
+            ((App)Application.Current).ThemeService.IsHighContrastActive
+                ? "; Windows high contrast is currently active"
+                : string.Empty;
+        var description =
+            $"{mode} theme on — switch to {target}{highContrastSuffix}";
+        ThemeToggleButton.ToolTip = description;
+        AutomationProperties.SetName(ThemeToggleButton, description);
+        AutomationProperties.SetHelpText(
+            ThemeToggleButton,
+            "Switch SessionDock between dark and light appearance.");
+    }
+
+    private void ThemeService_ThemeChanged(object? sender, EventArgs e) =>
+        UpdateThemeTogglePresentation();
+
+    private void MainWindow_Closed(object? sender, EventArgs e)
+    {
+        ((App)Application.Current).ThemeService.ThemeChanged -=
+            ThemeService_ThemeChanged;
+    }
+
+    private async void SoundSettingsButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(SoundSettingsButtonClickAsync);
+
+    private async Task SoundSettingsButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -401,49 +1102,88 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true)
             return;
 
+        SetOperationBusy(true);
+        string? selectedCustomFileName = null;
+        var uiSoundsEnabled = dialog.UiSoundsEnabled;
+        var startupSound = dialog.StartupSound;
         try
         {
-            var customFileName = _settings.CustomStartupSoundFileName;
+            cancellationToken.ThrowIfCancellationRequested();
             if (dialog.PendingCustomSourcePath is not null)
             {
                 _soundService.StopPreview();
-                customFileName = _soundService.ImportStartupSound(
-                    dialog.PendingCustomSourcePath);
+                selectedCustomFileName = await Task.Run(() =>
+                    _soundService.ImportStartupSound(
+                        dialog.PendingCustomSourcePath),
+                    cancellationToken);
+                _sessionImportedSoundFileNames.Add(selectedCustomFileName);
             }
 
-            _settings.UiSoundsEnabled = dialog.UiSoundsEnabled;
-            _settings.StartupSound = dialog.StartupSound;
-            _settings.CustomStartupSoundFileName = customFileName;
-            _settingsService.Save(_settings);
-            ((App)Application.Current).UiSoundsEnabled = dialog.UiSoundsEnabled;
+            if (!await TryCommitSettingsMutationAsync(
+                    () =>
+                    {
+                        _settings.UiSoundsEnabled = uiSoundsEnabled;
+                        _settings.StartupSound = startupSound;
+                        _settings.CustomStartupSoundFileName =
+                            selectedCustomFileName ??
+                            _settings.CustomStartupSoundFileName;
+                    },
+                    "Sound settings could not be saved",
+                    onCommitted: () =>
+                        ((App)Application.Current).UiSoundsEnabled =
+                            uiSoundsEnabled))
+            {
+                return;
+            }
             SetStatus(
                 "Sound settings saved",
                 "Your interface and startup sound choices stay on this PC.",
                 "SETTINGS SAVED");
         }
-        catch (Exception ex) when (
-            ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (IsExpectedSoundImportFailure(ex))
         {
             SetStatus(
                 "Sound settings could not be saved",
                 ex.Message,
                 "SETTINGS ERROR");
         }
+        finally
+        {
+            try
+            {
+                await ReconcileImportedSoundsAsync(cancellationToken);
+            }
+            finally
+            {
+                if (!_operationLifetime.IsShuttingDown)
+                    SetOperationBusy(false);
+            }
+        }
     }
 
-    private UIElement CreateAccountIndicator(bool pending, bool selected)
+    internal static bool IsExpectedSoundImportFailure(Exception exception) =>
+        exception is System.IO.IOException or UnauthorizedAccessException or
+            System.IO.InvalidDataException or ArgumentException;
+
+    private UIElement CreateAccountIndicator(
+        bool pending,
+        bool selected,
+        Color accountColor)
     {
+        var foreground = new SolidColorBrush(
+            GetContrastingAccountForeground(accountColor));
+        foreground.Freeze();
         if (pending)
         {
             return new Path
             {
                 Data = (Geometry)FindResource("IconAdd"),
-                Stroke = Brushes.White,
+                Stroke = foreground,
                 StrokeThickness = 2,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
                 Stretch = Stretch.Uniform,
-                Margin = new Thickness(9)
+                Margin = new Thickness(7)
             };
         }
 
@@ -453,7 +1193,7 @@ public partial class MainWindow : Window
             {
                 Width = 8,
                 Height = 8,
-                Fill = Brushes.White,
+                Fill = foreground,
                 Opacity = 0.78,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -463,19 +1203,78 @@ public partial class MainWindow : Window
         return new Path
         {
             Data = (Geometry)FindResource("IconCheck"),
-            Stroke = new SolidColorBrush(Color.FromRgb(87, 217, 163)),
-            StrokeThickness = 2.4,
+            Stroke = foreground,
+            StrokeThickness = 2.2,
             StrokeStartLineCap = PenLineCap.Round,
             StrokeEndLineCap = PenLineCap.Round,
             StrokeLineJoin = PenLineJoin.Round,
             Stretch = Stretch.Uniform,
-            Margin = new Thickness(8)
+            Margin = new Thickness(6)
         };
     }
 
-    private async void AccountButton_Click(object sender, RoutedEventArgs e)
+    internal static Color GetContrastingAccountForeground(Color background)
     {
-        if (_operationBusy)
+        var luminance = GetRelativeLuminance(background);
+        var whiteContrast = 1.05 / (luminance + 0.05);
+        var blackContrast = (luminance + 0.05) / 0.05;
+        return whiteContrast >= blackContrast ? Colors.White : Colors.Black;
+    }
+
+    private static double GetRelativeLuminance(Color color)
+    {
+        static double Linearize(byte component)
+        {
+            var channel = component / 255d;
+            return channel <= 0.04045
+                ? channel / 12.92
+                : Math.Pow((channel + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Linearize(color.R) +
+               0.7152 * Linearize(color.G) +
+               0.0722 * Linearize(color.B);
+    }
+
+    private void AccountsScrollViewer_PreviewMouseWheel(
+        object sender,
+        MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer scrollViewer ||
+            scrollViewer.ScrollableWidth <= 0)
+        {
+            return;
+        }
+
+        var targetOffset = CalculateHorizontalWheelOffset(
+            scrollViewer.HorizontalOffset,
+            scrollViewer.ScrollableWidth,
+            e.Delta);
+        if (targetOffset == scrollViewer.HorizontalOffset)
+            return;
+
+        scrollViewer.ScrollToHorizontalOffset(targetOffset);
+        e.Handled = true;
+    }
+
+    internal static double CalculateHorizontalWheelOffset(
+        double currentOffset,
+        double scrollableWidth,
+        int wheelDelta) =>
+        Math.Clamp(
+            currentOffset - wheelDelta / 3d,
+            0,
+            Math.Max(0, scrollableWidth));
+
+    private async void AccountButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(cancellationToken =>
+            AccountButtonClickAsync(sender, cancellationToken));
+
+    private async Task AccountButtonClickAsync(
+        object sender,
+        CancellationToken cancellationToken)
+    {
+        if (_operationBusy || _pendingProfile is not null)
             return;
         if (sender is not Button { Tag: string key })
             return;
@@ -483,18 +1282,93 @@ public partial class MainWindow : Window
         if (profile is null || profile == _activeProfile)
             return;
 
-        _activeProfile = profile;
-        _pendingProfile = null;
-        _settings.ActiveAccountKey = profile.Key;
-        ShowDestinationForProfile(profile);
-        _settingsService.Save(_settings);
-        RenderAccountList();
+        if (_destinationDraftDirty && !_destinationDraftValid)
+        {
+            SetStatus(
+                "Account was not switched",
+                "Enter a valid Roblox destination or restore the saved value before switching accounts.",
+                "INVALID DESTINATION");
+            return;
+        }
+
+        var outgoingDestination = _destinationDraftDirty
+            ? CreateDestinationPersistenceRequest()
+            : null;
+        _destinationPersistence.Cancel();
+        var mutationApplied = false;
+        AccountProfile? committedProfile = null;
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    if (outgoingDestination is not null &&
+                        IsCurrentDestinationRequest(outgoingDestination))
+                    {
+                        var outgoing = _settings.Accounts.FirstOrDefault(account =>
+                            account.Key.Equals(
+                                outgoingDestination.AccountKey,
+                                StringComparison.OrdinalIgnoreCase));
+                        if (outgoing is not null)
+                        {
+                            outgoing.Destination =
+                                outgoingDestination.Destination;
+                        }
+                    }
+
+                    if (!_settings.Accounts.Any(account => account.Key == key))
+                        return;
+                    _settings.ActiveAccountKey = key;
+                    mutationApplied = true;
+                },
+                $"Could not switch to @{profile.Username}",
+                "ACCOUNT SWITCH ERROR",
+                onCommitted: () =>
+                {
+                    if (!mutationApplied)
+                        return;
+                    committedProfile = _settings.Accounts.First(account =>
+                        account.Key.Equals(
+                            key,
+                            StringComparison.OrdinalIgnoreCase));
+                    _activeProfile = committedProfile;
+                    _pendingProfile = null;
+                    ShowDestinationForProfile(committedProfile);
+                    RenderAccountList();
+                }))
+        {
+            return;
+        }
+        if (!mutationApplied)
+            return;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (committedProfile is null ||
+            !string.Equals(
+                _activeProfile?.Key,
+                key,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
         SetStatus($"Switching to @{profile.Username}", "Loading its isolated Roblox session…", "SWITCHING");
-        await InitializeBrowserAsync(profile, showLogin: false);
+        await InitializeBrowserAsync(
+            committedProfile,
+            showLogin: false,
+            cancellationToken);
     }
 
-    private async void AddAccountButton_Click(object sender, RoutedEventArgs e)
+    private async void AddAccountButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(cancellationToken =>
+            AddAccountButtonClickAsync(cancellationToken));
+
+    private async Task AddAccountButtonClickAsync(
+        CancellationToken cancellationToken)
     {
+        if (_operationBusy || _pendingProfile is not null)
+            return;
+
+        if (!await FlushDestinationPersistenceAsync())
+            return;
+        cancellationToken.ThrowIfCancellationRequested();
         if (_operationBusy || _pendingProfile is not null)
             return;
 
@@ -511,28 +1385,48 @@ public partial class MainWindow : Window
         RenderAccountList();
         LauncherPanel.Visibility = Visibility.Collapsed;
         BrowserPanel.Visibility = Visibility.Visible;
-        await InitializeBrowserAsync(_pendingProfile, showLogin: true);
+        await InitializeBrowserAsync(
+            _pendingProfile,
+            showLogin: true,
+            cancellationToken);
     }
 
-    private async void SignInButton_Click(object sender, RoutedEventArgs e)
+    private async void SignInButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(cancellationToken =>
+            SignInButtonClickAsync(cancellationToken));
+
+    private async Task SignInButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
         if (_activeProfile is null)
         {
-            AddAccountButton_Click(sender, e);
+            await AddAccountButtonClickAsync(cancellationToken);
             return;
         }
 
         LauncherPanel.Visibility = Visibility.Collapsed;
         BrowserPanel.Visibility = Visibility.Visible;
-        if (!_webSession.IsReady)
-            await InitializeBrowserAsync(_activeProfile, showLogin: true);
+        if (!TryGetCurrentWebSessionToken(_activeProfile, out var token) ||
+            !_webSession.IsReady)
+        {
+            await InitializeBrowserAsync(
+                _activeProfile,
+                showLogin: true,
+                cancellationToken);
+        }
         else
-            _webSession.NavigateToLogin();
+        {
+            _webSession.NavigateToLogin(token);
+        }
     }
 
-    private async void BrowserBackButton_Click(object sender, RoutedEventArgs e)
+    private async void BrowserBackButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(BrowserBackButtonClickAsync);
+
+    private async Task BrowserBackButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_pendingProfile is null)
         {
@@ -541,44 +1435,83 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!await ClearCurrentBrowserProfileAsync())
+        if (!await _accountCheckLock.WaitAsync(0, cancellationToken))
         {
             SetStatus(
-                "Temporary session could not be cleared",
-                "Keep this window open and try Back again before closing SessionDock.",
-                "CLEANUP ERROR");
+                "Account verification is still finishing",
+                "Wait for the current sign-in check to finish before discarding this temporary session.",
+                "ACCOUNT CHECK PENDING");
             return;
         }
 
-        BrowserPanel.Visibility = Visibility.Collapsed;
-        LauncherPanel.Visibility = Visibility.Visible;
-        _pendingProfile = null;
-        _activeProfile = FindActiveSavedProfile();
-        ShowDestinationForProfile(_activeProfile);
-        RenderAccountList();
-        if (_activeProfile is not null)
-            await InitializeBrowserAsync(_activeProfile, showLogin: false);
+        AccountProfile? nextProfile = null;
+        try
+        {
+            if (_pendingProfile is null)
+            {
+                BrowserPanel.Visibility = Visibility.Collapsed;
+                LauncherPanel.Visibility = Visibility.Visible;
+                return;
+            }
+
+            if (!await ClearCurrentBrowserProfileAsync(cancellationToken))
+            {
+                SetStatus(
+                    "Temporary session could not be cleared",
+                    "Keep this window open and try Back again before closing SessionDock.",
+                    "CLEANUP ERROR");
+                return;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+
+            BrowserPanel.Visibility = Visibility.Collapsed;
+            LauncherPanel.Visibility = Visibility.Visible;
+            _pendingProfile = null;
+            _activeProfile = FindActiveSavedProfile();
+            nextProfile = _activeProfile;
+            ShowDestinationForProfile(nextProfile);
+            RenderAccountList();
+        }
+        finally
+        {
+            _accountCheckLock.Release();
+        }
+
+        if (nextProfile is not null)
+            await InitializeBrowserAsync(
+                nextProfile,
+                showLogin: false,
+                cancellationToken);
         else
             SetSignedOutState();
     }
 
-    private async void LaunchButton_Click(object sender, RoutedEventArgs e)
+    private async void LaunchButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(LaunchButtonClickAsync);
+
+    private async Task LaunchButtonClickAsync(CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
         SetOperationBusy(true);
         try
         {
-            await LaunchAsync();
+            await LaunchAsync(cancellationToken);
         }
         finally
         {
-            SetOperationBusy(false);
+            _launchInProgress = false;
+            if (!_operationLifetime.IsShuttingDown)
+            {
+                LaunchButtonLabel.Text = "Launch";
+                SetOperationBusy(false);
+            }
         }
     }
 
-    private async Task LaunchAsync()
+    private async Task LaunchAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var accountDestination = PlaceIdBox.Text.Trim();
         if (!TryResolveLaunchInput(
                 accountDestination,
@@ -592,15 +1525,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        await CheckAuthenticatedAccountAsync();
+        if (!await FlushDestinationPersistenceAsync())
+            return;
+
+        await CheckAuthenticatedAccountAsync(
+            cancellationToken: cancellationToken);
         var currentUser = _currentUser;
         var activeProfile = _activeProfile;
         if (currentUser is null || activeProfile is null ||
-            currentUser.Id != activeProfile.UserId)
+            currentUser.Id != activeProfile.UserId ||
+            !TryGetCurrentWebSessionToken(activeProfile, out var sessionToken))
             return;
 
-        activeProfile.Destination = accountDestination;
-        _settingsService.Save(_settings);
         _launchInProgress = true;
         SetReadyState();
 
@@ -611,7 +1547,13 @@ public partial class MainWindow : Window
                 "Looking up the hidden experience and private-server link code…",
                 "RESOLVING SERVER");
             LaunchButton.IsEnabled = false;
-            target = await _webSession.ResolvePrivateServerAsync(target.ShareCode);
+            target = await _webSession.ResolvePrivateServerAsync(
+                target.ShareCode,
+                sessionToken,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsCurrentWebSessionOwner(sessionToken))
+                return;
             if (target is null)
             {
                 _launchInProgress = false;
@@ -646,10 +1588,20 @@ public partial class MainWindow : Window
             "GETTING TICKET");
         LaunchButton.IsEnabled = false;
 
-        var ticketTask = _webSession.GetAuthenticationTicketAsync();
-        var nameTask = TryGetExperienceNameAsync(target.PlaceId);
-        var localeTask = _webSession.GetUserLocaleAsync();
-        await Task.WhenAll(ticketTask, localeTask);
+        var ticketTask = _webSession.GetAuthenticationTicketAsync(
+            sessionToken,
+            cancellationToken);
+        var nameTask = TryGetExperienceNameAsync(
+            target.PlaceId,
+            sessionToken,
+            cancellationToken);
+        var localeTask = _webSession.GetUserLocaleAsync(
+            sessionToken,
+            cancellationToken);
+        await Task.WhenAll(ticketTask, nameTask, localeTask);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentWebSessionOwner(sessionToken))
+            return;
         var ticket = ticketTask.Result;
         if (string.IsNullOrWhiteSpace(ticket))
         {
@@ -669,7 +1621,7 @@ public partial class MainWindow : Window
         {
             Destination = destination,
             PlaceId = target.PlaceId,
-            Name = await nameTask,
+            Name = nameTask.Result,
             IsPrivateServer = target.IsPrivateServer,
             ServerJobId = serverJobId,
             AccountUserId = currentUser.Id,
@@ -677,18 +1629,33 @@ public partial class MainWindow : Window
             LastLaunchedAt = DateTimeOffset.UtcNow
         };
         var locale = localeTask.Result;
+        if (!IsCurrentWebSessionOwner(sessionToken))
+            return;
         await LaunchClientAsync(
             RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
-            recent);
+            activeProfile,
+            recent,
+            cancellationToken);
     }
 
-    private async Task<string?> TryGetExperienceNameAsync(long placeId)
+    private async Task<string?> TryGetExperienceNameAsync(
+        long placeId,
+        WebSessionToken sessionToken,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await _webSession.GetExperienceNameAsync(placeId);
+            return await _webSession.GetExperienceNameAsync(
+                placeId,
+                sessionToken,
+                cancellationToken);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (WebSessionUnavailableException exception) when (
+            exception.Reason != WebSessionUnavailableReason.Superseded)
         {
             return null;
         }
@@ -696,7 +1663,9 @@ public partial class MainWindow : Window
 
     private async Task LaunchClientAsync(
         string launchUri,
-        RecentExperience recent)
+        AccountProfile account,
+        RecentExperience recent,
+        CancellationToken cancellationToken)
     {
         SetStatus(
             $"Launching as @{_currentUser?.Name}",
@@ -705,12 +1674,17 @@ public partial class MainWindow : Window
         LaunchButton.IsEnabled = false;
 
         var launchStartedAt = DateTimeOffset.UtcNow;
-        var result = await _robloxClient.LaunchAsync(launchUri);
+        var result = await _robloxClient.LaunchAsync(
+            launchUri,
+            cancellationToken);
+        TrackLaunchedClient(result.PlayerIdentity, account, recent);
+        cancellationToken.ThrowIfCancellationRequested();
         _launchInProgress = false;
         if (result is { Success: true, ProcessId: int processId })
         {
-            SaveRecentExperience(recent);
-            BeginServerTracking(recent, launchStartedAt);
+            await SaveRecentExperienceAsync(recent);
+            if (_settings.RecentExperiences.Contains(recent))
+                BeginServerTracking(recent, launchStartedAt);
             SetStatus(
                 "Roblox Player started",
                 _launchHook.IsConfigured
@@ -722,7 +1696,7 @@ public partial class MainWindow : Window
                 recent,
                 processId,
                 accountLabel,
-                _launchHookCancellation.Token);
+                cancellationToken);
             SetStatus(
                 "Roblox Player started",
                 _launchHook.IsConfigured
@@ -767,8 +1741,17 @@ public partial class MainWindow : Window
 
     private void BeginServerTracking(
         RecentExperience recent,
-        DateTimeOffset launchStartedAt) =>
-        _ = TrackJoinedServerAsync(recent, launchStartedAt);
+        DateTimeOffset launchStartedAt)
+    {
+        var trackingTask = TrackJoinedServerAsync(recent, launchStartedAt);
+        _ = trackingTask.ContinueWith(
+            completed => System.Diagnostics.Trace.WriteLine(
+                $"Roblox server tracking faulted: {completed.Exception?.GetBaseException().GetType().Name}."),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously |
+                TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
 
     private async Task TrackJoinedServerAsync(
         RecentExperience recent,
@@ -780,28 +1763,38 @@ public partial class MainWindow : Window
                 recent.AccountUserId,
                 recent.PlaceId,
                 launchStartedAt,
-                _launchHookCancellation.Token);
+                _operationLifetime.Token);
+            _operationLifetime.Token.ThrowIfCancellationRequested();
             if (serverJobId is null ||
                 !_settings.RecentExperiences.Contains(recent))
             {
                 return;
             }
 
-            recent.ServerJobId = serverJobId;
-            SaveRecentMetadata(showError: false);
+            await SaveRecentMetadataAsync(
+                () =>
+                {
+                    if (_settings.RecentExperiences.Contains(recent))
+                        recent.ServerJobId = serverJobId;
+                },
+                showError: false);
         }
         catch (OperationCanceledException)
         {
             // App shutdown cancels optional local server detection.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            LocalDataException.IsExpectedPersistenceFailure(ex))
         {
             System.Diagnostics.Trace.WriteLine(
                 $"Roblox server detection failed: {ex.GetType().Name}.");
         }
     }
 
-    private async void ResetButton_Click(object sender, RoutedEventArgs e)
+    private async void ResetButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(ResetButtonClickAsync);
+
+    private async Task ResetButtonClickAsync(CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -815,55 +1808,157 @@ public partial class MainWindow : Window
         if (result != MessageBoxResult.Yes)
             return;
 
+        _destinationPersistence.Cancel();
         SetOperationBusy(true);
         try
         {
-            if (!await ClearCurrentBrowserProfileAsync())
+            await Task.Run(
+                () => _settingsService.StageProfileDeletion(profile.Key),
+                cancellationToken);
+            if (!await TryCommitSettingsMutationAsync(
+                    () =>
+                    {
+                        _settings.PendingProfileDeletionKeys = new[]
+                            {
+                                profile.Key
+                            }
+                            .Concat(_settings.PendingProfileDeletionKeys)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .Take(SettingsService.MaximumPendingProfileDeletions)
+                            .ToList();
+                        _settings.Accounts.RemoveAll(
+                            account => account.Key == profile.Key);
+                        _settings.ActiveAccountKey =
+                            _settings.Accounts.FirstOrDefault()?.Key;
+                    },
+                    "Account removal could not be saved",
+                    "ACCOUNT SAVE ERROR",
+                    "SessionDock could not save the account removal, so the account and its isolated sign-in data were left unchanged. Make %LOCALAPPDATA%\\SessionDock writable, then retry."))
             {
-                SetStatus(
-                    "Account data could not be cleared",
-                    "The account was not removed. Restart SessionDock and try again.",
-                    "CLEANUP ERROR");
+                if (!await Task.Run(
+                        () => _settingsService.ClearProfileDeletionJournal(
+                            profile.Key),
+                        CancellationToken.None))
+                {
+                    SetStatus(
+                        "Account removal is queued",
+                        "SessionDock could not cancel the durable removal request. It will safely finish removing this account after local settings become writable.",
+                        "CLEANUP WARNING");
+                }
                 return;
             }
 
-            _settings.Accounts.RemoveAll(account => account.Key == profile.Key);
-            _activeProfile = _settings.Accounts.FirstOrDefault();
-            _settings.ActiveAccountKey = _activeProfile?.Key;
-            ShowDestinationForProfile(_activeProfile);
-            _settingsService.Save(_settings);
-            _currentUser = null;
-            RenderAccountList();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_operationLifetime.IsShuttingDown)
+                return;
+
+            var profileWasCleared = false;
+            try
+            {
+                profileWasCleared = await ClearBrowserProfileAsync(
+                    profile,
+                    cancellationToken,
+                    requireDeletionIntent: true);
+            }
+            finally
+            {
+                _activeProfile = _settings.Accounts.FirstOrDefault();
+                ShowDestinationForProfile(_activeProfile);
+                _currentUser = null;
+                RenderAccountList();
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            var cleanupAcknowledged = profileWasCleared &&
+                await AcknowledgePendingProfileDeletionsAsync([profile.Key]);
+            var journalCleared = cleanupAcknowledged &&
+                await Task.Run(
+                    () => _settingsService.ClearProfileDeletionJournal(
+                        profile.Key),
+                    CancellationToken.None);
             if (_activeProfile is not null)
-                await InitializeBrowserAsync(_activeProfile, showLogin: false);
+                await InitializeBrowserAsync(
+                    _activeProfile,
+                    showLogin: false,
+                    cancellationToken);
             else
                 SetSignedOutState();
+
+            if (!profileWasCleared || !cleanupAcknowledged || !journalCleared)
+            {
+                SetStatus(
+                    "Account removed; local cleanup is pending",
+                    "The account removal was saved, but some isolated browser files are still in use or the cleanup acknowledgement could not be saved. SessionDock will retry this exact removal on the next start.",
+                    "CLEANUP WARNING");
+            }
         }
         finally
         {
-            SetOperationBusy(false);
+            if (!_operationLifetime.IsShuttingDown)
+                SetOperationBusy(false);
         }
     }
 
-    private async Task<bool> ClearCurrentBrowserProfileAsync()
+    private async Task<bool> ClearCurrentBrowserProfileAsync(
+        CancellationToken cancellationToken)
     {
         var profile = _pendingProfile ?? _activeProfile;
         if (profile is null)
             return true;
 
-        await _webSession.ClearProfileAsync();
-        _webSession.ReleaseBrowser();
-        BrowserHost.Children.Clear();
-        var directoryRemoved = await _settingsService.DeleteSessionDataAsync(profile);
+        return await ClearBrowserProfileAsync(profile, cancellationToken);
+    }
+
+    private async Task<bool> ClearBrowserProfileAsync(
+        AccountProfile profile,
+        CancellationToken cancellationToken,
+        bool requireDeletionIntent = false)
+    {
+        if (TryGetAffineWebSessionToken(profile, out var sessionToken))
+        {
+            try
+            {
+                await _webSession.ClearProfileAsync(
+                    sessionToken,
+                    cancellationToken);
+            }
+            catch (WebSessionUnavailableException)
+            {
+                // A failed current browser still owns profile resources and
+                // must be released before the exact deletion is retried.
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (HasCurrentWebSessionAffinity(sessionToken))
+            {
+                _webSession.ReleaseBrowser();
+                _webSessionToken = null;
+                BrowserHost.Children.Clear();
+            }
+        }
+        var directoryRemoved = requireDeletionIntent
+            ? await _settingsService.DeletePendingProfileAsync(
+                profile.Key,
+                _settings,
+                cancellationToken)
+            : await _settingsService.DeleteSessionDataAsync(
+                profile,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return directoryRemoved;
     }
 
     private void PlaceIdBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        TrackDestinationForActiveProfile();
+        if (_destinationTrackingEnabled)
+            UpdateDestinationDraftFromText();
         if (LaunchButton is not null)
             RefreshLaunchAvailability();
     }
+
+    private async void PlaceIdBox_LostKeyboardFocus(
+        object sender,
+        KeyboardFocusChangedEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            FlushDestinationPersistenceAsync(showInvalidError: false));
 
     private void PlaceIdBox_KeyDown(object sender, KeyEventArgs e)
     {
@@ -874,16 +1969,29 @@ public partial class MainWindow : Window
         LaunchButton_Click(LaunchButton, new RoutedEventArgs());
     }
 
-    private void SetDestinationForAllButton_Click(object sender, RoutedEventArgs e)
+    private async void SetDestinationForAllButton_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => SetDestinationForAllButtonClickAsync());
+
+    private async Task SetDestinationForAllButtonClickAsync()
     {
         if (_operationBusy || _launchInProgress || _pendingProfile is not null)
             return;
 
-        if (!AccountDestinationService.TryApplyToAll(
-                _settings.Accounts,
-                _settings.RecentExperiences,
+        if (_settings.Accounts.Count == 0)
+        {
+            SetStatus(
+                "Destination was not changed",
+                "Add an account before setting a shared destination.",
+                "INVALID DESTINATION");
+            RefreshLaunchAvailability();
+            return;
+        }
+        if (!LaunchInputResolver.TryResolve(
                 PlaceIdBox.Text,
-                out var assignedCount,
+                _settings.RecentExperiences,
+                out var resolved,
                 out var error))
         {
             SetStatus("Destination was not changed", error, "INVALID DESTINATION");
@@ -891,9 +1999,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settingsService.Save(_settings);
-        ShowDestinationForProfile(_activeProfile);
-        RefreshLaunchAvailability();
+        _destinationPersistence.Cancel();
+        var assignedCount = _settings.Accounts.Count;
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    foreach (var account in _settings.Accounts)
+                        account.Destination = resolved!.AccountDestination;
+                },
+                "Shared destination could not be saved",
+                "DESTINATION SAVE ERROR",
+                onCommitted: () =>
+                {
+                    ShowDestinationForProfile(_activeProfile);
+                    RefreshLaunchAvailability();
+                }))
+        {
+            ShowDestinationForProfile(_activeProfile);
+            RefreshLaunchAvailability();
+            return;
+        }
         SetStatus(
             "Destination set for all accounts",
             $"Saved this destination for {assignedCount} account{(assignedCount == 1 ? string.Empty : "s")}.",
@@ -928,37 +2053,197 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private void TrackDestinationForActiveProfile()
+    private void UpdateDestinationDraftFromText()
     {
-        if (!_destinationTrackingEnabled ||
-            _activeProfile is null ||
-            _pendingProfile is not null)
+        _destinationPersistence.Cancel();
+        var profile = _activeProfile;
+        if (profile is null ||
+            _pendingProfile is not null ||
+            !string.Equals(
+                _destinationDraftAccountKey,
+                profile.Key,
+                StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        var destination = PlaceIdBox.Text.Trim();
-        if (destination.Length == 0)
+        _destinationRevision++;
+        var input = PlaceIdBox.Text.Trim();
+        if (input.Length == 0)
         {
-            _activeProfile.Destination = null;
+            _destinationDraftValue = null;
+            _destinationDraftValid = true;
         }
         else if (LaunchInputResolver.TryResolve(
-                     destination,
+                     input,
                      _settings.RecentExperiences,
-                     out _,
+                     out var resolved,
                      out _))
         {
-            _activeProfile.Destination = destination;
+            _destinationDraftValue = resolved!.AccountDestination;
+            _destinationDraftValid = true;
+        }
+        else
+        {
+            _destinationDraftValue = null;
+            _destinationDraftValid = false;
+        }
+
+        _destinationDraftDirty = !_destinationDraftValid ||
+            !string.Equals(
+                _destinationPersistedValue,
+                _destinationDraftValue,
+                StringComparison.Ordinal);
+        if (_destinationDraftValid && _destinationDraftDirty)
+        {
+            var request = CreateDestinationPersistenceRequest();
+            PersistDestinationAfterDelay(request);
         }
     }
 
+    private async void PersistDestinationAfterDelay(
+        DestinationPersistenceRequest request) =>
+        await RunWindowOperationAsync(_ =>
+            _destinationPersistence.ScheduleAsync(request));
+
+    private async Task<bool> FlushDestinationPersistenceAsync(
+        bool showInvalidError = true)
+    {
+        _destinationPersistence.Cancel();
+        if (_activeProfile is null || _pendingProfile is not null ||
+            !_destinationDraftDirty)
+        {
+            return true;
+        }
+        if (!_destinationDraftValid)
+        {
+            if (showInvalidError && !_operationLifetime.IsShuttingDown)
+            {
+                SetStatus(
+                    "Destination was not saved",
+                    "Enter a valid Roblox destination before leaving this account.",
+                    "INVALID DESTINATION");
+            }
+            return false;
+        }
+
+        return await _destinationPersistence.FlushAsync(
+            CreateDestinationPersistenceRequest());
+    }
+
+    private async Task<bool> PersistDestinationRequestAsync(
+        DestinationPersistenceRequest request)
+    {
+        var applied = false;
+        var stale = false;
+        var committed = await TryCommitSettingsMutationAsync(
+            () =>
+            {
+                if (!IsCurrentDestinationRequest(request))
+                {
+                    stale = true;
+                    return;
+                }
+
+                var profile = _settings.Accounts.FirstOrDefault(account =>
+                    account.Key.Equals(
+                        request.AccountKey,
+                        StringComparison.OrdinalIgnoreCase));
+                if (profile is null)
+                {
+                    stale = true;
+                    return;
+                }
+                profile.Destination = request.Destination;
+                applied = true;
+            },
+            "Destination could not be saved",
+            "DESTINATION SAVE ERROR",
+            onCommitted: () =>
+            {
+                if (!applied ||
+                    _pendingProfile is not null ||
+                    _activeProfile is null ||
+                    request.OwnerEpoch != _destinationOwnerEpoch ||
+                    !request.AccountKey.Equals(
+                        _destinationDraftAccountKey,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !request.AccountKey.Equals(
+                        _activeProfile.Key,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _destinationPersistedValue = request.Destination;
+                _destinationDraftDirty = !_destinationDraftValid ||
+                    !string.Equals(
+                        _destinationPersistedValue,
+                        _destinationDraftValue,
+                        StringComparison.Ordinal);
+            });
+        if (!committed || stale || !applied)
+            return false;
+        return true;
+    }
+
+    private DestinationPersistenceRequest CreateDestinationPersistenceRequest() =>
+        new(
+            _destinationDraftAccountKey!,
+            _destinationOwnerEpoch,
+            _destinationRevision,
+            _destinationDraftValue);
+
+    private bool IsCurrentDestinationRequest(
+        DestinationPersistenceRequest request) =>
+        _pendingProfile is null &&
+        _activeProfile is not null &&
+        request.OwnerEpoch == _destinationOwnerEpoch &&
+        request.Revision == _destinationRevision &&
+        _destinationDraftValid &&
+        string.Equals(
+            request.AccountKey,
+            _destinationDraftAccountKey,
+            StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(
+            request.AccountKey,
+            _activeProfile.Key,
+            StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(
+            request.Destination,
+            _destinationDraftValue,
+            StringComparison.Ordinal);
+
     private void ShowDestinationForProfile(AccountProfile? profile)
     {
+        _destinationPersistence.Cancel();
         var trackingWasEnabled = _destinationTrackingEnabled;
         _destinationTrackingEnabled = false;
         PlaceIdBox.Text = profile?.Destination ?? string.Empty;
+        _destinationOwnerEpoch++;
+        _destinationRevision++;
+        _destinationDraftAccountKey = profile?.Key;
+        _destinationDraftValue = profile?.Destination;
+        _destinationPersistedValue = profile?.Destination;
+        _destinationDraftValid = true;
+        _destinationDraftDirty = false;
         _destinationTrackingEnabled = trackingWasEnabled;
         ResetDestinationViewport();
+    }
+
+    private DestinationPersistenceRequest? CaptureShutdownDestinationRequest()
+    {
+        if (!_destinationDraftValid || !_destinationDraftDirty ||
+            _destinationDraftAccountKey is null)
+        {
+            return null;
+        }
+
+        return new DestinationPersistenceRequest(
+            _destinationDraftAccountKey,
+            _destinationOwnerEpoch,
+            _destinationRevision,
+            _destinationDraftValue);
     }
 
     private void ResetDestinationViewport()
@@ -1016,6 +2301,8 @@ public partial class MainWindow : Window
             !_operationBusy &&
             !_launchInProgress &&
             _currentUser?.Id == _activeProfile?.UserId &&
+            _activeProfile is not null &&
+            TryGetCurrentWebSessionToken(_activeProfile, out _) &&
             destinationIsValid;
         BatchLaunchButton.IsEnabled =
             !_operationBusy &&
@@ -1031,7 +2318,7 @@ public partial class MainWindow : Window
         AddAccountButton.IsEnabled = !busy && _pendingProfile is null;
         EditAccountButton.IsEnabled =
             !busy && _pendingProfile is null && _activeProfile is not null;
-        CloseAllInstancesButton.IsEnabled = !busy;
+        RunningClientsButton.IsEnabled = !busy;
         ResetButton.IsEnabled = !busy && _activeProfile is not null;
         SignInButton.IsEnabled = !busy;
         PlaceIdBox.IsEnabled = !busy;
@@ -1040,8 +2327,10 @@ public partial class MainWindow : Window
         RecentExperiencesList.IsEnabled = !busy;
         UpdateClearHistoryButton();
         BatchLaunchButton.IsEnabled = !busy;
+        ThemeToggleButton.IsEnabled = !busy;
         SoundSettingsButton.IsEnabled = !busy;
         IntegrationsButton.IsEnabled = !busy;
+        ReleaseNotesButton.IsEnabled = !busy;
         InstallUpdateButton.IsEnabled = !busy;
         RefreshLaunchAvailability();
     }
@@ -1051,39 +2340,224 @@ public partial class MainWindow : Window
             account => account.Key == _settings.ActiveAccountKey)
         ?? _settings.Accounts.FirstOrDefault();
 
-    private void MainWindow_Closed(object? sender, EventArgs e)
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        var incompleteProfile = _pendingProfile;
-        TrackDestinationForActiveProfile();
+        if (_shutdownComplete)
+            return;
+
+        var shutdownBudget = new ShutdownTimeBudget(ShutdownTimeout);
+        e.Cancel = true;
+        if (!_operationLifetime.BeginShutdown())
+            return;
+
+        var destinationRequest = CaptureShutdownDestinationRequest();
+        var shutdownFailures = new List<Exception>();
+        var settingsCompletion = _settingsMutations.CompleteAsync(() =>
+            ShutdownSettingsSnapshot.Create(
+                _settings,
+                destinationRequest,
+                CaptureShutdownDestinationRequest()));
+        ObserveShutdownSettingsCompletion(settingsCompletion);
+        _destinationTrackingEnabled = false;
+        IsEnabled = false;
+
+        // Always leave the original Closing event before Close is requested
+        // again, even when there are no active operations to await.
+        await Task.Yield();
         try
         {
-            _settingsService.Save(_settings);
+            await CompleteShutdownAsync(
+                shutdownBudget,
+                settingsCompletion,
+                shutdownFailures);
         }
-        catch
+        catch (Exception exception)
         {
-            // Closing must continue even if local settings are unavailable.
+            // A shutdown failure must not keep the process and mutex alive.
+            shutdownFailures.Add(exception);
+            System.Diagnostics.Trace.WriteLine(
+                $"Window shutdown failed safely: {exception.GetType().Name}.");
         }
-        _browserSwitchCancellation?.Cancel();
-        _browserSwitchCancellation?.Dispose();
-        _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;
-        _webSession.Dispose();
-        if (incompleteProfile is not null)
+        finally
         {
+            _shutdownComplete = true;
             try
             {
-                _settingsService.DeleteSessionDataAsync(incompleteProfile)
-                    .GetAwaiter()
-                    .GetResult();
+                ShutdownCompleted?.Invoke(shutdownFailures.FirstOrDefault());
             }
-            catch
+            catch (Exception exception)
             {
-                // The next reliable startup reconciles abandoned profile folders.
+                // A smoke observer must not keep the production window open.
+                System.Diagnostics.Trace.WriteLine(
+                    $"Shutdown completion observer failed: {exception.GetType().Name}.");
+            }
+            Close();
+        }
+    }
+
+    private async Task CompleteShutdownAsync(
+        ShutdownTimeBudget shutdownBudget,
+        Task settingsCompletion,
+        ICollection<Exception> shutdownFailures)
+    {
+        ArgumentNullException.ThrowIfNull(shutdownFailures);
+        var browserCancellation =
+            CancelScopedOperation(_browserSwitchCancellation);
+        var batchCancellation =
+            CancelScopedOperation(_batchCancellation);
+        _destinationPersistence.Cancel();
+        var operationsDrained =
+            shutdownBudget.TryGetRemaining(out var drainTimeout) &&
+            await _operationLifetime.DrainAsync(drainTimeout);
+        if (!operationsDrained)
+        {
+            shutdownFailures.Add(new TimeoutException(
+                "Active window operations did not drain before shutdown."));
+        }
+        var incompleteProfile = _pendingProfile;
+        var finalSettingsSaved = false;
+
+        try
+        {
+            if (settingsCompletion.IsCompletedSuccessfully)
+            {
+                finalSettingsSaved = true;
+            }
+            else if (shutdownBudget.TryGetRemaining(out var saveTimeout))
+            {
+                finalSettingsSaved =
+                    await BoundedSettingsPersistence.TrySaveAsync(
+                        () => settingsCompletion,
+                        saveTimeout);
             }
         }
-        _launchHookCancellation.Cancel();
-        _launchHook.Dispose();
-        _launchHookCancellation.Dispose();
-        _updateService.Dispose();
+        catch (Exception exception)
+        {
+            // Closing must continue even if local settings are unavailable.
+            shutdownFailures.Add(exception);
+            System.Diagnostics.Trace.WriteLine(
+                $"Shutdown settings persistence failed: {exception.GetType().Name}.");
+        }
+        if (!finalSettingsSaved)
+        {
+            shutdownFailures.Add(new TimeoutException(
+                "Final settings persistence did not finish before shutdown."));
+        }
+
+        _webSession.RobloxPageLoaded -= WebSession_RobloxPageLoaded;
+        _webSession.SessionUnavailable -= WebSession_SessionUnavailable;
+        try
+        {
+            BrowserHost.Children.Clear();
+        }
+        catch (Exception exception)
+        {
+            // Native browser teardown continues below.
+            shutdownFailures.Add(exception);
+            System.Diagnostics.Trace.WriteLine(
+                $"Browser host teardown failed: {exception.GetType().Name}.");
+        }
+        DisposeDuringShutdown(_webSession, shutdownFailures);
+        _webSessionToken = null;
+        if (PendingProfileCleanup.CanDelete(
+                operationsDrained,
+                finalSettingsSaved,
+                incompleteProfile,
+                _pendingProfile,
+                _settings))
+        {
+            if (shutdownBudget.TryGetRemaining(out var cleanupTimeout))
+            {
+                await PendingProfileCleanup.TryDeleteAsync(
+                    cancellationToken => _settingsService.DeleteSessionDataAsync(
+                        incompleteProfile!,
+                        cancellationToken),
+                    cleanupTimeout);
+            }
+        }
+
+        DisposeCancellationAfterCallbacks(
+            _browserSwitchCancellation,
+            browserCancellation);
+        DisposeCancellationAfterCallbacks(
+            _batchCancellation,
+            batchCancellation);
+        DisposeDuringShutdown(_launchHook, shutdownFailures);
+        DisposeDuringShutdown(_updateService, shutdownFailures);
+        DisposeDuringShutdown(_destinationPersistence, shutdownFailures);
+        DisposeDuringShutdown(_operationLifetime, shutdownFailures);
+    }
+
+    private static void ObserveShutdownSettingsCompletion(Task completion)
+    {
+        _ = completion.ContinueWith(
+            completed => System.Diagnostics.Trace.WriteLine(
+                $"Shutdown settings completion later failed: {completed.Exception?.GetBaseException().GetType().Name}."),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously |
+                TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
+    private static Task CancelScopedOperation(
+        CancellationTokenSource? cancellation)
+    {
+        if (cancellation is null)
+            return Task.CompletedTask;
+
+        try
+        {
+            var cancellationTask = cancellation.CancelAsync();
+            _ = cancellationTask.ContinueWith(
+                completed => System.Diagnostics.Trace.WriteLine(
+                    $"A scoped shutdown cancellation callback failed: {completed.Exception?.GetBaseException().GetType().Name}."),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously |
+                    TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+            return cancellationTask;
+        }
+        catch (ObjectDisposedException)
+        {
+            // The operation completed while shutdown was taking its snapshot.
+            return Task.CompletedTask;
+        }
+    }
+
+    private static void DisposeCancellationAfterCallbacks(
+        CancellationTokenSource? cancellation,
+        Task cancellationTask)
+    {
+        if (cancellation is null)
+            return;
+        if (cancellationTask.IsCompleted)
+        {
+            DisposeDuringShutdown(cancellation);
+            return;
+        }
+
+        _ = cancellationTask.ContinueWith(
+            _ => DisposeDuringShutdown(cancellation),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static void DisposeDuringShutdown(
+        IDisposable? disposable,
+        ICollection<Exception>? shutdownFailures = null)
+    {
+        try
+        {
+            disposable?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            // One teardown failure must not prevent the remaining releases.
+            shutdownFailures?.Add(exception);
+            System.Diagnostics.Trace.WriteLine(
+                $"Shutdown disposal failed: {exception.GetType().Name}.");
+        }
     }
 
 }

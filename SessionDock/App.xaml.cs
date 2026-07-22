@@ -1,5 +1,9 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Shell;
+using System.Windows.Media;
 using System.Windows.Threading;
 using SessionDock.Services;
 
@@ -7,15 +11,44 @@ namespace SessionDock;
 
 public partial class App : Application
 {
+    private const string ProductionApplicationId = "RobloxOneLauncher";
+    private readonly string _applicationId;
+    private readonly RuntimeSmokeTestOptions? _runtimeSmokeTest;
     private SingleInstanceService? _singleInstance;
+    private AppThemeService? _themeService;
     public UiSoundService SoundService { get; private set; } = null!;
     public bool UiSoundsEnabled { get; set; } = true;
+    internal AppThemeService ThemeService => _themeService ??
+        throw new InvalidOperationException(
+            "The application theme service has not started.");
+
+    public App()
+        : this(ProductionApplicationId, runtimeSmokeTest: null)
+    {
+    }
+
+    internal App(RuntimeSmokeTestOptions runtimeSmokeTest)
+        : this(
+            runtimeSmokeTest?.ApplicationId ??
+                throw new ArgumentNullException(nameof(runtimeSmokeTest)),
+            runtimeSmokeTest)
+    {
+    }
+
+    private App(
+        string applicationId,
+        RuntimeSmokeTestOptions? runtimeSmokeTest)
+    {
+        _applicationId = applicationId;
+        _runtimeSmokeTest = runtimeSmokeTest;
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // Retain the original mutex name so renamed and older copies cannot run
-        // against the same browser profiles at the same time.
-        _singleInstance = new SingleInstanceService("RobloxOneLauncher");
+        // Production retains the original mutex name so renamed and older
+        // copies cannot run against the same browser profiles at the same time.
+        // A smoke run has both an isolated root and an isolated mutex.
+        _singleInstance = new SingleInstanceService(_applicationId);
         if (!_singleInstance.IsPrimaryInstance)
         {
             _singleInstance.NotifyPrimaryInstance();
@@ -23,11 +56,13 @@ public partial class App : Application
             return;
         }
 
-        SoundService = new UiSoundService();
-
         EventManager.RegisterClassHandler(
             typeof(Button),
             Button.ClickEvent,
+            new RoutedEventHandler(Button_Click));
+        EventManager.RegisterClassHandler(
+            typeof(ToggleButton),
+            ButtonBase.ClickEvent,
             new RoutedEventHandler(Button_Click));
         EventManager.RegisterClassHandler(
             typeof(Window),
@@ -35,6 +70,49 @@ public partial class App : Application
             new RoutedEventHandler(Window_Loaded),
             handledEventsToo: true);
         base.OnStartup(e);
+        _themeService = new AppThemeService(this);
+        _themeService.ThemeChanged += ThemeService_ThemeChanged;
+
+        if (!ApplicationStartup.TryStart(
+                () =>
+                {
+                    SoundService = new UiSoundService();
+                    var mainWindow = new MainWindow();
+                    MainWindow = mainWindow;
+                    if (_runtimeSmokeTest is not null)
+                    {
+                        // Start WPF normally so Loaded, layout, and dispatcher
+                        // behavior are exercised without flashing or activating
+                        // a window on the maintainer's desktop.
+                        mainWindow.ShowActivated = false;
+                        mainWindow.ShowInTaskbar = false;
+                        mainWindow.Opacity = 0;
+                        mainWindow.WindowStartupLocation =
+                            WindowStartupLocation.Manual;
+                        mainWindow.Left = SystemParameters.VirtualScreenLeft - 10000;
+                        mainWindow.Top = SystemParameters.VirtualScreenTop - 10000;
+                    }
+                    mainWindow.Show();
+                    if (_runtimeSmokeTest is not null)
+                    {
+                        _ = CompleteRuntimeSmokeTestAsync(
+                            mainWindow,
+                            _runtimeSmokeTest);
+                    }
+                },
+                message => MessageBox.Show(
+                    message,
+                    "SessionDock cannot start",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error)))
+        {
+            _singleInstance.Dispose();
+            _singleInstance = null;
+            SoundService?.Dispose();
+            Shutdown(1);
+            return;
+        }
+
         _singleInstance.ListenForActivationRequests(() =>
             Dispatcher.BeginInvoke(
                 DispatcherPriority.ApplicationIdle,
@@ -44,17 +122,62 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _singleInstance?.Dispose();
+        if (_themeService is not null)
+            _themeService.ThemeChanged -= ThemeService_ThemeChanged;
+        _themeService?.Dispose();
         SoundService?.Dispose();
         base.OnExit(e);
     }
 
-    private void Button_Click(object sender, RoutedEventArgs e) =>
-        SoundService?.PlayUiClick(UiSoundsEnabled);
-
-    private static void Window_Loaded(object sender, RoutedEventArgs e)
+    private void Button_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Window window)
+        if (sender is DependencyObject element &&
+            IsInsideCaptionControls(element))
+        {
+            return;
+        }
+
+        SoundService?.PlayUiClick(UiSoundsEnabled);
+    }
+
+    private static bool IsInsideCaptionControls(DependencyObject element)
+    {
+        for (var current = element;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is WindowCaptionControls)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Window window)
+            return;
+
+        ApplyNativeWindowTheme(window);
+        if (_runtimeSmokeTest is null)
             WindowLayoutService.FitToWorkArea(window);
+    }
+
+    private void ThemeService_ThemeChanged(object? sender, EventArgs e)
+    {
+        foreach (Window window in Windows)
+            ApplyNativeWindowTheme(window);
+    }
+
+    private void ApplyNativeWindowTheme(Window window)
+    {
+        if (_themeService is null)
+            return;
+
+        NativeWindowFrameService.ApplyTheme(
+            window,
+            _themeService.UseLightThemePreference,
+            _themeService.IsHighContrastActive);
     }
 
     private void ActivateExistingWindow()
@@ -71,5 +194,108 @@ public partial class App : Application
         window.Topmost = true;
         window.Topmost = false;
         window.Focus();
+    }
+
+    private async Task CompleteRuntimeSmokeTestAsync(
+        MainWindow mainWindow,
+        RuntimeSmokeTestOptions options)
+    {
+        try
+        {
+            var startupFailure = await mainWindow.StartupCompletion;
+            if (startupFailure is not null)
+            {
+                throw new InvalidOperationException(
+                    "The isolated runtime smoke-test startup failed.",
+                    startupFailure);
+            }
+            VerifyIntegratedWindowChrome(mainWindow);
+            mainWindow.VerifyThemeSwitchForRuntimeSmoke();
+
+            void HandleShutdownCompleted(Exception? shutdownFailure)
+            {
+                mainWindow.ShutdownCompleted -= HandleShutdownCompleted;
+                if (shutdownFailure is not null)
+                {
+                    System.Diagnostics.Trace.WriteLine(
+                        $"Isolated runtime smoke shutdown failed: {shutdownFailure.GetType().Name}.");
+                    return;
+                }
+
+                try
+                {
+                    WriteRuntimeSmokeSuccessMarker(options.ResultPath);
+                }
+                catch (Exception exception)
+                {
+                    // A missing marker makes the outer smoke script fail.
+                    System.Diagnostics.Trace.WriteLine(
+                        $"Isolated runtime smoke result failed: {exception.GetType().Name}.");
+                }
+            }
+
+            // This deliberately takes the normal Closing path so the smoke
+            // validates bounded persistence and teardown before process exit.
+            mainWindow.ShutdownCompleted += HandleShutdownCompleted;
+            mainWindow.CaptionControls.CloseForRuntimeSmoke();
+        }
+        catch (Exception exception)
+        {
+            // Smoke mode converts every startup fault into a failed process;
+            // it must never report a false success or wait for interaction.
+            System.Diagnostics.Trace.WriteLine(
+                $"Isolated runtime smoke failed: {exception.GetType().Name}.");
+            Shutdown(1);
+        }
+    }
+
+    private static void VerifyIntegratedWindowChrome(MainWindow mainWindow)
+    {
+        var chrome = WindowChrome.GetWindowChrome(mainWindow);
+        if (mainWindow.WindowStyle != WindowStyle.None ||
+            mainWindow.AllowsTransparency ||
+            chrome is null ||
+            chrome.CaptionHeight != 64 ||
+            chrome.GlassFrameThickness != new Thickness(0) ||
+            chrome.UseAeroCaptionButtons)
+        {
+            throw new InvalidOperationException(
+                "The integrated native window chrome was not initialized.");
+        }
+
+        mainWindow.CaptionControls.VerifyForRuntimeSmoke();
+    }
+
+    private static void WriteRuntimeSmokeSuccessMarker(string resultPath)
+    {
+        var temporaryPath = resultPath + ".pending";
+        try
+        {
+            using (var stream = new FileStream(
+                       temporaryPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.Read))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write("SessionDock isolated runtime startup and shutdown completed.");
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, resultPath);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temporaryPath);
+            }
+            catch (Exception exception) when (
+                LocalDataException.IsExpectedPersistenceFailure(exception))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"Isolated runtime smoke temporary result cleanup failed: {exception.GetType().Name}.");
+            }
+        }
     }
 }

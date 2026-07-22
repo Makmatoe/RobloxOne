@@ -9,7 +9,11 @@ public partial class MainWindow
 {
     private readonly SessionDockUpdateService _updateService = new();
 
-    private async void InstallUpdateButton_Click(object sender, RoutedEventArgs e)
+    private async void InstallUpdateButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(InstallUpdateButtonClickAsync);
+
+    private async Task InstallUpdateButtonClickAsync(
+        CancellationToken cancellationToken)
     {
         if (_operationBusy)
             return;
@@ -36,7 +40,8 @@ public partial class MainWindow
                     "VERIFYING UPDATE");
                 var verifiedPending = await _updateService.VerifyPendingAsync(
                     pending,
-                    _launchHookCancellation.Token);
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!ConfirmUpdate(verifiedPending, alreadyDownloaded: true))
                 {
                     SetStatus(
@@ -48,7 +53,7 @@ public partial class MainWindow
 
                 _updateService.ApplyAfterExit(pending);
                 applyingUpdate = true;
-                Application.Current.Shutdown();
+                _ = Dispatcher.BeginInvoke(() => Close());
                 return;
             }
 
@@ -57,7 +62,8 @@ public partial class MainWindow
                 "Contacting the official SessionDock release feed…",
                 "CHECKING UPDATE");
             var available = await _updateService.CheckAsync(
-                _launchHookCancellation.Token);
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (available is null)
             {
                 SetStatus(
@@ -86,7 +92,8 @@ public partial class MainWindow
                     $"Downloading SessionDock {available.Release.Descriptor.Version}",
                     $"Downloading the verified package from GitHub… {progress}%",
                     "DOWNLOADING UPDATE")),
-                _launchHookCancellation.Token);
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             SetStatus(
                 "Update downloaded",
@@ -94,28 +101,35 @@ public partial class MainWindow
                 "RESTARTING");
             _updateService.ApplyAfterExit(available.UpdateInfo.TargetFullRelease);
             applyingUpdate = true;
-            Application.Current.Shutdown();
+            _ = Dispatcher.BeginInvoke(() => Close());
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (
+            _operationLifetime.IsShuttingDown)
+        {
+            // Window shutdown owns this cancellation.
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
         {
             SetStatus(
                 "Update cancelled",
                 "The installed version was left unchanged.",
                 "UPDATE CANCELLED");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (
+            UpdateFailurePresentation.TryCreate(ex, out _))
         {
-            Trace.WriteLine($"Update failed safely: {ex.GetType().Name}.");
+            var failure = UpdateFailurePresentation.Create(ex);
+            Trace.WriteLine(
+                $"Expected update failure: {ex.GetType().FullName}.");
             SetStatus(
-                "Update was rejected",
-                ex is ReleaseTrustException
-                    ? ex.Message
-                    : "The update could not be checked or installed safely. The current version was left unchanged.",
-                "UPDATE ERROR");
+                failure.Title,
+                failure.Detail,
+                failure.Badge);
         }
         finally
         {
-            if (!applyingUpdate)
+            if (!applyingUpdate && !_operationLifetime.IsShuttingDown)
                 SetOperationBusy(false);
         }
     }

@@ -22,6 +22,58 @@ The installer-based production build is the recommended updateable edition.
 Source, debug, and raw `dotnet publish` builds do not become trusted production
 installations and cannot use the production self-update path.
 
+## Moving from Roblox One or SessionDock 2.3.0 and earlier
+
+Do not run the 2.1.5 or 2.3.0 Setup over an existing Roblox One installation as
+an upgrade or repair. Those installers retain the historic Velopack package ID
+`RobloxOne`, which can cause Setup to replace `%LOCALAPPDATA%\RobloxOne`. Older
+Roblox One versions also stored account settings and browser profiles in that
+same directory, so Setup can remove the data before the newer application gets
+a chance to migrate it.
+
+Roblox One 2.1.4 and earlier also cannot use their update button after the
+repository rename. GitHub redirects `Makmatoe/RobloxOne` to
+`Makmatoe/SessionDock`, and the older fail-closed updater reports that the
+release manifest was redirected to an untrusted address. Retrying does not
+repair that binary.
+
+SessionDock 2.3.1 uses the corrective package ID `SessionDockApp`. Its Setup is
+installed side-by-side and does not use either `%LOCALAPPDATA%\RobloxOne` or
+`%LOCALAPPDATA%\SessionDock` as its application directory. Use this corrective
+path for every installed version through 2.3.0:
+
+1. Close every Roblox One and SessionDock window. Do not uninstall either app
+   and do not delete either local-data directory.
+2. Download `SessionDock-win-x64-Setup.exe` and `SHA256SUMS.txt` from the
+   canonical SessionDock 2.3.1 or later release.
+3. Verify the Setup with the checksum procedure below.
+4. Run the verified Setup as the same standard Windows user. On first launch,
+   SessionDock copies only recognized settings, browser profiles, sounds, and
+   local integration configuration into `%LOCALAPPDATA%\SessionDock`. It does
+   not move or delete the old `%LOCALAPPDATA%\RobloxOne` tree, and it never
+   copies installer files such as `current`, `packages`, or `Update.exe`.
+5. Confirm every expected account slot and sign-in. Automatic orphan-profile
+   cleanup remains paused after legacy profiles are copied so validation cannot
+   erase an unrecognized recovered session.
+6. Keep the old installation and its data until that validation is complete
+   **and SessionDock shows no unfinished-migration or conflicting-data warning**.
+   Seeing accounts while such a warning remains can mean SessionDock is still
+   using the preserved legacy copy. Only after both checks pass may the old app
+   be removed.
+
+After every expected account and sign-in has been confirmed, close SessionDock
+and remove only `%LOCALAPPDATA%\SessionDock\profile-cleanup-paused.txt` to
+re-enable automatic orphan-profile cleanup. Do not remove that marker while an
+account is missing, and do not delete `settings.json`, `settings.backup.json`,
+or the `Profiles` directory as part of this step.
+
+If an account or sign-in is missing, stop using the app, keep
+`%LOCALAPPDATA%\RobloxOne` and `%LOCALAPPDATA%\SessionDock` unchanged, and do
+not add or remove accounts while recovery is being assessed. Also preserve any
+sibling directory named `RobloxOne.<random characters>`; it may be a Velopack
+rollback copy. SessionDock does not automatically trust or merge such siblings,
+but one can be valuable during supervised recovery.
+
 ## Verify a manual installer download
 
 Download both `SessionDock-win-x64-Setup.exe` and `SHA256SUMS.txt` from
@@ -87,8 +139,10 @@ descriptor, exact package hash, and package allowlist.
 
 ## User data
 
-Application files and local user data are separate. An update replaces the
-application, not the data under `%LOCALAPPDATA%\SessionDock`, so account slots,
+Application files and local user data are separate. SessionDock's package ID is
+`SessionDockApp`; neither current nor legacy user data is stored in that
+installation directory. An update replaces the application, not the data under
+`%LOCALAPPDATA%\SessionDock`, so account slots,
 isolated WebView2 profiles, favorites, recent history, labels, colors, and sound
 preferences normally remain in place.
 

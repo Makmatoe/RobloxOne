@@ -39,6 +39,11 @@ The installer is the recommended edition and supports in-app updates. A
 portable ZIP is also published for temporary use, but it does not update
 itself.
 
+If Roblox One or SessionDock 2.3.0 or earlier is already installed, do not use
+an older Setup as an upgrade or repair. Follow the
+[side-by-side corrective upgrade](docs/UPDATES.md#moving-from-roblox-one-or-sessiondock-230-and-earlier)
+so the historic `%LOCALAPPDATA%\RobloxOne` account data is preserved.
+
 ## What it does
 
 - Keeps any number of Roblox sign-ins in separate local WebView2 profiles.

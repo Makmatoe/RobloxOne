@@ -18,8 +18,8 @@ if (-not (Test-Path -LiteralPath $root -PathType Container)) {
 }
 
 $renames = [ordered]@{
-    "RobloxOne-$Channel-Setup.exe" = 'SessionDock-win-x64-Setup.exe'
-    "RobloxOne-$Channel-Portable.zip" = 'SessionDock-win-x64-Portable.zip'
+    "SessionDockApp-$Channel-Setup.exe" = 'SessionDock-win-x64-Setup.exe'
+    "SessionDockApp-$Channel-Portable.zip" = 'SessionDock-win-x64-Portable.zip'
 }
 foreach ($entry in $renames.GetEnumerator()) {
     $source = Join-Path $root $entry.Key

@@ -14,9 +14,15 @@ public static class ReleasePackagePolicy
     private const long MinimumExecutableBytes = 64 * 1024;
 
     private static readonly IReadOnlyDictionary<string, EntryLimits> LegacyEntries =
-        CreateExpectedEntries("RobloxOne.exe", "RobloxOne_ExecutionStub.exe");
+        CreateExpectedEntries(
+            "RobloxOne.nuspec",
+            "RobloxOne.exe",
+            "RobloxOne_ExecutionStub.exe");
     private static readonly IReadOnlyDictionary<string, EntryLimits> CurrentEntries =
-        CreateExpectedEntries("SessionDock.exe", "SessionDock_ExecutionStub.exe");
+        CreateExpectedEntries(
+            "SessionDockApp.nuspec",
+            "SessionDock.exe",
+            "SessionDock_ExecutionStub.exe");
 
     public static IReadOnlyList<string> ExecutableEntryNames =>
         GetExecutableEntryNames(useCurrentLayout: false);
@@ -90,6 +96,7 @@ public static class ReleasePackagePolicy
             ];
 
     private static Dictionary<string, EntryLimits> CreateExpectedEntries(
+        string nuspecName,
         string mainExecutable,
         string executionStub)
     {
@@ -97,7 +104,7 @@ public static class ReleasePackagePolicy
         {
             ["[Content_Types].xml"] = new(1, MaximumMetadataBytes),
             ["_rels/.rels"] = new(1, MaximumMetadataBytes),
-            ["RobloxOne.nuspec"] = new(1, MaximumMetadataBytes),
+            [nuspecName] = new(1, MaximumMetadataBytes),
             ["lib/app/LICENSE.md"] = new(1, MaximumNoticeBytes),
             [$"lib/app/{mainExecutable}"] = new(
                 ReleaseDescriptorPolicy.MinimumPackageSize,

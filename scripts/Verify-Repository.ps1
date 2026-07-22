@@ -17,11 +17,13 @@ try {
         'THIRD_PARTY_NOTICES.md',
         'SessionDock/SessionDock.csproj',
         'SessionDock/Resources/update-public-key.pem',
+        'SessionDock.ReleaseTrust/ReleaseDescriptorPolicy.cs',
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
         'scripts/Rename-SessionDockReleaseAssets.ps1',
         'scripts/ReleaseJson.ps1',
+        'scripts/Test-RuntimeSmoke.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
@@ -67,6 +69,24 @@ try {
     }
 
     [void] (Get-ProjectVersion)
+
+    $releasePolicyContents = Get-Content -LiteralPath `
+        (Join-Path $root 'SessionDock.ReleaseTrust/ReleaseDescriptorPolicy.cs') -Raw
+    $packageIdentityMatch = [regex]::Match(
+        $releasePolicyContents,
+        'public const string VelopackPackageId\s*=\s*"([A-Za-z0-9._-]+)";')
+    if (-not $packageIdentityMatch.Success -or
+        $packageIdentityMatch.Groups[1].Value -cne 'SessionDockApp' -or
+        $packageIdentityMatch.Groups[1].Value -in @('SessionDock', 'RobloxOne')) {
+        throw 'The Velopack package ID must remain SessionDockApp and must not collide with either data-directory identity.'
+    }
+    $publishContents = Get-Content -LiteralPath (Join-Path $root 'scripts/Publish.ps1') -Raw
+    $releaseWorkflowContents = Get-Content -LiteralPath `
+        (Join-Path $root '.github/workflows/release.yml') -Raw
+    if ($publishContents -notmatch "'--packId'\s+'SessionDockApp'" -or
+        $releaseWorkflowContents -notmatch '--packId\s+SessionDockApp') {
+        throw 'Local and protected release packaging must use the non-colliding SessionDockApp package ID.'
+    }
 
     $trackedFiles = @(& git ls-files)
     if ($LASTEXITCODE -ne 0) {

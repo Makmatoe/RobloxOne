@@ -6,8 +6,10 @@ public sealed class AppSettings
     public string? ActiveAccountKey { get; set; }
     public List<RecentExperience> RecentExperiences { get; set; } = [];
     public bool UiSoundsEnabled { get; set; } = true;
+    public bool UseLightTheme { get; set; }
     public string StartupSound { get; set; } = "soft";
     public string? CustomStartupSoundFileName { get; set; }
+    public List<string> PendingProfileDeletionKeys { get; set; } = [];
 
     // Kept for automatic migration from the legacy Roblox One 1.x format.
     public long? LockedUserId { get; set; }

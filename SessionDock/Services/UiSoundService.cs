@@ -127,7 +127,7 @@ public sealed class UiSoundService : IDisposable
     public string ImportStartupSound(string sourcePath)
     {
         using var source = OpenValidatedImportSource(sourcePath, out var extension);
-        var fileName = $"startup-custom{extension}";
+        var fileName = $"startup-custom-{Guid.NewGuid():N}{extension}";
         var destination = GetSafeSoundPath(fileName);
         var temporary = destination + $".{Guid.NewGuid():N}.tmp";
         try
@@ -161,17 +161,145 @@ public sealed class UiSoundService : IDisposable
                 File.Delete(temporary);
         }
 
-        foreach (var otherExtension in SupportedImportedExtensions)
+        return fileName;
+    }
+
+    public bool TryDeleteImportedStartupSound(string? fileName)
+    {
+        if (!IsManagedImportedFileName(fileName))
+            return false;
+
+        try
         {
-            var oldPath = GetSafeSoundPath($"startup-custom{otherExtension}");
-            if (!oldPath.Equals(destination, StringComparison.OrdinalIgnoreCase) &&
-                File.Exists(oldPath))
+            var path = GetSafeSoundPath(fileName!);
+            if (File.Exists(path))
+                File.Delete(path);
+            return !File.Exists(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+                ArgumentException)
+        {
+            Trace.WriteLine(
+                $"Imported startup sound cleanup failed: {exception.GetType().Name}.");
+            return false;
+        }
+    }
+
+    internal int CleanupOrphanedImportedSounds(
+        IReadOnlyCollection<string> retainedFileNames,
+        bool reconciliationIsSafe,
+        IReadOnlyCollection<string>? ownedFileNames = null,
+        CancellationToken cancellationToken = default) =>
+        CleanupOrphanedImportedSounds(
+            _soundsDirectory,
+            retainedFileNames,
+            reconciliationIsSafe,
+            ownedFileNames,
+            cancellationToken);
+
+    internal int ReconcileImportedSounds(
+        ImportedSoundRetention retention,
+        IReadOnlyCollection<string> ownedFileNames,
+        CancellationToken cancellationToken = default) =>
+        ReconcileImportedSounds(
+            _soundsDirectory,
+            retention,
+            ownedFileNames,
+            cancellationToken);
+
+    internal static int ReconcileImportedSounds(
+        string soundsDirectory,
+        ImportedSoundRetention retention,
+        IReadOnlyCollection<string> ownedFileNames,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ownedFileNames);
+        return CleanupOrphanedImportedSounds(
+            soundsDirectory,
+            retention.FileNames,
+            retention.CanReconcile,
+            ownedFileNames,
+            cancellationToken);
+    }
+
+    internal static int CleanupOrphanedImportedSounds(
+        string soundsDirectory,
+        IReadOnlyCollection<string> retainedFileNames,
+        bool reconciliationIsSafe,
+        IReadOnlyCollection<string>? ownedFileNames = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(soundsDirectory);
+        ArgumentNullException.ThrowIfNull(retainedFileNames);
+        ownedFileNames ??= [];
+        if (!reconciliationIsSafe && ownedFileNames.Count == 0)
+            return 0;
+        var retained = retainedFileNames
+            .Where(IsManagedImportedFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var owned = ownedFileNames
+            .Where(IsManagedImportedFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removed = 0;
+        try
+        {
+            var fullDirectory = Path.GetFullPath(soundsDirectory);
+            if (!Directory.Exists(fullDirectory))
+                return 0;
+            ThrowIfReparsePoint(fullDirectory);
+
+            foreach (var path in Directory.EnumerateFiles(
+                         fullDirectory,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
             {
-                File.Delete(oldPath);
+                cancellationToken.ThrowIfCancellationRequested();
+                var fileName = Path.GetFileName(path);
+                var isImportedSound = IsManagedImportedFileName(fileName);
+                if (!isImportedSound &&
+                    !IsManagedImportedTemporaryFileName(fileName))
+                {
+                    continue;
+                }
+                if (!reconciliationIsSafe &&
+                    (!isImportedSound || !owned.Contains(fileName)))
+                {
+                    continue;
+                }
+                if (isImportedSound &&
+                    retained.Contains(fileName))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if ((File.GetAttributes(path) &
+                         FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+                    File.Delete(path);
+                    if (!File.Exists(path))
+                        removed++;
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                    Trace.WriteLine(
+                        $"Orphaned startup sound cleanup failed: {exception.GetType().Name}.");
+                }
             }
         }
-
-        return fileName;
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+                ArgumentException)
+        {
+            Trace.WriteLine(
+                $"Imported startup sound reconciliation failed: {exception.GetType().Name}.");
+        }
+        return removed;
     }
 
     public void StopPreview()
@@ -311,6 +439,37 @@ public sealed class UiSoundService : IDisposable
             throw new IOException("A sound file cannot be a reparse point.");
         }
         return path;
+    }
+
+    private static bool IsManagedImportedFileName(string? fileName)
+    {
+        if (!IsValidImportedFileName(fileName))
+            return false;
+
+        var stem = Path.GetFileNameWithoutExtension(fileName!);
+        if (stem.Equals("startup-custom", StringComparison.OrdinalIgnoreCase))
+            return true;
+        const string prefix = "startup-custom-";
+        return stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParseExact(stem[prefix.Length..], "N", out _);
+    }
+
+    private static bool IsManagedImportedTemporaryFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) ||
+            !Path.GetFileName(fileName).Equals(fileName, StringComparison.Ordinal) ||
+            !Path.GetExtension(fileName).Equals(
+                ".tmp",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var stagedName = Path.GetFileNameWithoutExtension(fileName);
+        var separator = stagedName.LastIndexOf('.');
+        return separator > 0 &&
+            Guid.TryParseExact(stagedName[(separator + 1)..], "N", out _) &&
+            IsManagedImportedFileName(stagedName[..separator]);
     }
 
     private static void ThrowIfReparsePoint(string path)

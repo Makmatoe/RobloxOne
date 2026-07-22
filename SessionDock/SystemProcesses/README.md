@@ -62,16 +62,25 @@ publisher of an unsigned executable stored in a user-writable directory, so
 install it only from the official release page and verify the published
 checksum. The panel checks the exact standard path, rejects reparse points,
 requires a structurally valid Windows executable, and checks the running
-process identity before testing the connection; these are local safety checks,
-not cryptographic publisher verification.
+process path, session, owner, and non-elevated token before testing the
+connection; these are local safety checks, not cryptographic publisher
+verification.
 
 The panel reports **Not installed**, **Installed - connection not tested**,
+**API start requested**, **API running - connection not tested**,
 **API running - integration disabled**, **Ready**, **Update required**, or a
-configuration warning. An invalid or nonminimal existing configuration is
-preserved. Only after displaying that warning does the panel offer an explicit
-**Repair integration** action, which replaces the SessionDock opt-in with the
-fixed minimal policy. **Disable** prevents future SessionDock launch operations
-but does not stop the HandleScope API.
+configuration warning. A bounded start-pending state prevents rapid or
+concurrent requests from spawning another API before discovery is published.
+The interval uses a monotonic clock. After that window, SessionDock verifies
+the process ID returned by the explicit start request before it will allow
+another API process to be launched. It also checks for an already-running,
+fully verified API at the exact install path when no valid discovery file is
+available.
+An invalid or nonminimal existing configuration is preserved. Only after
+displaying that warning does the panel offer an explicit **Repair integration**
+action, which replaces the SessionDock opt-in with the fixed minimal policy.
+**Disable** prevents future SessionDock launch operations but does not stop the
+HandleScope API.
 
 Developers working from a SessionDock source checkout may instead run
 `./scripts/Enable-HandleScope.ps1` from the repository root. HandleScope's
@@ -114,7 +123,9 @@ one separately dry-run-checked sweep after the launched PID succeeds.
 
 Each operation reloads `%LOCALAPPDATA%\HandleScope\connection.json`. Only an
 exact v1 discovery document for `http://127.0.0.1:<port>/` and a live,
-same-session `HandleScope.Api` process are accepted. The rotating token is used
-directly from the HandleScope connection file and is not copied into SessionDock
-settings or logs. If the file, API, token, policy, or selector is unavailable,
-the hook is skipped.
+same-session `HandleScope.Api` process at the exact expected executable path are
+accepted. The process start time must also match the bounded discovery time so a
+stale file or reused PID is rejected. The rotating token is used directly from
+the HandleScope connection file and is not copied into SessionDock settings or
+logs. If the file, API, token, policy, or selector is unavailable, the hook is
+skipped.

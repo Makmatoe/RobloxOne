@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using SessionDock.Models;
@@ -22,9 +23,15 @@ public partial class MainWindow
         LaunchTabPanel.Visibility = Visibility.Collapsed;
         RecentTabPanel.Visibility = Visibility.Visible;
         LaunchTabButton.Background = Brushes.Transparent;
-        LaunchTabButton.Foreground = CreateBrush("#98A3B8");
-        RecentTabButton.Background = CreateBrush("#2A3142");
-        RecentTabButton.Foreground = Brushes.White;
+        LaunchTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedBrush");
+        RecentTabButton.SetResourceReference(
+            Control.BackgroundProperty,
+            "SelectedControlSurfaceBrush");
+        RecentTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "SelectedControlTextBrush");
         AutomationProperties.SetItemStatus(LaunchTabButton, "Not selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Selected");
         RenderRecentExperiences();
@@ -34,16 +41,34 @@ public partial class MainWindow
     {
         LaunchTabPanel.Visibility = Visibility.Visible;
         RecentTabPanel.Visibility = Visibility.Collapsed;
-        LaunchTabButton.Background = CreateBrush("#2A3142");
-        LaunchTabButton.Foreground = Brushes.White;
+        LaunchTabButton.SetResourceReference(
+            Control.BackgroundProperty,
+            "SelectedControlSurfaceBrush");
+        LaunchTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "SelectedControlTextBrush");
         RecentTabButton.Background = Brushes.Transparent;
-        RecentTabButton.Foreground = CreateBrush("#98A3B8");
+        RecentTabButton.SetResourceReference(
+            Control.ForegroundProperty,
+            "MutedBrush");
         AutomationProperties.SetItemStatus(LaunchTabButton, "Selected");
         AutomationProperties.SetItemStatus(RecentTabButton, "Not selected");
     }
 
     private void RenderRecentExperiences()
     {
+        var restoreKeyboardFocus =
+            RecentExperiencesList.IsKeyboardFocusWithin;
+        var focusedButton = Keyboard.FocusedElement as Button;
+        var focusedRecent = focusedButton?.Tag as RecentExperience;
+        var focusedDestinationKey = focusedRecent is null
+            ? null
+            : RecentDestinationIdentity.CreateKey(focusedRecent);
+        var focusedAccountUserId = focusedRecent?.AccountUserId ?? 0;
+        var focusedActionIndex = focusedButton?.Parent is Grid focusedGrid
+            ? focusedGrid.Children.IndexOf(focusedButton)
+            : -1;
+
         PopulateAccountFilter();
         UpdateClearHistoryButton();
         RecentExperiencesList.Children.Clear();
@@ -55,22 +80,76 @@ public partial class MainWindow
 
         if (filtered.Count == 0)
         {
-            RecentExperiencesList.Children.Add(new TextBlock
+            var emptyState = new TextBlock
             {
                 Text = _settings.RecentExperiences.Count == 0
                     ? "Experiences you successfully launch will appear here."
                     : "No saved experiences match these filters.",
-                Foreground = CreateBrush("#7F8BA0"),
                 FontSize = 13,
                 Margin = new Thickness(2, 18, 0, 0)
-            });
+            };
+            emptyState.SetResourceReference(
+                TextBlock.ForegroundProperty,
+                "SubtleBrush");
+            RecentExperiencesList.Children.Add(emptyState);
+            RestoreRecentKeyboardFocus(
+                restoreKeyboardFocus,
+                focusedDestinationKey,
+                focusedAccountUserId,
+                focusedActionIndex);
             return;
         }
 
         var favorites = filtered.Where(item => item.IsPinned).ToList();
         var recent = filtered.Where(item => !item.IsPinned).ToList();
-        AddRecentSection("FAVORITES", favorites);
-        AddRecentSection("RECENT", recent);
+        AddRecentSection("Favorites", favorites);
+        AddRecentSection("Recent", recent);
+        RestoreRecentKeyboardFocus(
+            restoreKeyboardFocus,
+            focusedDestinationKey,
+            focusedAccountUserId,
+            focusedActionIndex);
+    }
+
+    private void RestoreRecentKeyboardFocus(
+        bool shouldRestore,
+        string? destinationKey,
+        long accountUserId,
+        int actionIndex)
+    {
+        if (!shouldRestore || destinationKey is null)
+            return;
+
+        Button? focusTarget = null;
+        foreach (var card in RecentExperiencesList.Children.OfType<Border>())
+        {
+            if (card.Child is not Grid grid)
+                continue;
+
+            var cardRecent = grid.Children
+                .OfType<Button>()
+                .Select(button => button.Tag)
+                .OfType<RecentExperience>()
+                .FirstOrDefault();
+            if (cardRecent is null ||
+                cardRecent.AccountUserId != accountUserId ||
+                !RecentDestinationIdentity.CreateKey(cardRecent).Equals(
+                    destinationKey,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (actionIndex >= 0 &&
+                actionIndex < grid.Children.Count &&
+                grid.Children[actionIndex] is Button actionButton)
+            {
+                focusTarget = actionButton;
+            }
+            break;
+        }
+
+        RestoreKeyboardFocus(focusTarget ?? RecentTabButton);
     }
 
     private void AddRecentSection(string title, IReadOnlyList<RecentExperience> items)
@@ -78,14 +157,17 @@ public partial class MainWindow
         if (items.Count == 0)
             return;
 
-        RecentExperiencesList.Children.Add(new TextBlock
+        var sectionTitle = new TextBlock
         {
             Text = title,
-            Foreground = CreateBrush("#68748A"),
             FontSize = 10,
-            FontWeight = FontWeights.Bold,
+            FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(2, 4, 0, 8)
-        });
+        };
+        sectionTitle.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "BadgeTextBrush");
+        RecentExperiencesList.Children.Add(sectionTitle);
         foreach (var item in items)
             RecentExperiencesList.Children.Add(CreateRecentExperienceCard(item));
     }
@@ -103,13 +185,17 @@ public partial class MainWindow
 
         var card = new Border
         {
-            Background = CreateBrush("#131720"),
-            BorderBrush = CreateBrush(recent.IsPinned ? "#5D4BB1" : "#272E3D"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Margin = new Thickness(0, 0, 0, 9),
-            Padding = new Thickness(8)
+            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 0, 6),
+            Padding = new Thickness(6)
         };
+        card.SetResourceReference(
+            Border.BackgroundProperty,
+            "CardSurfaceBrush");
+        card.SetResourceReference(
+            Border.BorderBrushProperty,
+            recent.IsPinned ? "AccentBrush" : "CardBorderBrush");
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -124,34 +210,46 @@ public partial class MainWindow
             Padding = new Thickness(6),
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        AutomationProperties.SetName(
+            useButton,
+            $"Use {title} with the selected account");
         var labels = new StackPanel();
-        labels.Children.Add(new TextBlock
+        var titleText = new TextBlock
         {
             Text = title,
-            Foreground = Brushes.White,
-            FontSize = 14,
+            FontSize = 13,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        labels.Children.Add(new TextBlock
+        };
+        titleText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "TextBrush");
+        labels.Children.Add(titleText);
+        var metadataText = new TextBlock
         {
             Text = $"{type}  •  {account}  •  {timestamp}",
-            Foreground = CreateBrush("#7F8BA0"),
-            FontSize = 11,
-            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = 10,
+            Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        metadataText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "MutedBrush");
+        labels.Children.Add(metadataText);
         if (recent.ServerJobId is { Length: > 8 } serverJobId)
         {
-            labels.Children.Add(new TextBlock
+            var serverText = new TextBlock
             {
                 Text = $"Tracked server {serverJobId[..8]}…",
                 ToolTip = $"Roblox server JobId\n{serverJobId}",
-                Foreground = CreateBrush("#68748A"),
                 FontSize = 10,
                 Margin = new Thickness(0, 3, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis
-            });
+            };
+            serverText.SetResourceReference(
+                TextBlock.ForegroundProperty,
+                "SubtleBrush");
+            labels.Children.Add(serverText);
         }
         useButton.Content = labels;
         useButton.ToolTip = recent.ServerJobId is null
@@ -214,8 +312,8 @@ public partial class MainWindow
         };
         if (fillIcon)
         {
-            icon.Fill = CreateBrush("#B8A8FF");
-            icon.Stroke = CreateBrush("#B8A8FF");
+            icon.SetResourceReference(Shape.FillProperty, "InfoTextBrush");
+            icon.SetResourceReference(Shape.StrokeProperty, "InfoTextBrush");
         }
 
         var button = new Button
@@ -223,13 +321,17 @@ public partial class MainWindow
             Tag = recent,
             Content = icon,
             ToolTip = tooltip,
-            Width = 38,
-            MinHeight = 38,
-            Margin = new Thickness(5, 0, 0, 0),
-            Padding = new Thickness(4),
-            Background = CreateBrush("#252C3B"),
-            Foreground = CreateBrush("#C4CCDA")
+            Width = 34,
+            MinHeight = 34,
+            Margin = new Thickness(4, 0, 0, 0),
+            Padding = new Thickness(4)
         };
+        button.SetResourceReference(
+            Control.BackgroundProperty,
+            "ControlSurfaceBrush");
+        button.SetResourceReference(
+            Control.ForegroundProperty,
+            "ControlTextBrush");
         AutomationProperties.SetName(button, tooltip);
         if (iconResourceKey == "IconStar")
         {
@@ -241,20 +343,79 @@ public partial class MainWindow
         return button;
     }
 
-    private void RecentExperienceButton_Click(object sender, RoutedEventArgs e)
+    private async void RecentExperienceButton_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            RecentExperienceButtonClickAsync(sender));
+
+    private async Task RecentExperienceButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
 
-        PlaceIdBox.Text = recent.Destination;
-        TrackDestinationForActiveProfile();
-        _settingsService.Save(_settings);
-        ShowLauncherTab();
-        PlaceIdBox.Focus();
-        ResetDestinationViewport();
+        if (_activeProfile is not { } activeProfile ||
+            _pendingProfile is not null)
+        {
+            return;
+        }
+
+        var activeProfileKey = activeProfile.Key;
+        var destination = recent.Destination;
+        var mutationApplied = false;
+        _destinationPersistence.Cancel();
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    var currentProfile = _settings.Accounts.FirstOrDefault(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (currentProfile is null ||
+                        !string.Equals(
+                            _settings.ActiveAccountKey,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    currentProfile.Destination = destination;
+                    mutationApplied = true;
+                },
+                "Recent destination could not be saved",
+                "HISTORY SAVE ERROR",
+                onCommitted: () =>
+                {
+                    if (!mutationApplied ||
+                        !string.Equals(
+                            _activeProfile?.Key,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    activeProfile = _settings.Accounts.First(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    ShowDestinationForProfile(activeProfile);
+                    ShowLauncherTab();
+                    PlaceIdBox.Focus();
+                    ResetDestinationViewport();
+                }))
+        {
+            return;
+        }
+
     }
 
-    private void UseRecentServerButton_Click(object sender, RoutedEventArgs e)
+    private async void UseRecentServerButton_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ =>
+            UseRecentServerButtonClickAsync(sender));
+
+    private async Task UseRecentServerButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent } ||
             !Guid.TryParse(recent.ServerJobId, out var serverJobId))
@@ -262,36 +423,105 @@ public partial class MainWindow
             return;
         }
 
-        PlaceIdBox.Text = serverJobId.ToString("D");
-        TrackDestinationForActiveProfile();
-        _settingsService.Save(_settings);
-        ShowLauncherTab();
-        PlaceIdBox.Focus();
-        ResetDestinationViewport();
+        if (_activeProfile is not { } activeProfile ||
+            _pendingProfile is not null)
+        {
+            return;
+        }
+
+        var destination = serverJobId.ToString("D");
+        var activeProfileKey = activeProfile.Key;
+        var placeId = recent.PlaceId;
+        var mutationApplied = false;
+        _destinationPersistence.Cancel();
+        if (!await TryCommitSettingsMutationAsync(
+                () =>
+                {
+                    var currentProfile = _settings.Accounts.FirstOrDefault(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (currentProfile is null ||
+                        !string.Equals(
+                            _settings.ActiveAccountKey,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    currentProfile.Destination = destination;
+                    mutationApplied = true;
+                },
+                "Tracked server could not be saved",
+                "HISTORY SAVE ERROR",
+                onCommitted: () =>
+                {
+                    if (!mutationApplied ||
+                        !string.Equals(
+                            _activeProfile?.Key,
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    activeProfile = _settings.Accounts.First(account =>
+                        account.Key.Equals(
+                            activeProfileKey,
+                            StringComparison.OrdinalIgnoreCase));
+                    ShowDestinationForProfile(activeProfile);
+                    ShowLauncherTab();
+                    PlaceIdBox.Focus();
+                    ResetDestinationViewport();
+                }))
+        {
+            return;
+        }
+
+        if (!mutationApplied ||
+            !string.Equals(
+                _activeProfile?.Key,
+                activeProfileKey,
+                StringComparison.OrdinalIgnoreCase))
+            return;
         SetStatus(
             "Tracked server selected",
-            $"Launch will try server {serverJobId.ToString("D")[..8]}… for Place {recent.PlaceId}.",
+            $"Launch will try server {serverJobId.ToString("D")[..8]}… for Place {placeId}.",
             "SERVER READY");
     }
 
-    private void PinRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void PinRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => PinRecentButtonClickAsync(sender));
+
+    private async Task PinRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
-        if (!recent.IsPinned &&
-            _settings.RecentExperiences.Count(item => item.IsPinned) >= 50)
+        var favoriteLimitReached = false;
+        await SaveRecentMetadataAsync(() =>
+        {
+            if (!_settings.RecentExperiences.Contains(recent))
+                return;
+            if (!recent.IsPinned &&
+                _settings.RecentExperiences.Count(item => item.IsPinned) >= 50)
+            {
+                favoriteLimitReached = true;
+                return;
+            }
+            recent.IsPinned = !recent.IsPinned;
+        });
+        if (favoriteLimitReached)
         {
             SetStatus(
                 "Favorites limit reached",
                 "Remove one Favorite before pinning another. Recent history is unchanged.",
                 "FAVORITES FULL");
-            return;
         }
-        recent.IsPinned = !recent.IsPinned;
-        SaveRecentMetadata();
     }
 
-    private void RenameRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void RenameRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => RenameRecentButtonClickAsync(sender));
+
+    private async Task RenameRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
@@ -306,15 +536,26 @@ public partial class MainWindow
         if (dialog.ShowDialog() != true)
             return;
 
-        foreach (var matchingEntry in _settings.RecentExperiences.Where(item =>
-                     RecentDestinationIdentity.Matches(item, recent)))
+        var destinationKey = RecentDestinationIdentity.CreateKey(recent);
+        var customName = dialog.Value;
+        await SaveRecentMetadataAsync(() =>
         {
-            matchingEntry.CustomName = dialog.Value;
-        }
-        SaveRecentMetadata();
+            if (!_settings.RecentExperiences.Contains(recent))
+                return;
+            foreach (var matchingEntry in _settings.RecentExperiences.Where(item =>
+                         RecentDestinationIdentity.CreateKey(item).Equals(
+                             destinationKey,
+                             StringComparison.Ordinal)))
+            {
+                matchingEntry.CustomName = customName;
+            }
+        });
     }
 
-    private void RemoveRecentButton_Click(object sender, RoutedEventArgs e)
+    private async void RemoveRecentButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => RemoveRecentButtonClickAsync(sender));
+
+    private async Task RemoveRecentButtonClickAsync(object sender)
     {
         if (sender is not Button { Tag: RecentExperience recent })
             return;
@@ -325,11 +566,14 @@ public partial class MainWindow
             MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes)
             return;
-        _settings.RecentExperiences.Remove(recent);
-        SaveRecentMetadata();
+        await SaveRecentMetadataAsync(() =>
+            _settings.RecentExperiences.Remove(recent));
     }
 
-    private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
+    private async void ClearHistoryButton_Click(object sender, RoutedEventArgs e) =>
+        await RunWindowOperationAsync(_ => ClearHistoryButtonClickAsync());
+
+    private async Task ClearHistoryButtonClickAsync()
     {
         var removableCount = _settings.RecentExperiences.Count(
             MatchesClearHistoryScope);
@@ -354,55 +598,67 @@ public partial class MainWindow
         if (result != MessageBoxResult.Yes)
             return;
 
-        _settings.RecentExperiences.RemoveAll(MatchesClearHistoryScope);
-        SaveRecentMetadata();
+        var recentType = _recentTypeFilter switch
+        {
+            RecentTypeFilter.Public => RecentServerType.Public,
+            RecentTypeFilter.Private => RecentServerType.Private,
+            _ => RecentServerType.All
+        };
+        var accountFilter = _recentAccountFilter;
+        await SaveRecentMetadataAsync(() =>
+            _settings.RecentExperiences.RemoveAll(item =>
+                RecentHistoryScope.CanClear(
+                    item,
+                    recentType,
+                    accountFilter)));
     }
 
-    private void SaveRecentExperience(RecentExperience recent)
+    private async Task SaveRecentExperienceAsync(RecentExperience recent)
     {
-        var matchingDestinationEntries = _settings.RecentExperiences
-            .Where(item => RecentDestinationIdentity.Matches(item, recent))
-            .ToList();
-        var sharedCustomName = matchingDestinationEntries
-            .Where(item => item.CustomName is not null)
-            .OrderByDescending(item => item.LastLaunchedAt)
-            .Select(item => item.CustomName)
-            .FirstOrDefault();
-        var existing = _settings.RecentExperiences.FirstOrDefault(item =>
-            item.AccountUserId == recent.AccountUserId &&
-            RecentDestinationIdentity.Matches(item, recent));
-        if (existing is not null)
+        await SaveRecentMetadataAsync(() =>
         {
-            recent.IsPinned = existing.IsPinned;
-            _settings.RecentExperiences.Remove(existing);
-        }
-        recent.CustomName = sharedCustomName;
-
-        _settings.RecentExperiences.Insert(0, recent);
-        if (_settings.RecentExperiences.Count(item => !item.IsPinned) > 50)
-        {
-            var removable = _settings.RecentExperiences
-                .Where(item => !item.IsPinned)
-                .OrderBy(item => item.LastLaunchedAt)
+            var matchingDestinationEntries = _settings.RecentExperiences
+                .Where(item => RecentDestinationIdentity.Matches(item, recent))
+                .ToList();
+            var sharedCustomName = matchingDestinationEntries
+                .Where(item => item.CustomName is not null)
+                .OrderByDescending(item => item.LastLaunchedAt)
+                .Select(item => item.CustomName)
                 .FirstOrDefault();
-            if (removable is not null)
-                _settings.RecentExperiences.Remove(removable);
-        }
-        SaveRecentMetadata(showError: false);
+            var existing = _settings.RecentExperiences.FirstOrDefault(item =>
+                item.AccountUserId == recent.AccountUserId &&
+                RecentDestinationIdentity.Matches(item, recent));
+            if (existing is not null)
+            {
+                recent.IsPinned = existing.IsPinned;
+                _settings.RecentExperiences.Remove(existing);
+            }
+            recent.CustomName = sharedCustomName;
+
+            _settings.RecentExperiences.Insert(0, recent);
+            if (_settings.RecentExperiences.Count(item => !item.IsPinned) > 50)
+            {
+                var removable = _settings.RecentExperiences
+                    .Where(item => !item.IsPinned)
+                    .OrderBy(item => item.LastLaunchedAt)
+                    .FirstOrDefault();
+                if (removable is not null)
+                    _settings.RecentExperiences.Remove(removable);
+            }
+        }, showError: false);
     }
 
-    private void SaveRecentMetadata(bool showError = true)
+    private async Task<bool> SaveRecentMetadataAsync(
+        Action mutation,
+        bool showError = true)
     {
-        try
-        {
-            _settingsService.Save(_settings);
-        }
-        catch (Exception ex)
-        {
-            if (showError)
-                SetStatus("Local metadata could not be saved", ex.Message, "HISTORY ERROR");
-        }
+        var committed = await TryCommitSettingsMutationAsync(
+            mutation,
+            "Local metadata could not be saved",
+            "HISTORY ERROR",
+            showFailure: showError);
         RenderRecentExperiences();
+        return committed;
     }
 
     private bool MatchesRecentFilters(RecentExperience item)
@@ -544,13 +800,24 @@ public partial class MainWindow
 
     private static void SetFilterButtonState(Button button, bool active)
     {
-        button.Background = active ? CreateBrush("#2A3142") : Brushes.Transparent;
-        button.Foreground = active ? Brushes.White : CreateBrush("#98A3B8");
+        if (active)
+        {
+            button.SetResourceReference(
+                Control.BackgroundProperty,
+                "SelectedControlSurfaceBrush");
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "SelectedControlTextBrush");
+        }
+        else
+        {
+            button.Background = Brushes.Transparent;
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "MutedBrush");
+        }
         AutomationProperties.SetItemStatus(button, active ? "Selected" : "Not selected");
     }
-
-    private static SolidColorBrush CreateBrush(string color) =>
-        new((Color)ColorConverter.ConvertFromString(color));
 
     private enum RecentTypeFilter
     {

@@ -63,6 +63,9 @@ public sealed class HandleScopeContractValidationTests
         Assert.Equal(ValidToken, connection.Token);
         Assert.Equal("v1", connection.ApiVersion);
         Assert.Equal(ExpectedPid, connection.ApiProcessId);
+        Assert.Equal(
+            DateTimeOffset.Parse("2026-07-21T12:00:00+00:00"),
+            connection.StartedAtUtc);
     }
 
     [Theory]
