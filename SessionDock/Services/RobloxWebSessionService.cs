@@ -322,6 +322,87 @@ public sealed class RobloxWebSessionService : IDisposable
         return string.IsNullOrWhiteSpace(name) || name.Length > 200 ? null : name;
     }
 
+    internal async Task<JoinUserLookupResult> ResolveJoinUserAsync(
+        JoinUserIdentifier identifier,
+        WebSessionToken token,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(identifier);
+        var requestId = Guid.NewGuid().ToString("N");
+        var message = await RunMessageScriptAsync(
+            requestId,
+            RobloxWebScripts.ResolveJoinUser(requestId, identifier),
+            ApiTimeout,
+            token,
+            cancellationToken);
+        return ParseJoinUserResponse(message);
+    }
+
+    internal static JoinUserLookupResult ParseJoinUserResponse(
+        JsonElement? message)
+    {
+        if (message is null ||
+            !message.Value.TryGetProperty("status", out var statusElement) ||
+            statusElement.ValueKind != JsonValueKind.String)
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        var status = statusElement.GetString();
+        var unavailable = status switch
+        {
+            "user-not-found" => JoinUserAvailability.UserNotFound,
+            "offline" => JoinUserAvailability.Offline,
+            "not-in-experience" => JoinUserAvailability.NotInExperience,
+            "not-joinable" => JoinUserAvailability.NotJoinable,
+            "available" => JoinUserAvailability.Available,
+            _ => JoinUserAvailability.ServiceUnavailable
+        };
+        if (unavailable != JoinUserAvailability.Available)
+            return JoinUserLookupResult.Unavailable(unavailable);
+
+        if (!message.Value.TryGetProperty("user", out var user) ||
+            user.ValueKind != JsonValueKind.Object ||
+            !user.TryGetProperty("id", out var userIdElement) ||
+            !userIdElement.TryGetInt64(out var userId) ||
+            userId <= 0 ||
+            !user.TryGetProperty("name", out var usernameElement) ||
+            usernameElement.ValueKind != JsonValueKind.String ||
+            !message.Value.TryGetProperty("placeId", out var placeIdElement) ||
+            !placeIdElement.TryGetInt64(out var placeId) ||
+            placeId <= 0 ||
+            !message.Value.TryGetProperty("gameId", out var gameIdElement) ||
+            gameIdElement.ValueKind != JsonValueKind.String)
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        var username = usernameElement.GetString();
+        var displayName = user.TryGetProperty("displayName", out var displayNameElement) &&
+                          displayNameElement.ValueKind == JsonValueKind.String
+            ? displayNameElement.GetString()
+            : username;
+        var gameId = gameIdElement.GetString();
+        if (!IsBoundedDisplayText(username, 50) ||
+            !IsBoundedDisplayText(displayName, 200) ||
+            !Guid.TryParse(gameId, out var parsedGameId))
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        return new JoinUserLookupResult(
+            JoinUserAvailability.Available,
+            new JoinUserResolution(
+                userId,
+                username!,
+                displayName!,
+                placeId,
+                parsedGameId.ToString("D")));
+    }
+
     internal async Task<bool> ClearProfileAsync(
         WebSessionToken token,
         CancellationToken cancellationToken = default)

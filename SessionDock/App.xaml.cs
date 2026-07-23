@@ -226,6 +226,7 @@ public partial class App : Application
             }
             VerifyIntegratedWindowChrome(mainWindow);
             mainWindow.VerifyThemeSwitchForRuntimeSmoke();
+            mainWindow.VerifyJoinUserUiForRuntimeSmoke();
 
             void HandleShutdownCompleted(Exception? shutdownFailure)
             {

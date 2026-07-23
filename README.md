@@ -53,6 +53,10 @@ so the historic `%LOCALAPPDATA%\RobloxOne` account data is preserved.
   account.
 - Opens public places, official private-server links or codes, and supported
   server IDs recovered from recent launches.
+- Joins an online Roblox user by exact username, user ID, or official profile
+  URL when that user's privacy settings and current experience allow the
+  selected account to follow them. Roblox rechecks the user when Player starts;
+  user destinations currently use single launch rather than batch launch.
 - Shares Recent and Favorites across accounts while preserving the account and
   public/private context of each launch.
 - Launches one account at a time or runs a best-effort pipelined batch with a
