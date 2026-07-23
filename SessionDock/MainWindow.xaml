@@ -216,19 +216,39 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Width="58" VerticalAlignment="Center">
                         <TextBlock Text="ACCOUNT" Style="{StaticResource SectionLabel}"/>
-                        <TextBlock Text="Local slot" Foreground="{DynamicResource SubtleBrush}"
+                        <TextBlock Text="Drag to reorder" Foreground="{DynamicResource SubtleBrush}"
                                    FontSize="9" Margin="0,2,0,0"/>
                     </StackPanel>
-                    <ScrollViewer x:Name="AccountsScrollViewer" Grid.Column="1"
-                                  Margin="8,0,12,0"
-                                  VerticalAlignment="Center"
-                                  HorizontalScrollBarVisibility="Auto"
-                                  VerticalScrollBarVisibility="Disabled"
-                                  PanningMode="HorizontalOnly"
-                                  PreviewMouseWheel="AccountsScrollViewer_PreviewMouseWheel"
-                                  AutomationProperties.Name="Saved accounts">
-                        <StackPanel x:Name="AccountsList" Orientation="Horizontal"/>
-                    </ScrollViewer>
+                    <Grid x:Name="AccountsViewport" Grid.Column="1"
+                          Margin="8,0,12,0" ClipToBounds="True">
+                        <ScrollViewer x:Name="AccountsScrollViewer"
+                                      VerticalAlignment="Center"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      PanningMode="HorizontalOnly"
+                                      AllowDrop="True"
+                                      PreviewMouseWheel="AccountsScrollViewer_PreviewMouseWheel"
+                                      PreviewDragOver="AccountsScrollViewer_PreviewDragOver"
+                                      PreviewDrop="AccountsScrollViewer_PreviewDrop"
+                                      DragLeave="AccountsScrollViewer_DragLeave"
+                                      AutomationProperties.Name="Saved accounts">
+                            <StackPanel x:Name="AccountsList"
+                                        Orientation="Horizontal"/>
+                        </ScrollViewer>
+                        <Border x:Name="AccountDropIndicator"
+                                Panel.ZIndex="1"
+                                Width="3" Margin="0,6,0,6"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Stretch"
+                                Background="{DynamicResource AccentBrush}"
+                                CornerRadius="2"
+                                IsHitTestVisible="False"
+                                Visibility="Collapsed">
+                            <Border.RenderTransform>
+                                <TranslateTransform/>
+                            </Border.RenderTransform>
+                        </Border>
+                    </Grid>
                     <StackPanel Grid.Column="2" Orientation="Horizontal"
                                 VerticalAlignment="Center">
                         <Button x:Name="AddAccountButton"

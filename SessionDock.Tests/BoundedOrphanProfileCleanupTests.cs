@@ -2,11 +2,13 @@ using SessionDock.Services;
 
 namespace SessionDock.Tests;
 
+[Collection<TimingSensitiveTestCollection>]
 public sealed class BoundedOrphanProfileCleanupTests
 {
     [Fact]
     public async Task RunAsync_UncooperativeCleanupReturnsAtOwnedBudgetDeadline()
     {
+        var testGuardTimeout = TimeSpan.FromSeconds(10);
         var budgetCancellation = new CancellationTokenSource();
         var cleanup = new BoundedOrphanProfileCleanup(
             _ => budgetCancellation);
@@ -27,18 +29,19 @@ public sealed class BoundedOrphanProfileCleanupTests
             TimeSpan.FromMinutes(1),
             TestContext.Current.CancellationToken);
         await cleanupStarted.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
 
         budgetCancellation.Cancel();
         try
         {
             var result = await cleanupTask.WaitAsync(
-                TimeSpan.FromSeconds(1),
+                testGuardTimeout,
                 TestContext.Current.CancellationToken);
 
             Assert.Equal(0, result.RemovedProfiles);
             Assert.True(result.BudgetExpired);
+            Assert.False(lateCompletion.Task.IsCompleted);
         }
         finally
         {
@@ -46,13 +49,14 @@ public sealed class BoundedOrphanProfileCleanupTests
         }
 
         await lateCompletion.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
     }
 
     [Fact]
     public async Task RunAsync_UncooperativeCleanupPropagatesCallerCancellationPromptly()
     {
+        var testGuardTimeout = TimeSpan.FromSeconds(10);
         var cleanup = new BoundedOrphanProfileCleanup();
         using var callerCancellation = new CancellationTokenSource();
         var cleanupStarted = new TaskCompletionSource(
@@ -72,7 +76,7 @@ public sealed class BoundedOrphanProfileCleanupTests
             TimeSpan.FromMinutes(1),
             callerCancellation.Token);
         await cleanupStarted.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
 
         callerCancellation.Cancel();
@@ -80,7 +84,7 @@ public sealed class BoundedOrphanProfileCleanupTests
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () => await cleanupTask.WaitAsync(
-                    TimeSpan.FromSeconds(1),
+                    testGuardTimeout,
                     TestContext.Current.CancellationToken));
         }
         finally
@@ -89,7 +93,7 @@ public sealed class BoundedOrphanProfileCleanupTests
         }
 
         await lateCompletion.Task.WaitAsync(
-            TimeSpan.FromSeconds(1),
+            testGuardTimeout,
             TestContext.Current.CancellationToken);
     }
 

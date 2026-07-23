@@ -46,17 +46,21 @@ so the historic `%LOCALAPPDATA%\RobloxOne` account data is preserved.
 
 ## What it does
 
-- Keeps any number of Roblox sign-ins in separate local WebView2 profiles.
+- Keeps any number of Roblox sign-ins in separate local WebView2 profiles and
+  lets you drag saved accounts into the order used by the account strip and
+  batch launch.
 - Gives accounts custom labels and colors and remembers a destination per
   account.
 - Opens public places, official private-server links or codes, and supported
   server IDs recovered from recent launches.
 - Shares Recent and Favorites across accounts while preserving the account and
   public/private context of each launch.
-- Launches one account at a time or runs a best-effort sequential batch with a
+- Launches one account at a time or runs a best-effort pipelined batch with a
   configurable delay. Batch mode verifies selected sign-ins before closing any
-  running clients, can be cancelled, and restores the previously selected
-  account. Roblox still decides whether multiple Players may run.
+  running clients, prepares the next isolated session while the current client
+  settles, requests each launch ticket only when it is ready to be used, can be
+  cancelled, and restores the previously selected account. Roblox still decides
+  whether multiple Players may run.
 - Closes all visible and background Roblox Player processes on request.
 - Provides optional interface sounds and a user-selected startup sound.
 
