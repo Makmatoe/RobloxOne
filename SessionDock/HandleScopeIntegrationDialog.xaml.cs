@@ -11,16 +11,15 @@ namespace SessionDock;
 
 public partial class HandleScopeIntegrationDialog : Window
 {
-    private const string OfficialReleasesUrl =
-        "https://github.com/Makmatoe/HandleScope/releases";
-
     private readonly HandleScopeIntegrationService _integrationService = new();
+    private readonly HandleScopeReleaseInstaller _releaseInstaller = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private HandleScopeIntegrationState _state =
         HandleScopeIntegrationState.NotInstalled;
     private bool _canRepairConfiguration;
     private bool _repairEnablesIntegration = true;
     private bool _isBusy;
+    private bool _installCommitInProgress;
     private bool _isClosed;
 
     public HandleScopeIntegrationDialog()
@@ -28,6 +27,7 @@ public partial class HandleScopeIntegrationDialog : Window
         InitializeComponent();
         WindowLayoutService.FitToWorkArea(this);
         Loaded += HandleScopeIntegrationDialog_Loaded;
+        Closing += HandleScopeIntegrationDialog_Closing;
         Closed += HandleScopeIntegrationDialog_Closed;
     }
 
@@ -99,24 +99,96 @@ public partial class HandleScopeIntegrationDialog : Window
             repairEnablesIntegration: false);
     }
 
-    private void GetHandleScopeButton_Click(object sender, RoutedEventArgs e)
+    private async void InstallLatestHandleScopeButton_Click(
+        object sender,
+        RoutedEventArgs e)
     {
+        if (_isBusy)
+            return;
+
+        var confirmation = MessageBox.Show(
+            this,
+            "SessionDock will download the latest stable Windows x64 package from the canonical Makmatoe/HandleScope GitHub release, verify its published SHA-256 values and internal file manifest, and run HandleScope's per-user installer. The installer will start the API now and enable its limited per-user autostart at Windows sign-in.\n\nHandleScope is not Authenticode-signed. The verification confirms that the download matches the immutable GitHub release, not an independently signed publisher identity. SessionDock will not elevate or change the integration setting.\n\nContinue?",
+            "Install latest HandleScope release",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        SetBusy(true);
+        ActionStatusText.Text = "Checking the latest stable HandleScope release...";
         try
         {
-            Process.Start(new ProcessStartInfo
+            var progress = new ImmediateProgress<HandleScopeReleaseInstallProgress>(
+                UpdateInstallProgress);
+            var installed = await _releaseInstaller.InstallLatestAsync(
+                progress,
+                _lifetimeCancellation.Token);
+            if (_isClosed)
+                return;
+
+            var result = await _integrationService.TestConnectionAsync(
+                _lifetimeCancellation.Token);
+            _state = result.State;
+            _canRepairConfiguration = result.CanRepairConfiguration;
+            RenderState();
+            ActionStatusText.Text = _state switch
             {
-                FileName = OfficialReleasesUrl,
-                UseShellExecute = true
-            });
-            ActionStatusText.Text =
-                "Opened the official HandleScope Releases page in your browser.";
+                HandleScopeIntegrationState.Ready =>
+                    $"HandleScope {installed.Version} was verified and installed. Its API is running, autostart is enabled, and the integration is ready.",
+                HandleScopeIntegrationState.RunningDisabled =>
+                    $"HandleScope {installed.Version} was verified and installed. Its API is running with autostart enabled; select Enable once to opt in.",
+                _ =>
+                    $"HandleScope {installed.Version} was verified and installed with autostart enabled. Use Start API if it is not yet running."
+            };
         }
-        catch (Exception ex) when (
-            ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        catch (OperationCanceledException)
         {
-            ActionStatusText.Text =
-                "The official release page could not be opened. Visit github.com/Makmatoe/HandleScope/releases.";
+            if (!_isClosed)
+            {
+                ActionStatusText.Text =
+                    "HandleScope installation was cancelled before the installer started.";
+            }
         }
+        catch (HandleScopeInstallException exception)
+        {
+            Trace.WriteLine(
+                $"HandleScope install failed safely: {exception.GetType().Name}.");
+            if (!_isClosed)
+                ActionStatusText.Text = exception.Message;
+        }
+        finally
+        {
+            _installCommitInProgress = false;
+            if (!_isClosed)
+                SetBusy(false);
+        }
+    }
+
+    private void UpdateInstallProgress(HandleScopeReleaseInstallProgress progress)
+    {
+        if (_isClosed)
+            return;
+        ActionStatusText.Text = progress.Stage switch
+        {
+            HandleScopeReleaseInstallStage.CheckingRelease =>
+                "Checking the latest stable HandleScope release...",
+            HandleScopeReleaseInstallStage.DownloadingPackage =>
+                $"Downloading HandleScope {progress.Version}... {progress.Percentage ?? 0}%",
+            HandleScopeReleaseInstallStage.VerifyingPackage =>
+                $"Verifying HandleScope {progress.Version}...",
+            HandleScopeReleaseInstallStage.InstallingPackage =>
+                MarkInstallCommitStarted(progress.Version),
+            _ => throw new InvalidOperationException(
+                "Unexpected HandleScope installation stage.")
+        };
+    }
+
+    private string MarkInstallCommitStarted(string? version)
+    {
+        _installCommitInProgress = true;
+        return $"Installing HandleScope {version} for this Windows user...";
     }
 
     private async Task RunActionAsync(
@@ -165,7 +237,7 @@ public partial class HandleScopeIntegrationDialog : Window
             case HandleScopeIntegrationState.NotInstalled:
                 SetStatePresentation(
                     "HandleScope is not installed",
-                    "Install it separately from the official release page. SessionDock will not download or install it for you.",
+                    "Select Install Latest HandleScope release below. SessionDock will verify the download before installing it for this Windows user.",
                     "NOT INSTALLED",
                     "MutedBrush",
                     "UtilitySurfaceBrush",
@@ -219,7 +291,7 @@ public partial class HandleScopeIntegrationDialog : Window
             case HandleScopeIntegrationState.UpdateRequired:
                 SetStatePresentation(
                     "HandleScope update required",
-                    "The installed API is not compatible with this SessionDock release. Install the latest official HandleScope release.",
+                    "Select Install Latest HandleScope release to download, verify, and replace the installed API with the latest stable release.",
                     "UPDATE REQUIRED",
                     "WarningTextBrush",
                     "WarningSurfaceBrush",
@@ -248,7 +320,7 @@ public partial class HandleScopeIntegrationDialog : Window
                 {
                     SetStatePresentation(
                         "Local safety check failed",
-                        "SessionDock refused the local installation, start request, or health response. Reinstall or update from the official release page, then refresh.",
+                        "SessionDock refused the local installation, start request, or health response. Use Install Latest HandleScope release to replace it safely, then refresh.",
                         "UNAVAILABLE",
                         "ErrorTextBrush",
                         "ErrorSurfaceBrush",
@@ -296,7 +368,7 @@ public partial class HandleScopeIntegrationDialog : Window
 
     private void UpdateActionAvailability()
     {
-        GetHandleScopeButton.IsEnabled = !_isBusy;
+        InstallLatestHandleScopeButton.IsEnabled = !_isBusy;
         RefreshButton.IsEnabled = !_isBusy;
         StartApiButton.IsEnabled = !_isBusy && _state ==
             HandleScopeIntegrationState.InstalledStopped;
@@ -321,11 +393,39 @@ public partial class HandleScopeIntegrationDialog : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
+    private void HandleScopeIntegrationDialog_Closing(
+        object? sender,
+        CancelEventArgs e)
+    {
+        if (!_installCommitInProgress)
+            return;
+        e.Cancel = true;
+        MessageBox.Show(
+            this,
+            "HandleScope is finishing its verified per-user file replacement. Keep this window open until installation completes.",
+            "HandleScope installation in progress",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void HandleScopeIntegrationDialog_Closed(object? sender, EventArgs e)
     {
         _isClosed = true;
         _lifetimeCancellation.Cancel();
+        _releaseInstaller.Dispose();
         _integrationService.Dispose();
         _lifetimeCancellation.Dispose();
+    }
+
+    private sealed class ImmediateProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _report;
+
+        internal ImmediateProgress(Action<T> report)
+        {
+            _report = report ?? throw new ArgumentNullException(nameof(report));
+        }
+
+        public void Report(T value) => _report(value);
     }
 }

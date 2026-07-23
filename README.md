@@ -80,18 +80,24 @@ limited to official Roblox HTTPS endpoints. Embedded Roblox pages may still
 load subresources chosen by Roblox. The Player executable is location-checked
 and Windows-signature-checked before launch.
 Optional post-launch integrations accept loopback addresses only and are off
-until the user configures them. HandleScope is never bundled, downloaded,
-installed, or elevated by SessionDock. SessionDock starts only the separately
-installed HandleScope API at its expected per-user path, after local safety
-checks and only when the user explicitly selects **Start API**.
+until the user configures them. HandleScope is optional, off by default, and
+never bundled or elevated by SessionDock. When the user explicitly selects
+**Install Latest HandleScope release**, SessionDock resolves the latest stable,
+immutable release from the canonical `Makmatoe/HandleScope` GitHub repository,
+downloads its Windows x64 ZIP and checksum file, verifies the GitHub asset
+digests, same-release checksum, safe archive layout, and internal file manifest,
+then runs HandleScope's standard-user per-user installer. HandleScope is not
+Authenticode-signed; these checks confirm that the package matches the canonical
+GitHub release, not an independently authenticated publisher identity.
 
-To use the optional connector, install HandleScope from its
-[canonical release page](https://github.com/Makmatoe/HandleScope/releases),
-then select **Integrations** in the SessionDock sidebar. The HandleScope panel
-can enable the fixed per-user Roblox policy, explicitly start the API at its
-expected local path, and test its loopback health endpoint. Testing never
-enumerates or closes a handle. SessionDock stores only the minimal
-enabled/disabled opt-in; its
+To use the optional connector, select **Integrations** in the SessionDock
+sidebar. Installation starts the API immediately and enables HandleScope's
+limited per-user task so it starts automatically at future Windows sign-ins;
+it does not change SessionDock's integration opt-in. The HandleScope panel can
+separately enable the fixed per-user Roblox policy, explicitly start the API at
+its expected local path if needed, and test its loopback health endpoint.
+Testing never enumerates or closes a handle. SessionDock stores only the
+minimal enabled/disabled opt-in; its
 narrow Roblox handle policy remains compiled into the app. Command-line setup
 remains documented for source developers under
 [SystemProcesses](SessionDock/SystemProcesses/README.md).

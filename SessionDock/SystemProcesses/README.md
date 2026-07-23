@@ -58,30 +58,49 @@ continues to use the exact HTTP loopback endpoint described below.
 ## HandleScope connector
 
 HandleScope support is disabled by default. SessionDock does not include,
-download, install, or elevate HandleScope. Regular users can opt in without
+bundle, or elevate HandleScope. Regular users can install and opt in without
 PowerShell:
 
-1. Download and install HandleScope only from its
-   [canonical repository](https://github.com/Makmatoe/HandleScope) or
-   [release page](https://github.com/Makmatoe/HandleScope/releases).
-2. Select **Integrations** in the SessionDock sidebar to open the HandleScope
-   panel.
+1. Select **Integrations** in the SessionDock sidebar to open the HandleScope
+   panel. Opening the panel and selecting Refresh inspect local files only.
+2. Select **Install Latest HandleScope release** and review the confirmation.
+   This is the only panel action that contacts the canonical
+   `Makmatoe/HandleScope` GitHub repository. SessionDock requires a stable,
+   immutable release with the exact versioned Windows x64 package and checksum
+   assets, verifies both GitHub-published asset digests and the package hash in
+   that same checksum file, rejects unsafe or oversized archive entries, checks
+   the complete internal manifest, and then runs the included standard-user
+   installer with its documented `StartNow` and limited per-user
+   `EnableAutostart` options. SessionDock never supplies integration, downgrade,
+   elevation, or execution-policy-bypass switches.
 3. Select **Enable** to write the fixed, minimal per-user opt-in.
-4. Select **Start API** to explicitly request a start of the API at its expected
-   per-user installation path after local safety checks. SessionDock never
-   starts it when the app or integration panel opens.
+4. The installer starts the API immediately and its limited task starts it at
+   future Windows sign-ins. Select **Start API** only if a manual restart is
+   later needed; SessionDock still never starts it merely because the app or
+   integration panel opens.
 5. Select **Test connection** to check only its loopback health endpoint after
    the connection file and same-session process identity pass local checks.
    This test never enumerates or closes a handle.
 
-HandleScope releases are not Authenticode-signed. SessionDock cannot prove the
-publisher of an unsigned executable stored in a user-writable directory, so
-install it only from the official release page and verify the published
-checksum. The panel checks the exact standard path, rejects reparse points,
-requires a structurally valid Windows executable, and checks the running
-process path, session, owner, and non-elevated token before testing the
-connection; these are local safety checks, not cryptographic publisher
+HandleScope releases are not Authenticode-signed and do not currently include
+a descriptor signed by a key pinned in SessionDock. The install checks prove
+that the downloaded bytes match the immutable canonical GitHub release; they
+do not independently prove the publisher of an unsigned executable stored in a
+user-writable directory. The panel checks the exact standard path, rejects
+reparse points, requires a structurally valid Windows executable, and checks
+the running process path, session, owner, and non-elevated token before testing
+the connection; these are local safety checks, not cryptographic publisher
 verification.
+
+Installation starts HandleScope immediately and enables its limited per-user
+interactive-logon task, but it does not change SessionDock's opt-in. Updating
+an already running API may stop it briefly while its files are atomically
+replaced; the install then starts the updated API. A cancellation before the
+installer starts removes the staged download. Once HandleScope's installer
+begins its atomic replacement, SessionDock lets it finish rather than
+deliberately interrupting the file swap. HandleScope refuses automatic
+downgrades and preserves the prior installation if its staged replacement
+fails.
 
 The panel reports **Not installed**, **Installed - connection not tested**,
 **API start requested**, **API running - connection not tested**,

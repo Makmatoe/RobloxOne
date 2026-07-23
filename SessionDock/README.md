@@ -44,11 +44,15 @@ Roblox pages and are not read or stored by SessionDock.
 ## Optional integrations
 
 SessionDock can notify a user-configured loopback endpoint after a successful
-launch. It can also use a separately installed HandleScope local API when the
-user explicitly enables the fixed Roblox policy. SessionDock never bundles,
-downloads, installs, or elevates HandleScope. Its integration panel can start
-only the API at the expected per-user installation path after local safety
-checks, and only after the user explicitly selects **Start API**. See
+launch. It can also use the optional HandleScope local API when the user
+explicitly enables the fixed Roblox policy. SessionDock never bundles or
+elevates HandleScope. Its integration panel downloads and installs the latest
+stable canonical GitHub release only after the user explicitly selects
+**Install Latest HandleScope release** and accepts the confirmation. Install is
+per-user, starts the API immediately, and enables HandleScope's limited
+interactive-logon autostart task. It does not change SessionDock's integration
+setting. The panel can start only the API at the expected per-user installation
+path after local safety checks if a manual restart is later needed. See
 [SystemProcesses/README.md](SystemProcesses/README.md).
 
 ## Updates

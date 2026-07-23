@@ -47,9 +47,20 @@ SessionDock is designed around these boundaries:
   hash, bounded metadata, and an exact package-content allowlist.
 - The optional generic launch hook requires a Windows-trusted HTTPS certificate
   for a numeric loopback address and a valid bearer token. Plain HTTP generic
-  hooks are rejected. HandleScope uses a separate verified loopback process,
-  discovery-file, and rotating-token boundary; its API is separately installed,
-  explicitly enabled, and never elevated, installed, or bundled by SessionDock.
+  hooks are rejected.
+- HandleScope uses a separate verified loopback process, discovery-file, and
+  rotating-token boundary. Its API is optional, explicitly enabled, and never
+  elevated or bundled by SessionDock. Only the explicit **Install Latest HandleScope
+  release** action may contact the canonical HandleScope GitHub repository and
+  run its per-user installer. That path requires a stable immutable release,
+  exact Windows asset names and sizes, GitHub's published asset digests, the
+  matching same-release checksum, a safe bounded ZIP layout, and the bundle's
+  internal manifest before execution. Because HandleScope has no
+  Authenticode signature or separately signed descriptor, this proves a byte
+  match to the GitHub release rather than an independent publisher identity.
+  Install starts the API and enables HandleScope's limited, per-user,
+  interactive-logon autostart task. It does not elevate or enable the
+  SessionDock integration.
 - Account/history settings under `%LOCALAPPDATA%\SessionDock` are private local
   data, not portable release content.
 
