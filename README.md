@@ -46,7 +46,9 @@ so the historic `%LOCALAPPDATA%\RobloxOne` account data is preserved.
 
 ## What it does
 
-- Keeps any number of Roblox sign-ins in separate local WebView2 profiles.
+- Keeps any number of Roblox sign-ins in separate local WebView2 profiles and
+  lets you drag saved accounts into the order used by the account strip and
+  batch launch.
 - Gives accounts custom labels and colors and remembers a destination per
   account.
 - Opens public places, official private-server links or codes, and supported
