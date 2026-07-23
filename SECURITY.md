@@ -58,6 +58,9 @@ SessionDock is designed around these boundaries:
   internal manifest before execution. Because HandleScope has no
   Authenticode signature or separately signed descriptor, this proves a byte
   match to the GitHub release rather than an independent publisher identity.
+  The verified unsigned installer runs with an execution-policy override scoped
+  only to its child PowerShell process; no saved policy is changed and Windows
+  Group Policy still takes precedence.
   Install starts the API and enables HandleScope's limited, per-user,
   interactive-logon autostart task. It does not elevate or enable the
   SessionDock integration.

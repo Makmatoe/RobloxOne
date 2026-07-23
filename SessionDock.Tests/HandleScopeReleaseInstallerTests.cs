@@ -163,6 +163,8 @@ public sealed class HandleScopeReleaseInstallerTests
             "-NoLogo",
             "-NoProfile",
             "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
             "-File",
             fullInstallerPath
         };
@@ -359,7 +361,7 @@ public sealed class HandleScopeReleaseInstallerTests
                 CancellationToken cancellationToken)
             {
                 var arguments = startInfo.ArgumentList.ToArray();
-                Assert.True(File.Exists(arguments[4]));
+                Assert.True(File.Exists(arguments[6]));
                 invocations.Add(new(
                     startInfo.FileName,
                     arguments,
@@ -381,10 +383,10 @@ public sealed class HandleScopeReleaseInstallerTests
             Assert.Equal(Version, result.Version);
             Assert.Equal(2, invocations.Count);
             Assert.Equal("-VerifyOnly", Assert.Single(
-                invocations[0].Arguments.Skip(5)));
+                invocations[0].Arguments.Skip(7)));
             Assert.Equal(
                 new[] { "-StartNow", "-EnableAutostart" },
-                invocations[1].Arguments.Skip(5));
+                invocations[1].Arguments.Skip(7));
             Assert.Equal(cancellation.Token, invocations[0].CancellationToken);
             Assert.Equal(CancellationToken.None, invocations[1].CancellationToken);
             Assert.Equal(invocations[0].FileName, invocations[1].FileName);
@@ -455,9 +457,7 @@ public sealed class HandleScopeReleaseInstallerTests
 
     private static bool IsForbiddenInstallerArgument(string argument) =>
         argument.Equals("-EnableSessionDock", StringComparison.OrdinalIgnoreCase) ||
-        argument.Equals("-AllowDowngrade", StringComparison.OrdinalIgnoreCase) ||
-        argument.Equals("-ExecutionPolicy", StringComparison.OrdinalIgnoreCase) ||
-        argument.Equals("Bypass", StringComparison.OrdinalIgnoreCase);
+        argument.Equals("-AllowDowngrade", StringComparison.OrdinalIgnoreCase);
 
     private static HandleScopeReleaseIdentity CreateIdentity(byte[] packageHash) =>
         new(

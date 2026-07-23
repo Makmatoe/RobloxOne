@@ -71,8 +71,11 @@ PowerShell:
    that same checksum file, rejects unsafe or oversized archive entries, checks
    the complete internal manifest, and then runs the included standard-user
    installer with its documented `StartNow` and limited per-user
-   `EnableAutostart` options. SessionDock never supplies integration, downgrade,
-   elevation, or execution-policy-bypass switches.
+   `EnableAutostart` options. Because the verified installer is unsigned,
+   SessionDock gives only that child PowerShell process an execution-policy
+   bypass. This does not change the user's or computer's saved policy and cannot
+   override Group Policy. SessionDock never supplies integration, downgrade, or
+   elevation switches.
 3. Select **Enable** to write the fixed, minimal per-user opt-in.
 4. The installer starts the API immediately and its limited task starts it at
    future Windows sign-ins. Select **Start API** only if a manual restart is
