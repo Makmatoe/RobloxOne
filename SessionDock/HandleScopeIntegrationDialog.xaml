@@ -40,7 +40,7 @@
                             <TextBlock Text="HandleScope integration"
                                        Foreground="{DynamicResource TextBrush}"
                                        FontSize="24" FontWeight="SemiBold"/>
-                            <TextBlock Text="Connect SessionDock to a separately installed local HandleScope API."
+                            <TextBlock Text="Install and connect SessionDock to the optional local HandleScope API."
                                        Foreground="{DynamicResource MutedBrush}" FontSize="13"
                                        Margin="0,6,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
@@ -124,21 +124,22 @@
                         <TextBlock Text="SETUP AND CONTROLS"
                                    Foreground="{DynamicResource SubtleBrush}"
                                    FontSize="11" FontWeight="Bold"/>
-                        <TextBlock Text="Install HandleScope from its official release page and verify its published checksum, then use these explicit controls. SessionDock checks the expected local path but cannot authenticate an unsigned executable's publisher. It never downloads, installs, elevates, or silently starts HandleScope."
+                        <TextBlock Text="The install button contacts the canonical HandleScope GitHub Releases source, verifies the stable Windows package against GitHub's immutable release digest, the same-release checksum, safe ZIP layout, and the bundle manifest, then runs HandleScope's standard-user installer. HandleScope is not Authenticode-signed, so these checks confirm the package matches the GitHub release rather than independently proving its publisher. Installation starts the API now and enables its limited per-user autostart at Windows sign-in; it never elevates or changes SessionDock's integration setting."
                                    Foreground="{DynamicResource MutedBrush}" FontSize="12"
                                    Margin="0,7,0,0" TextWrapping="Wrap"/>
 
                         <WrapPanel Margin="0,15,0,0">
-                            <Button x:Name="GetHandleScopeButton"
-                                    Click="GetHandleScopeButton_Click"
+                            <Button x:Name="InstallLatestHandleScopeButton"
+                                    Click="InstallLatestHandleScopeButton_Click"
                                     Background="{DynamicResource ControlSurfaceBrush}"
                                     Foreground="{DynamicResource ControlTextBrush}"
                                     Padding="14,10" Margin="0,0,8,8"
-                                    AutomationProperties.Name="Get HandleScope from official releases">
+                                    ToolTip="Download, verify, and install the latest stable HandleScope release for this Windows user"
+                                    AutomationProperties.Name="Install Latest HandleScope release">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Style="{StaticResource ButtonIcon}"
                                           Data="{StaticResource IconUpdate}" Margin="0,0,7,0"/>
-                                    <TextBlock Text="Get HandleScope"/>
+                                    <TextBlock Text="Install Latest HandleScope release"/>
                                 </StackPanel>
                             </Button>
                             <Button x:Name="RefreshButton" Click="RefreshButton_Click"
