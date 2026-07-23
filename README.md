@@ -21,8 +21,9 @@ warning.
 ## Quick start
 
 1. Install Roblox Player. WebView2 is already included with Windows 11 and
-   nearly all Windows 10 installations. Only if the sign-in view cannot open,
-   install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
+   nearly all Windows 10 installations. If it is missing or damaged,
+   SessionDock stays open and offers the
+   [official Microsoft WebView2 repair and download page](https://developer.microsoft.com/en-us/microsoft-edge/webview2/consumer/).
 2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/SessionDock/releases)
    page and download both the Setup executable and its `SHA256SUMS.txt` asset
    from the latest release. The checksum file also has a stable

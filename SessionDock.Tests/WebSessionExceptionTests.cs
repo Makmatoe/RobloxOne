@@ -34,11 +34,47 @@ public sealed class WebSessionExceptionTests
     [InlineData(unchecked((int)0x80070578))]
     [InlineData(unchecked((int)0x80070005))]
     [InlineData(unchecked((int)0x80004005))]
-    public void IsExpectedInitializationHResult_DocumentedFailure_ReturnsTrue(
+    [InlineData(unchecked((int)0x80004004))]
+    [InlineData(unchecked((int)0x80040154))]
+    public void IsExpectedInitializationHResult_OperationalFailure_ReturnsTrue(
         int hResult)
     {
         Assert.True(
             RobloxWebSessionService.IsExpectedInitializationHResult(hResult));
+    }
+
+    [Theory]
+    [InlineData(
+        unchecked((int)0x80040154),
+        (int)WebSessionUnavailableReason.MissingRuntime)]
+    [InlineData(
+        unchecked((int)0x80004004),
+        (int)WebSessionUnavailableReason.RuntimeStartFailed)]
+    public void GetInitializationFailureReason_ReturnsActionableReason(
+        int hResult,
+        int expectedValue)
+    {
+        var expected = (WebSessionUnavailableReason)expectedValue;
+        Assert.Equal(
+            expected,
+            RobloxWebSessionService.GetInitializationFailureReason(hResult));
+        Assert.True(WebSessionException.HasActionableRuntimeRecovery(expected));
+    }
+
+    [Fact]
+    public void RuntimeRecoveryPage_IsPinnedToMicrosoftHttpsEndpoint()
+    {
+        var uri = new Uri(WebSessionException.OfficialWebView2DownloadUrl);
+
+        Assert.Equal(Uri.UriSchemeHttps, uri.Scheme);
+        Assert.Equal("developer.microsoft.com", uri.Host);
+        Assert.True(uri.IsDefaultPort);
+        Assert.Empty(uri.UserInfo);
+        Assert.Equal(
+            "/en-us/microsoft-edge/webview2/consumer/",
+            uri.AbsolutePath);
+        Assert.False(WebSessionException.HasActionableRuntimeRecovery(
+            WebSessionUnavailableReason.ProcessExited));
     }
 
     [Fact]

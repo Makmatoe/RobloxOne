@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private bool _destinationDraftValid = true;
     private bool _joinUserMode;
     private bool _destinationModeAwaitingInput;
+    private bool _webView2RecoveryPromptShown;
     private bool _shutdownComplete;
 
     internal Task<Exception?> StartupCompletion => _startupCompletion.Task;
@@ -435,12 +436,58 @@ public partial class MainWindow : Window
         }
         catch (WebSessionUnavailableException exception)
         {
-            SetStatus(
+            PresentWebSessionFailure(
                 "Web sign-in could not start",
-                exception.Message,
-                "SESSION ERROR");
-            SignInButton.Visibility = Visibility.Visible;
+                exception);
             return false;
+        }
+    }
+
+    private void PresentWebSessionFailure(
+        string title,
+        WebSessionUnavailableException exception)
+    {
+        _webSessionToken = null;
+        BrowserHost.Children.Clear();
+        BrowserPanel.Visibility = Visibility.Collapsed;
+        LauncherPanel.Visibility = Visibility.Visible;
+        SetStatus(title, exception.Message, "SESSION ERROR");
+        SignInButton.Visibility = Visibility.Visible;
+
+        if (_webView2RecoveryPromptShown ||
+            _operationLifetime.IsShuttingDown ||
+            !WebSessionException.HasActionableRuntimeRecovery(exception.Reason))
+        {
+            return;
+        }
+
+        _webView2RecoveryPromptShown = true;
+        var result = MessageBox.Show(
+            this,
+            $"{exception.Message}{Environment.NewLine}{Environment.NewLine}" +
+            "Open Microsoft's official WebView2 download and repair page now?",
+            "Microsoft WebView2 needs attention",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = WebSessionException.OfficialWebView2DownloadUrl,
+                UseShellExecute = true
+            });
+        }
+        catch (Win32Exception startException)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"WebView2 help page could not be opened: {startException.NativeErrorCode}.");
+            SetStatus(
+                "WebView2 help page could not be opened",
+                $"Open {WebSessionException.OfficialWebView2DownloadUrl} in your browser, install or repair WebView2, restart Windows, and try again.",
+                "SESSION ERROR");
         }
     }
 
@@ -814,11 +861,9 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            SetStatus(
+            PresentWebSessionFailure(
                 "Roblox web session became unavailable",
-                webSessionFailure.Message,
-                "SESSION ERROR");
-            SignInButton.Visibility = Visibility.Visible;
+                webSessionFailure);
             return;
         }
         SetStatus(

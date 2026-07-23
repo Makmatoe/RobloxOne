@@ -357,6 +357,10 @@ try {
     $versionMetadataHash = (Get-FileHash -LiteralPath $versionMetadataPath -Algorithm SHA256).Hash
     [xml] $nuspec = Get-Content -LiteralPath $nuspecPath -Raw
     $metadata = $nuspec.package.metadata
+    if ($null -ne $metadata.SelectSingleNode(
+            "*[local-name()='runtimeDependencies']")) {
+        throw 'The full update package is not backward-compatible with the strict 2.4.0 metadata verifier.'
+    }
     if ((Get-XmlChildText $metadata 'id') -cne 'SessionDockApp' -or
         (Get-XmlChildText $metadata 'version') -cne [string] $descriptor.version -or
         (Get-XmlChildText $metadata 'channel') -cne $ExpectedChannel -or

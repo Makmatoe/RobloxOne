@@ -113,20 +113,18 @@ public sealed class RobloxWebSessionService : IDisposable
         }
         catch (WebView2RuntimeNotFoundException exception)
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.MissingRuntime,
-                "The Microsoft Edge WebView2 Runtime is not installed or could not be found.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                WebSessionUnavailableReason.MissingRuntime);
         }
         catch (COMException exception) when (
             IsExpectedInitializationHResult(exception.HResult))
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.RuntimeStartFailed,
-                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                GetInitializationFailureReason(exception.HResult));
         }
         if (!IsCurrent(session) || cancellationToken.IsCancellationRequested)
             return false;
@@ -138,11 +136,10 @@ public sealed class RobloxWebSessionService : IDisposable
         catch (COMException exception) when (
             IsExpectedInitializationHResult(exception.HResult))
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.RuntimeStartFailed,
-                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                GetInitializationFailureReason(exception.HResult));
         }
         catch (Exception exception) when (
             IsCorrelatedRuntimeFailure(
@@ -744,6 +741,29 @@ public sealed class RobloxWebSessionService : IDisposable
             exception);
     }
 
+    private WebSessionUnavailableException CreateInitializationUnavailableException(
+        Exception exception,
+        WebSessionToken token,
+        WebSessionUnavailableReason reason)
+    {
+        EnsureCurrent(token);
+        var message = reason == WebSessionUnavailableReason.MissingRuntime
+            ? "Microsoft Edge WebView2 is missing or damaged. Install or repair WebView2, restart Windows, then reopen SessionDock. Your saved accounts and isolated profiles were left unchanged."
+            : "Microsoft Edge WebView2 could not start. Repair or reinstall WebView2, restart Windows, then reopen SessionDock. Your saved accounts and isolated profiles were left unchanged.";
+        var unavailable = new WebSessionUnavailableException(
+            reason,
+            message,
+            exception);
+        ReleaseBrowser();
+        return unavailable;
+    }
+
+    internal static WebSessionUnavailableReason GetInitializationFailureReason(
+        int hResult) =>
+        hResult == unchecked((int)0x80040154)
+            ? WebSessionUnavailableReason.MissingRuntime
+            : WebSessionUnavailableReason.RuntimeStartFailed;
+
     internal static bool IsExpectedInitializationHResult(int hResult) =>
         hResult is
             unchecked((int)0x80070032) or
@@ -754,7 +774,9 @@ public sealed class RobloxWebSessionService : IDisposable
             unchecked((int)0x80070002) or
             unchecked((int)0x80070050) or
             unchecked((int)0x80070005) or
-            unchecked((int)0x80004005);
+            unchecked((int)0x80004005) or
+            unchecked((int)0x80004004) or
+            unchecked((int)0x80040154);
 
     private static bool IsClosedRuntimeHResult(int hResult) =>
         hResult is
@@ -766,7 +788,8 @@ public sealed class RobloxWebSessionService : IDisposable
         Exception exception) =>
         exception is ObjectDisposedException or InvalidOperationException ||
         exception is COMException comException &&
-        IsClosedRuntimeHResult(comException.HResult);
+        (IsClosedRuntimeHResult(comException.HResult) ||
+         IsExpectedInitializationHResult(comException.HResult));
 
     private static TaskCompletionSource<WebSessionUnavailableReason>
         CreateSessionEndedSignal() => new(
