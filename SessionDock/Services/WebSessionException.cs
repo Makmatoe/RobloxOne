@@ -4,8 +4,16 @@ namespace SessionDock.Services;
 
 internal static class WebSessionException
 {
+    internal const string OfficialWebView2DownloadUrl =
+        "https://developer.microsoft.com/en-us/microsoft-edge/webview2/consumer/";
+
     internal static bool IsExpectedLifecycleFailure(Exception exception) =>
         exception is WebSessionUnavailableException;
+
+    internal static bool HasActionableRuntimeRecovery(
+        WebSessionUnavailableReason reason) =>
+        reason is WebSessionUnavailableReason.MissingRuntime or
+            WebSessionUnavailableReason.RuntimeStartFailed;
 }
 
 internal enum WebSessionUnavailableReason

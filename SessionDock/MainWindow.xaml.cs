@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -59,6 +60,9 @@ public partial class MainWindow : Window
     private long _destinationRevision;
     private bool _destinationDraftDirty;
     private bool _destinationDraftValid = true;
+    private bool _joinUserMode;
+    private bool _destinationModeAwaitingInput;
+    private bool _webView2RecoveryPromptShown;
     private bool _shutdownComplete;
 
     internal Task<Exception?> StartupCompletion => _startupCompletion.Task;
@@ -111,6 +115,32 @@ public partial class MainWindow : Window
         finally
         {
             themeService.ApplyPreference(originalPreference);
+        }
+    }
+
+    internal void VerifyJoinUserUiForRuntimeSmoke()
+    {
+        Dispatcher.VerifyAccess();
+        ChangeDestinationMode(joinUser: true);
+        if (!_joinUserMode ||
+            LaunchButtonLabel.Text != "Join user" ||
+            AutomationProperties.GetItemStatus(UserDestinationModeButton) !=
+            "Selected" ||
+            AutomationProperties.GetName(PlaceIdBox) != "Roblox user to join")
+        {
+            throw new InvalidOperationException(
+                "The join-user destination mode did not become active.");
+        }
+
+        ChangeDestinationMode(joinUser: false);
+        if (_joinUserMode ||
+            LaunchButtonLabel.Text != "Launch" ||
+            AutomationProperties.GetItemStatus(ExperienceDestinationModeButton) !=
+            "Selected" ||
+            AutomationProperties.GetName(PlaceIdBox) != "Roblox destination")
+        {
+            throw new InvalidOperationException(
+                "The experience destination mode was not restored.");
         }
     }
 
@@ -406,12 +436,58 @@ public partial class MainWindow : Window
         }
         catch (WebSessionUnavailableException exception)
         {
-            SetStatus(
+            PresentWebSessionFailure(
                 "Web sign-in could not start",
-                exception.Message,
-                "SESSION ERROR");
-            SignInButton.Visibility = Visibility.Visible;
+                exception);
             return false;
+        }
+    }
+
+    private void PresentWebSessionFailure(
+        string title,
+        WebSessionUnavailableException exception)
+    {
+        _webSessionToken = null;
+        BrowserHost.Children.Clear();
+        BrowserPanel.Visibility = Visibility.Collapsed;
+        LauncherPanel.Visibility = Visibility.Visible;
+        SetStatus(title, exception.Message, "SESSION ERROR");
+        SignInButton.Visibility = Visibility.Visible;
+
+        if (_webView2RecoveryPromptShown ||
+            _operationLifetime.IsShuttingDown ||
+            !WebSessionException.HasActionableRuntimeRecovery(exception.Reason))
+        {
+            return;
+        }
+
+        _webView2RecoveryPromptShown = true;
+        var result = MessageBox.Show(
+            this,
+            $"{exception.Message}{Environment.NewLine}{Environment.NewLine}" +
+            "Open Microsoft's official WebView2 download and repair page now?",
+            "Microsoft WebView2 needs attention",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = WebSessionException.OfficialWebView2DownloadUrl,
+                UseShellExecute = true
+            });
+        }
+        catch (Win32Exception startException)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"WebView2 help page could not be opened: {startException.NativeErrorCode}.");
+            SetStatus(
+                "WebView2 help page could not be opened",
+                $"Open {WebSessionException.OfficialWebView2DownloadUrl} in your browser, install or repair WebView2, restart Windows, and try again.",
+                "SESSION ERROR");
         }
     }
 
@@ -717,7 +793,9 @@ public partial class MainWindow : Window
             _launchInProgress ? "LAUNCHING" : "ACCOUNT VERIFIED");
         SignInButton.Visibility = Visibility.Collapsed;
         RefreshLaunchAvailability();
-        LaunchButtonLabel.Text = _launchInProgress ? "Launching…" : "Launch";
+        LaunchButtonLabel.Text = _launchInProgress
+            ? "Launching…"
+            : _joinUserMode ? "Join user" : "Launch";
     }
 
     private void SetStatus(string title, string detail, string badge)
@@ -783,11 +861,9 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            SetStatus(
+            PresentWebSessionFailure(
                 "Roblox web session became unavailable",
-                webSessionFailure.Message,
-                "SESSION ERROR");
-            SignInButton.Visibility = Visibility.Visible;
+                webSessionFailure);
             return;
         }
         SetStatus(
@@ -1539,7 +1615,7 @@ public partial class MainWindow : Window
             _launchInProgress = false;
             if (!_operationLifetime.IsShuttingDown)
             {
-                LaunchButtonLabel.Text = "Launch";
+                LaunchButtonLabel.Text = _joinUserMode ? "Join user" : "Launch";
                 SetOperationBusy(false);
             }
         }
@@ -1549,13 +1625,35 @@ public partial class MainWindow : Window
     {
         cancellationToken.ThrowIfCancellationRequested();
         var accountDestination = PlaceIdBox.Text.Trim();
-        if (!TryResolveLaunchInput(
-                accountDestination,
-                out var destination,
-                out var target,
-                out var serverJobId,
-                out var trackedPlaceId,
-                out var parseError))
+        JoinUserIdentifier? joinUser = null;
+        string destination;
+        LaunchTarget? target;
+        string? serverJobId;
+        long? trackedPlaceId;
+        string parseError;
+        if (_joinUserMode)
+        {
+            if (!JoinUserDestination.TryParseInput(
+                    accountDestination,
+                    out joinUser,
+                    out parseError))
+            {
+                SetStatus("User is not valid", parseError, "INVALID USER");
+                return;
+            }
+
+            destination = string.Empty;
+            target = null;
+            serverJobId = null;
+            trackedPlaceId = null;
+        }
+        else if (!TryResolveLaunchInput(
+                     accountDestination,
+                     out destination,
+                     out target,
+                     out serverJobId,
+                     out trackedPlaceId,
+                     out parseError))
         {
             SetStatus("Destination is not valid", parseError, "INVALID DESTINATION");
             return;
@@ -1575,6 +1673,38 @@ public partial class MainWindow : Window
 
         _launchInProgress = true;
         SetReadyState();
+
+        JoinUserResolution? joinUserResolution = null;
+        if (joinUser is not null)
+        {
+            SetStatus(
+                "Checking whether this user can be joined",
+                $"Resolving {joinUser.DisplayValue} through @{currentUser.Name}'s isolated Roblox session…",
+                "CHECKING USER");
+            LaunchButton.IsEnabled = false;
+            var lookup = await _webSession.ResolveJoinUserAsync(
+                joinUser,
+                sessionToken,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsCurrentWebSessionOwner(sessionToken))
+                return;
+            if (lookup.Resolution is null)
+            {
+                _launchInProgress = false;
+                ShowJoinUserUnavailable(joinUser, lookup.Availability);
+                return;
+            }
+
+            joinUserResolution = lookup.Resolution;
+            target = new LaunchTarget(
+                joinUserResolution.PlaceId,
+                null,
+                null);
+            destination = joinUserResolution.PlaceId.ToString(
+                CultureInfo.InvariantCulture);
+            serverJobId = joinUserResolution.ServerJobId;
+        }
 
         if (target!.ShareCode is not null)
         {
@@ -1615,10 +1745,14 @@ public partial class MainWindow : Window
         }
 
         SetStatus(
-            serverJobId is null
+            joinUserResolution is not null
+                ? $"Joining @{joinUserResolution.Username} as @{currentUser.Name}"
+                : serverJobId is null
                 ? $"Preparing @{currentUser.Name}"
                 : $"Rejoining server as @{currentUser.Name}",
-            serverJobId is null
+            joinUserResolution is not null
+                ? "Requesting a fresh game-client ticket for the selected account and the user's current server…"
+                : serverJobId is null
                 ? "Requesting a secure Roblox game-client ticket for the selected account…"
                 : $"Targeting tracked server {serverJobId[..8]}… with a fresh account ticket.",
             "GETTING TICKET");
@@ -1667,11 +1801,49 @@ public partial class MainWindow : Window
         var locale = localeTask.Result;
         if (!IsCurrentWebSessionOwner(sessionToken))
             return;
+        var launchUri = joinUserResolution is not null
+            ? RobloxLaunchUriBuilder.BuildFollowUser(
+                joinUserResolution.UserId,
+                ticket,
+                locale)
+            : RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale);
         await LaunchClientAsync(
-            RobloxLaunchUriBuilder.Build(target, ticket, serverJobId, locale),
+            launchUri,
             activeProfile,
             recent,
             cancellationToken);
+    }
+
+    private void ShowJoinUserUnavailable(
+        JoinUserIdentifier requestedUser,
+        JoinUserAvailability availability)
+    {
+        var (title, detail, badge) = availability switch
+        {
+            JoinUserAvailability.UserNotFound => (
+                "Roblox user was not found",
+                "Check the exact username, user ID, or profile URL and try again.",
+                "USER NOT FOUND"),
+            JoinUserAvailability.Offline => (
+                $"{requestedUser.DisplayValue} is not joinable right now",
+                "The user is offline, hiding their activity, or unavailable to the selected account.",
+                "USER OFFLINE"),
+            JoinUserAvailability.NotInExperience => (
+                $"{requestedUser.DisplayValue} is not in an experience",
+                "They may only be online on the website or using Roblox Studio.",
+                "NOT IN GAME"),
+            JoinUserAvailability.NotJoinable => (
+                $"{requestedUser.DisplayValue} cannot be joined by this account",
+                "Their join setting, the experience's permissions, or the current server prevents joining.",
+                "JOINS UNAVAILABLE"),
+            _ => (
+                "Roblox could not check this user",
+                "The Roblox user or presence service did not return a usable result. Try again shortly.",
+                "USER CHECK ERROR")
+        };
+        SetStatus(title, detail, badge);
+        LaunchButtonLabel.Text = "Join user";
+        LaunchButton.IsEnabled = true;
     }
 
     private async Task<string?> TryGetExperienceNameAsync(
@@ -1990,6 +2162,94 @@ public partial class MainWindow : Window
             RefreshLaunchAvailability();
     }
 
+    private void ExperienceDestinationModeButton_Click(
+        object sender,
+        RoutedEventArgs e) => ChangeDestinationMode(joinUser: false);
+
+    private void UserDestinationModeButton_Click(
+        object sender,
+        RoutedEventArgs e) => ChangeDestinationMode(joinUser: true);
+
+    private void ChangeDestinationMode(bool joinUser)
+    {
+        if (_operationBusy || _launchInProgress || _joinUserMode == joinUser)
+            return;
+
+        _destinationPersistence.Cancel();
+        var trackingWasEnabled = _destinationTrackingEnabled;
+        _destinationTrackingEnabled = false;
+        _joinUserMode = joinUser;
+        _destinationModeAwaitingInput = true;
+        PlaceIdBox.Text = string.Empty;
+        _destinationTrackingEnabled = trackingWasEnabled;
+        UpdateDestinationModePresentation();
+        _destinationRevision++;
+        _destinationDraftValue = _destinationPersistedValue;
+        _destinationDraftValid = true;
+        _destinationDraftDirty = false;
+        RefreshLaunchAvailability();
+        PlaceIdBox.Focus();
+    }
+
+    private void UpdateDestinationModePresentation()
+    {
+        SetDestinationModeButtonState(
+            ExperienceDestinationModeButton,
+            !_joinUserMode);
+        SetDestinationModeButtonState(
+            UserDestinationModeButton,
+            _joinUserMode);
+        DestinationHelpText.Text = _joinUserMode
+            ? "Exact username, Roblox user ID, or official profile URL. Display names are not accepted."
+            : "Place ID, Roblox URL, private-server link, share code, or tracked Job ID.";
+        PlaceIdBox.ToolTip = _joinUserMode
+            ? "Exact Roblox username, user ID, or official profile URL"
+            : "Place ID, official Roblox URL, private-server link, share code, or tracked Server JobId";
+        AutomationProperties.SetName(
+            PlaceIdBox,
+            _joinUserMode ? "Roblox user to join" : "Roblox destination");
+        SetDestinationForAllButton.ToolTip = _joinUserMode
+            ? "Copy this user destination to every saved account"
+            : "Copy this valid destination to every saved account";
+        BatchLaunchButton.ToolTip = _joinUserMode
+            ? "Join-user destinations currently use single launch"
+            : "Launch each selected account's saved destination";
+        LaunchButton.ToolTip = _joinUserMode
+            ? "Join this user with the selected account"
+            : "Launch immediately with the selected account";
+        AutomationProperties.SetName(
+            LaunchButton,
+            _joinUserMode ? "Join Roblox user" : "Launch Roblox");
+        if (!_launchInProgress)
+            LaunchButtonLabel.Text = _joinUserMode ? "Join user" : "Launch";
+    }
+
+    private static void SetDestinationModeButtonState(
+        Button button,
+        bool selected)
+    {
+        if (selected)
+        {
+            button.SetResourceReference(
+                Control.BackgroundProperty,
+                "SelectedControlSurfaceBrush");
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "SelectedControlTextBrush");
+        }
+        else
+        {
+            button.Background = Brushes.Transparent;
+            button.SetResourceReference(
+                Control.ForegroundProperty,
+                "MutedBrush");
+        }
+
+        AutomationProperties.SetItemStatus(
+            button,
+            selected ? "Selected" : "Not selected");
+    }
+
     private async void PlaceIdBox_LostKeyboardFocus(
         object sender,
         KeyboardFocusChangedEventArgs e) =>
@@ -2024,10 +2284,10 @@ public partial class MainWindow : Window
             RefreshLaunchAvailability();
             return;
         }
-        if (!LaunchInputResolver.TryResolve(
+        if (!TryNormalizeCurrentDestinationInput(
                 PlaceIdBox.Text,
-                _settings.RecentExperiences,
-                out var resolved,
+                out var storedDestination,
+                out _,
                 out var error))
         {
             SetStatus("Destination was not changed", error, "INVALID DESTINATION");
@@ -2041,7 +2301,7 @@ public partial class MainWindow : Window
                 () =>
                 {
                     foreach (var account in _settings.Accounts)
-                        account.Destination = resolved!.AccountDestination;
+                        account.Destination = storedDestination;
                 },
                 "Shared destination could not be saved",
                 "DESTINATION SAVE ERROR",
@@ -2057,7 +2317,7 @@ public partial class MainWindow : Window
         }
         SetStatus(
             "Destination set for all accounts",
-            $"Saved this destination for {assignedCount} account{(assignedCount == 1 ? string.Empty : "s")}.",
+            $"Saved this {(_joinUserMode ? "user" : "experience")} destination for {assignedCount} account{(assignedCount == 1 ? string.Empty : "s")}.",
             "DESTINATION SAVED");
     }
 
@@ -2105,18 +2365,24 @@ public partial class MainWindow : Window
 
         _destinationRevision++;
         var input = PlaceIdBox.Text.Trim();
-        if (input.Length == 0)
+        if (input.Length == 0 && _destinationModeAwaitingInput)
+        {
+            _destinationDraftValue = _destinationPersistedValue;
+            _destinationDraftValid = true;
+        }
+        else if (input.Length == 0)
         {
             _destinationDraftValue = null;
             _destinationDraftValid = true;
         }
-        else if (LaunchInputResolver.TryResolve(
+        else if (TryNormalizeCurrentDestinationInput(
                      input,
-                     _settings.RecentExperiences,
-                     out var resolved,
+                     out var storedDestination,
+                     out _,
                      out _))
         {
-            _destinationDraftValue = resolved!.AccountDestination;
+            _destinationModeAwaitingInput = false;
+            _destinationDraftValue = storedDestination;
             _destinationDraftValid = true;
         }
         else
@@ -2255,7 +2521,14 @@ public partial class MainWindow : Window
         _destinationPersistence.Cancel();
         var trackingWasEnabled = _destinationTrackingEnabled;
         _destinationTrackingEnabled = false;
-        PlaceIdBox.Text = profile?.Destination ?? string.Empty;
+        var storedDestination = profile?.Destination;
+        _joinUserMode = JoinUserDestination.TryParseStored(
+            storedDestination,
+            out var joinUser,
+            out _);
+        PlaceIdBox.Text = _joinUserMode
+            ? joinUser!.DisplayValue
+            : storedDestination ?? string.Empty;
         _destinationOwnerEpoch++;
         _destinationRevision++;
         _destinationDraftAccountKey = profile?.Key;
@@ -2263,7 +2536,9 @@ public partial class MainWindow : Window
         _destinationPersistedValue = profile?.Destination;
         _destinationDraftValid = true;
         _destinationDraftDirty = false;
+        _destinationModeAwaitingInput = false;
         _destinationTrackingEnabled = trackingWasEnabled;
+        UpdateDestinationModePresentation();
         ResetDestinationViewport();
     }
 
@@ -2299,15 +2574,51 @@ public partial class MainWindow : Window
             .Select(item => item.Destination)
             .FirstOrDefault();
 
+    private bool TryNormalizeCurrentDestinationInput(
+        string input,
+        out string? storedDestination,
+        out ResolvedLaunchInput? resolvedExperience,
+        out string error)
+    {
+        if (_joinUserMode)
+        {
+            resolvedExperience = null;
+            if (!JoinUserDestination.TryParseInput(
+                    input,
+                    out var joinUser,
+                    out error))
+            {
+                storedDestination = null;
+                return false;
+            }
+
+            storedDestination = JoinUserDestination.CreateStoredValue(joinUser!);
+            return true;
+        }
+
+        if (!LaunchInputResolver.TryResolve(
+                input,
+                _settings.RecentExperiences,
+                out resolvedExperience,
+                out error))
+        {
+            storedDestination = null;
+            return false;
+        }
+
+        storedDestination = resolvedExperience!.AccountDestination;
+        return true;
+    }
+
     private void RefreshLaunchAvailability()
     {
         if (LaunchButton is null)
             return;
 
         var destination = PlaceIdBox.Text.Trim();
-        var destinationIsValid = LaunchInputResolver.TryResolve(
+        var destinationIsValid = TryNormalizeCurrentDestinationInput(
             destination,
-            _settings.RecentExperiences,
+            out _,
             out var resolvedInput,
             out var validationError);
         if (DestinationValidationText is not null)
@@ -2355,6 +2666,8 @@ public partial class MainWindow : Window
         RunningClientsButton.IsEnabled = !busy;
         SignInButton.IsEnabled = !busy;
         PlaceIdBox.IsEnabled = !busy;
+        ExperienceDestinationModeButton.IsEnabled = !busy;
+        UserDestinationModeButton.IsEnabled = !busy;
         LaunchTabButton.IsEnabled = !busy;
         RecentTabButton.IsEnabled = !busy;
         RecentExperiencesList.IsEnabled = !busy;

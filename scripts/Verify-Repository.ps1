@@ -115,6 +115,10 @@ try {
         $releaseWorkflowContents -notmatch '--packId\s+SessionDockApp') {
         throw 'Local and protected release packaging must use the non-colliding SessionDockApp package ID.'
     }
+    if ($publishContents -match "'--framework'\s+'webview2'" -or
+        $releaseWorkflowContents -match '--framework\s+webview2') {
+        throw 'The update package must remain readable by the strict 2.4.0 updater; WebView2 recovery belongs in the application until every supported updater accepts runtimeDependencies metadata.'
+    }
 
     $ciBuildJob = Get-WorkflowJobBlock -Contents $ciWorkflowContents -Name 'build-and-test'
     $releaseValidateJob = Get-WorkflowJobBlock `

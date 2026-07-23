@@ -174,4 +174,98 @@ internal static class RobloxWebScripts
             })();
             """;
     }
+
+    public static string ResolveJoinUser(
+        string requestId,
+        JoinUserIdentifier identifier)
+    {
+        ArgumentNullException.ThrowIfNull(identifier);
+        var id = JsonSerializer.Serialize(requestId);
+        var requestedUserId = JsonSerializer.Serialize(
+            identifier.UserId?.ToString());
+        var requestedUsername = JsonSerializer.Serialize(identifier.Username);
+        return $$"""
+            (async () => {
+                let status = 'service-unavailable';
+                let user = null;
+                let placeId = 0;
+                let gameId = null;
+                try {
+                    const requestedUserId = {{requestedUserId}};
+                    const requestedUsername = {{requestedUsername}};
+                    if (requestedUserId) {
+                        const userResponse = await fetch(
+                            `https://users.roblox.com/v1/users/${requestedUserId}`,
+                            { credentials: 'include' });
+                        if (!userResponse.ok) {
+                            status = userResponse.status === 404
+                                ? 'user-not-found'
+                                : 'service-unavailable';
+                        } else {
+                            user = await userResponse.json();
+                        }
+                    } else {
+                        const userResponse = await fetch(
+                            'https://users.roblox.com/v1/usernames/users',
+                            {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    usernames: [requestedUsername],
+                                    excludeBannedUsers: true
+                                })
+                            });
+                        if (userResponse.ok) {
+                            const users = await userResponse.json();
+                            user = users?.data?.[0] ?? null;
+                            if (!user)
+                                status = 'user-not-found';
+                        }
+                    }
+
+                    if (user?.id) {
+                        const presenceResponse = await fetch(
+                            'https://presence.roblox.com/v1/presence/users',
+                            {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ userIds: [user.id] })
+                            });
+                        if (presenceResponse.ok) {
+                            const presences = await presenceResponse.json();
+                            const presence = presences?.userPresences?.[0] ?? null;
+                            const presenceType = Number(presence?.userPresenceType ?? 0);
+                            if (!presence || presenceType === 0) {
+                                status = 'offline';
+                            } else if (presenceType !== 2) {
+                                status = 'not-in-experience';
+                            } else {
+                                placeId = Number(presence.placeId ?? 0);
+                                gameId = typeof presence.gameId === 'string'
+                                    ? presence.gameId
+                                    : null;
+                                status = placeId > 0 && gameId
+                                    ? 'available'
+                                    : 'not-joinable';
+                            }
+                        }
+                    }
+                } catch {}
+
+                window.chrome.webview.postMessage({
+                    requestId: {{id}},
+                    status,
+                    user: user ? {
+                        id: user.id,
+                        name: user.name,
+                        displayName: user.displayName
+                    } : null,
+                    placeId,
+                    gameId
+                });
+            })();
+            """;
+    }
 }

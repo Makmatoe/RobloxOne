@@ -83,6 +83,14 @@ The Velopack package ID is `SessionDockApp`. It must never equal the current
 data directory name `SessionDock` or the historic combined install/data name
 `RobloxOne`. Changing this invariant is a data-loss-sensitive release change.
 
+Full update packages intentionally omit Velopack `runtimeDependencies` metadata.
+The 2.4.0 updater validates an exact metadata set, and existing installations
+can update directly to any later release. Adding `--framework webview2` would
+make those safe updates fail closed. SessionDock therefore contains WebView2
+startup failures in the application and directs users to Microsoft's fixed
+official repair page. Do not add runtime dependency metadata until every
+supported updater can accept it without requiring an intermediate release.
+
 ## Publish
 
 Create and push an annotated version tag only after the reviewed commit is the

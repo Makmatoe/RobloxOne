@@ -21,8 +21,9 @@ warning.
 ## Quick start
 
 1. Install Roblox Player. WebView2 is already included with Windows 11 and
-   nearly all Windows 10 installations. Only if the sign-in view cannot open,
-   install the [official Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/consumer/).
+   nearly all Windows 10 installations. If it is missing or damaged,
+   SessionDock stays open and offers the
+   [official Microsoft WebView2 repair and download page](https://developer.microsoft.com/en-us/microsoft-edge/webview2/consumer/).
 2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/SessionDock/releases)
    page and download both the Setup executable and its `SHA256SUMS.txt` asset
    from the latest release. The checksum file also has a stable
@@ -53,6 +54,10 @@ so the historic `%LOCALAPPDATA%\RobloxOne` account data is preserved.
   account.
 - Opens public places, official private-server links or codes, and supported
   server IDs recovered from recent launches.
+- Joins an online Roblox user by exact username, user ID, or official profile
+  URL when that user's privacy settings and current experience allow the
+  selected account to follow them. Roblox rechecks the user when Player starts;
+  user destinations currently use single launch rather than batch launch.
 - Shares Recent and Favorites across accounts while preserving the account and
   public/private context of each launch.
 - Launches one account at a time or runs a best-effort pipelined batch with a

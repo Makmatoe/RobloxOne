@@ -1356,7 +1356,8 @@ public sealed class SettingsService
         var value = destination?.Trim();
         return !string.IsNullOrWhiteSpace(value) &&
                value.Length <= 4096 &&
-               DestinationParser.TryParse(value, out _, out _)
+               (DestinationParser.TryParse(value, out _, out _) ||
+                JoinUserDestination.TryParseStored(value, out _, out _))
             ? value
             : null;
     }

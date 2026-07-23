@@ -43,6 +43,12 @@ public static class BatchDestinationPlanner
             var launchDestination = usesFirstDestination
                 ? firstDestination
                 : savedDestination;
+            if (JoinUserDestination.IsStoredValue(launchDestination))
+            {
+                error =
+                    $"{GetDisplayName(account)}: Join-user destinations currently use single launch so Roblox can check that account's permission at launch time.";
+                return false;
+            }
             if (!LaunchInputResolver.TryResolve(
                     launchDestination!,
                     recent,

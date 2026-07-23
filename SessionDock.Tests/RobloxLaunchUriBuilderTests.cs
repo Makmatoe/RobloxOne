@@ -118,6 +118,38 @@ public sealed class RobloxLaunchUriBuilderTests
     }
 
     [Fact]
+    public void BuildFollowUser_UsesRobloxFollowRequestAndSelectedAccountTicket()
+    {
+        var launchUri = RobloxLaunchUriBuilder.BuildFollowUser(
+            123456,
+            "ticket +/=",
+            "nl-NL");
+
+        var parts = ParseProtocolParts(launchUri);
+        var query = ParseQuery(ParsePlaceLauncherUri(parts).Query);
+
+        Assert.Equal("roblox-player:1", parts[0]);
+        Assert.Equal("play", parts["launchmode"]);
+        Assert.Equal("ticket +/=", Uri.UnescapeDataString(parts["gameinfo"]));
+        Assert.Equal("RequestFollowUser", query["request"]);
+        Assert.Equal("123456", query["userId"]);
+        Assert.False(query.ContainsKey("placeId"));
+        Assert.False(query.ContainsKey("gameId"));
+        Assert.Equal(parts["browsertrackerid"], query["browserTrackerId"]);
+        Assert.True(Guid.TryParse(query["joinAttemptId"], out _));
+        Assert.Equal("nl_nl", parts["robloxLocale"]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void BuildFollowUser_InvalidUserIdThrows(long userId)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            RobloxLaunchUriBuilder.BuildFollowUser(userId, "ticket"));
+    }
+
+    [Fact]
     public void Build_NullTarget_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>

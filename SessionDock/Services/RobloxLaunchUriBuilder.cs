@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using SessionDock.Models;
 
@@ -17,14 +18,7 @@ public static class RobloxLaunchUriBuilder
         string? locale = null)
     {
         ArgumentNullException.ThrowIfNull(target);
-        ArgumentException.ThrowIfNullOrWhiteSpace(authenticationTicket);
-        if (authenticationTicket.Length > MaximumAuthenticationTicketLength ||
-            authenticationTicket.Any(char.IsControl))
-        {
-            throw new ArgumentException(
-                "The authentication ticket is not valid.",
-                nameof(authenticationTicket));
-        }
+        ValidateAuthenticationTicket(authenticationTicket);
         if (target.PlaceId <= 0)
             throw new ArgumentOutOfRangeException(nameof(target), "A valid Place ID is required.");
 
@@ -68,6 +62,45 @@ public static class RobloxLaunchUriBuilder
                $"+robloxLocale:{normalizedLocale}" +
                $"+gameLocale:{normalizedLocale}" +
                "+channel:";
+    }
+
+    public static string BuildFollowUser(
+        long userId,
+        string authenticationTicket,
+        string? locale = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId);
+        ValidateAuthenticationTicket(authenticationTicket);
+
+        var browserTrackerId = Random.Shared.NextInt64(1, long.MaxValue);
+        var normalizedLocale = NormalizeLocale(locale);
+        var placeLauncherUrl =
+            "https://www.roblox.com/Game/PlaceLauncher.ashx" +
+            $"?request=RequestFollowUser&browserTrackerId={browserTrackerId}" +
+            $"&userId={userId.ToString(CultureInfo.InvariantCulture)}" +
+            $"&joinAttemptId={Guid.NewGuid()}&joinAttemptOrigin=PlayButton";
+
+        return "roblox-player:1" +
+               "+launchmode:play" +
+               $"+gameinfo:{Uri.EscapeDataString(authenticationTicket)}" +
+               $"+launchtime:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}" +
+               $"+placelauncherurl:{Uri.EscapeDataString(placeLauncherUrl)}" +
+               $"+browsertrackerid:{browserTrackerId}" +
+               $"+robloxLocale:{normalizedLocale}" +
+               $"+gameLocale:{normalizedLocale}" +
+               "+channel:";
+    }
+
+    private static void ValidateAuthenticationTicket(string authenticationTicket)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(authenticationTicket);
+        if (authenticationTicket.Length > MaximumAuthenticationTicketLength ||
+            authenticationTicket.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "The authentication ticket is not valid.",
+                nameof(authenticationTicket));
+        }
     }
 
     private static string NormalizeLocale(string? locale)

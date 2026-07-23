@@ -113,20 +113,18 @@ public sealed class RobloxWebSessionService : IDisposable
         }
         catch (WebView2RuntimeNotFoundException exception)
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.MissingRuntime,
-                "The Microsoft Edge WebView2 Runtime is not installed or could not be found.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                WebSessionUnavailableReason.MissingRuntime);
         }
         catch (COMException exception) when (
             IsExpectedInitializationHResult(exception.HResult))
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.RuntimeStartFailed,
-                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                GetInitializationFailureReason(exception.HResult));
         }
         if (!IsCurrent(session) || cancellationToken.IsCancellationRequested)
             return false;
@@ -138,11 +136,10 @@ public sealed class RobloxWebSessionService : IDisposable
         catch (COMException exception) when (
             IsExpectedInitializationHResult(exception.HResult))
         {
-            EnsureCurrent(token);
-            throw new WebSessionUnavailableException(
-                WebSessionUnavailableReason.RuntimeStartFailed,
-                "The Roblox sign-in runtime could not be started. Restart SessionDock and check the WebView2 installation.",
-                exception);
+            throw CreateInitializationUnavailableException(
+                exception,
+                token,
+                GetInitializationFailureReason(exception.HResult));
         }
         catch (Exception exception) when (
             IsCorrelatedRuntimeFailure(
@@ -320,6 +317,87 @@ public sealed class RobloxWebSessionService : IDisposable
 
         var name = nameElement.GetString()?.Trim();
         return string.IsNullOrWhiteSpace(name) || name.Length > 200 ? null : name;
+    }
+
+    internal async Task<JoinUserLookupResult> ResolveJoinUserAsync(
+        JoinUserIdentifier identifier,
+        WebSessionToken token,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(identifier);
+        var requestId = Guid.NewGuid().ToString("N");
+        var message = await RunMessageScriptAsync(
+            requestId,
+            RobloxWebScripts.ResolveJoinUser(requestId, identifier),
+            ApiTimeout,
+            token,
+            cancellationToken);
+        return ParseJoinUserResponse(message);
+    }
+
+    internal static JoinUserLookupResult ParseJoinUserResponse(
+        JsonElement? message)
+    {
+        if (message is null ||
+            !message.Value.TryGetProperty("status", out var statusElement) ||
+            statusElement.ValueKind != JsonValueKind.String)
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        var status = statusElement.GetString();
+        var unavailable = status switch
+        {
+            "user-not-found" => JoinUserAvailability.UserNotFound,
+            "offline" => JoinUserAvailability.Offline,
+            "not-in-experience" => JoinUserAvailability.NotInExperience,
+            "not-joinable" => JoinUserAvailability.NotJoinable,
+            "available" => JoinUserAvailability.Available,
+            _ => JoinUserAvailability.ServiceUnavailable
+        };
+        if (unavailable != JoinUserAvailability.Available)
+            return JoinUserLookupResult.Unavailable(unavailable);
+
+        if (!message.Value.TryGetProperty("user", out var user) ||
+            user.ValueKind != JsonValueKind.Object ||
+            !user.TryGetProperty("id", out var userIdElement) ||
+            !userIdElement.TryGetInt64(out var userId) ||
+            userId <= 0 ||
+            !user.TryGetProperty("name", out var usernameElement) ||
+            usernameElement.ValueKind != JsonValueKind.String ||
+            !message.Value.TryGetProperty("placeId", out var placeIdElement) ||
+            !placeIdElement.TryGetInt64(out var placeId) ||
+            placeId <= 0 ||
+            !message.Value.TryGetProperty("gameId", out var gameIdElement) ||
+            gameIdElement.ValueKind != JsonValueKind.String)
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        var username = usernameElement.GetString();
+        var displayName = user.TryGetProperty("displayName", out var displayNameElement) &&
+                          displayNameElement.ValueKind == JsonValueKind.String
+            ? displayNameElement.GetString()
+            : username;
+        var gameId = gameIdElement.GetString();
+        if (!IsBoundedDisplayText(username, 50) ||
+            !IsBoundedDisplayText(displayName, 200) ||
+            !Guid.TryParse(gameId, out var parsedGameId))
+        {
+            return JoinUserLookupResult.Unavailable(
+                JoinUserAvailability.ServiceUnavailable);
+        }
+
+        return new JoinUserLookupResult(
+            JoinUserAvailability.Available,
+            new JoinUserResolution(
+                userId,
+                username!,
+                displayName!,
+                placeId,
+                parsedGameId.ToString("D")));
     }
 
     internal async Task<bool> ClearProfileAsync(
@@ -663,6 +741,29 @@ public sealed class RobloxWebSessionService : IDisposable
             exception);
     }
 
+    private WebSessionUnavailableException CreateInitializationUnavailableException(
+        Exception exception,
+        WebSessionToken token,
+        WebSessionUnavailableReason reason)
+    {
+        EnsureCurrent(token);
+        var message = reason == WebSessionUnavailableReason.MissingRuntime
+            ? "Microsoft Edge WebView2 is missing or damaged. Install or repair WebView2, restart Windows, then reopen SessionDock. Your saved accounts and isolated profiles were left unchanged."
+            : "Microsoft Edge WebView2 could not start. Repair or reinstall WebView2, restart Windows, then reopen SessionDock. Your saved accounts and isolated profiles were left unchanged.";
+        var unavailable = new WebSessionUnavailableException(
+            reason,
+            message,
+            exception);
+        ReleaseBrowser();
+        return unavailable;
+    }
+
+    internal static WebSessionUnavailableReason GetInitializationFailureReason(
+        int hResult) =>
+        hResult == unchecked((int)0x80040154)
+            ? WebSessionUnavailableReason.MissingRuntime
+            : WebSessionUnavailableReason.RuntimeStartFailed;
+
     internal static bool IsExpectedInitializationHResult(int hResult) =>
         hResult is
             unchecked((int)0x80070032) or
@@ -673,7 +774,9 @@ public sealed class RobloxWebSessionService : IDisposable
             unchecked((int)0x80070002) or
             unchecked((int)0x80070050) or
             unchecked((int)0x80070005) or
-            unchecked((int)0x80004005);
+            unchecked((int)0x80004005) or
+            unchecked((int)0x80004004) or
+            unchecked((int)0x80040154);
 
     private static bool IsClosedRuntimeHResult(int hResult) =>
         hResult is
@@ -685,7 +788,8 @@ public sealed class RobloxWebSessionService : IDisposable
         Exception exception) =>
         exception is ObjectDisposedException or InvalidOperationException ||
         exception is COMException comException &&
-        IsClosedRuntimeHResult(comException.HResult);
+        (IsClosedRuntimeHResult(comException.HResult) ||
+         IsExpectedInitializationHResult(comException.HResult));
 
     private static TaskCompletionSource<WebSessionUnavailableReason>
         CreateSessionEndedSignal() => new(
