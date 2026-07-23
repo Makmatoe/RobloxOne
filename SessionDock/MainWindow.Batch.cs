@@ -119,15 +119,15 @@ public partial class MainWindow
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
-        var unavailableAccounts = await PreflightBatchAccountsAsync(
+        var preflight = await PreflightBatchAccountsAsync(
             launchPlans,
             cancellationToken);
-        if (unavailableAccounts.Count > 0)
+        if (preflight.Failures.Count > 0)
         {
             return new BatchLaunchResult(
                 0,
                 launchPlans.Count,
-                unavailableAccounts,
+                preflight.Failures,
                 ClientsWereClosed: false,
                 Cancelled: false);
         }
@@ -181,103 +181,82 @@ public partial class MainWindow
                 Cancelled: false);
         }
 
+        Task cleanupSettled = Task.CompletedTask;
         if (closeResult.Closed > 0)
         {
             SetStatus(
                 $"Closed {closeResult.Closed} Roblox Player instance(s)",
-                "Waiting two seconds for Roblox background cleanup to settle…",
+                "Roblox cleanup will settle while SessionDock prepares the first queued launch…",
                 "BATCH CLEANUP");
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            cleanupSettled = Task.Delay(
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
         }
 
-        var started = 0;
-        var failures = new List<string>();
-        for (var index = 0; index < launchPlans.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var plan = launchPlans[index];
-            var account = _settings.Accounts.FirstOrDefault(candidate =>
-                candidate.Key.Equals(
-                    plan.Account.Key,
-                    StringComparison.OrdinalIgnoreCase)) ?? plan.Account;
-            var position = $"{index + 1} of {launchPlans.Count}";
-            SetStatus(
-                $"Batch {position}: {GetAccountDisplayName(account)}",
-                "Loading this account's isolated Roblox session…",
-                "BATCH SWITCH");
-
-            bool launched;
-            try
+        var outcomes = await BatchLaunchPipeline.RunAsync<
+            VerifiedBatchLaunchPlan,
+            QueuedBatchLaunchResult,
+            StartedBatchLaunchResult,
+            BatchAccountLaunchResult>(
+            preflight.Plans,
+            (plan, index, token) => QueueBatchLaunchAsync(
+                plan,
+                $"{index + 1} of {preflight.Plans.Count}",
+                token),
+            async (queued, index, token) =>
             {
-                var sessionToken = await ActivateBatchAccountAsync(
-                    account.Key,
-                    cancellationToken);
-                if (sessionToken is null)
+                await cleanupSettled;
+                token.ThrowIfCancellationRequested();
+                return queued.Queued is null
+                    ? StartedBatchLaunchResult.Failed(
+                        queued.Account,
+                        queued.Failure ??
+                        $"@{queued.Account.Username}: launch preparation failed")
+                    : await StartQueuedBatchAccountAsync(
+                        queued.Queued,
+                        $"{index + 1} of {preflight.Plans.Count}",
+                        token);
+            },
+            async (started, index, hasNext, token) =>
+            {
+                if (started.Started is not null)
+                    await CompleteStartedBatchLaunchAsync(started.Started, token);
+                var launched = started.Started is not null;
+                if (launched && hasNext)
                 {
-                    failures.Add($"@{account.Username}: sign-in unavailable");
-                    continue;
+                    SetStatus(
+                        $"Batch {index + 1} of {preflight.Plans.Count}: @{started.Account.Username} started",
+                        $"The next account is queued. Waiting {delay.TotalSeconds:0} seconds so Roblox and local hooks can settle…",
+                        "BATCH WAIT");
+                    await Task.Delay(delay, token);
                 }
 
-                var currentAccount = _settings.Accounts.FirstOrDefault(candidate =>
-                    candidate.Key.Equals(
-                        account.Key,
-                        StringComparison.OrdinalIgnoreCase));
-                if (currentAccount is null)
-                {
-                    failures.Add($"@{plan.Account.Username}: account unavailable");
-                    continue;
-                }
-                account = currentAccount;
-
-                launched = await LaunchBatchAccountAsync(
-                    account,
-                    sessionToken.Value,
-                    plan.LaunchInput.Destination,
-                    plan.LaunchInput.Target,
-                    plan.LaunchInput.ServerJobId,
-                    plan.LaunchInput.TrackedPlaceId,
-                    position,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (
-                WebSessionException.IsExpectedLifecycleFailure(ex))
-            {
-                Trace.WriteLine(
-                    $"Batch launch failed for one account: {ex.GetType().Name}.");
-                launched = false;
-            }
-            if (launched)
-                started++;
-            else
-                failures.Add($"@{account.Username}: launch failed");
-
-            if (launched && index < launchPlans.Count - 1)
-            {
-                SetStatus(
-                    $"Batch {position}: @{account.Username} started",
-                    $"Waiting {delay.TotalSeconds:0} seconds before switching accounts so Roblox and local hooks can settle…",
-                    "BATCH WAIT");
-                await Task.Delay(delay, cancellationToken);
-            }
-        }
+                return launched
+                    ? new BatchAccountLaunchResult(true, null)
+                    : new BatchAccountLaunchResult(
+                        false,
+                        started.Failure ??
+                        $"@{started.Account.Username}: launch failed");
+            },
+            cancellationToken);
 
         return new BatchLaunchResult(
-            started,
+            outcomes.Count(outcome => outcome.Started),
             launchPlans.Count,
-            failures,
+            outcomes
+                .Where(outcome => outcome.Failure is not null)
+                .Select(outcome => outcome.Failure!)
+                .ToArray(),
             ClientsWereClosed: true,
             Cancelled: false);
     }
 
-    private async Task<List<string>> PreflightBatchAccountsAsync(
+    private async Task<BatchPreflightResult> PreflightBatchAccountsAsync(
         IReadOnlyList<BatchLaunchPlan> launchPlans,
         CancellationToken cancellationToken)
     {
         var unavailable = new List<string>();
+        var verifiedPlans = new List<VerifiedBatchLaunchPlan>(launchPlans.Count);
         for (var index = 0; index < launchPlans.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -318,8 +297,9 @@ public partial class MainWindow
                 }
                 account = currentAccount;
                 var activeSessionToken = sessionToken.Value;
+                var target = plan.LaunchInput.Target;
 
-                if (plan.LaunchInput.Target.ShareCode is not null)
+                if (target.ShareCode is not null)
                 {
                     if (!IsCurrentWebSessionOwner(activeSessionToken))
                     {
@@ -328,7 +308,7 @@ public partial class MainWindow
                         continue;
                     }
                     var resolvedTarget = await _webSession.ResolvePrivateServerAsync(
-                        plan.LaunchInput.Target.ShareCode,
+                        target.ShareCode,
                         activeSessionToken,
                         cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
@@ -344,8 +324,12 @@ public partial class MainWindow
                     {
                         unavailable.Add(
                             $"@{account.Username}: private server unavailable");
+                        continue;
                     }
+                    target = resolvedTarget;
                 }
+
+                verifiedPlans.Add(new VerifiedBatchLaunchPlan(plan, target));
             }
             catch (OperationCanceledException)
             {
@@ -359,7 +343,7 @@ public partial class MainWindow
                 unavailable.Add($"@{account.Username}: account check failed");
             }
         }
-        return unavailable;
+        return new BatchPreflightResult(verifiedPlans, unavailable);
     }
 
     private async Task<bool> RestoreBatchProfileAsync(
@@ -462,39 +446,24 @@ public partial class MainWindow
         }
 
         _webSession.RobloxPageLoaded += PageLoadedHandler;
-        AccountProfile? account = null;
+        var account = _settings.Accounts.FirstOrDefault(candidate =>
+            candidate.Key.Equals(
+                accountKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            _webSession.RobloxPageLoaded -= PageLoadedHandler;
+            return null;
+        }
+
         try
         {
-            var mutationApplied = false;
-            if (!await TryCommitSettingsMutationAsync(
-                    () =>
-                    {
-                        account = _settings.Accounts.FirstOrDefault(candidate =>
-                            candidate.Key.Equals(
-                                accountKey,
-                                StringComparison.OrdinalIgnoreCase));
-                        if (account is null)
-                            return;
-
-                        _settings.ActiveAccountKey = account.Key;
-                        mutationApplied = true;
-                    },
-                    "Could not activate the selected account",
-                    "BATCH ACCOUNT ERROR",
-                    onCommitted: () =>
-                    {
-                        if (!mutationApplied || account is null)
-                            return;
-                        _activeProfile = account;
-                        _pendingProfile = null;
-                        _currentUser = null;
-                        RenderAccountList();
-                    }) ||
-                !mutationApplied ||
-                account is null)
-            {
-                return null;
-            }
+            // Batch switches are temporary. Keeping ActiveAccountKey unchanged
+            // avoids redundant disk writes and preserves the user's selected
+            // account even if the app exits during a batch.
+            _activeProfile = account;
+            _pendingProfile = null;
+            _currentUser = null;
 
             cancellationToken.ThrowIfCancellationRequested();
             // This activation performs an awaited verification below. Skip only
@@ -571,138 +540,238 @@ public partial class MainWindow
         }
     }
 
-    private async Task<bool> LaunchBatchAccountAsync(
-        AccountProfile account,
-        WebSessionToken sessionToken,
-        string destination,
-        LaunchTarget parsedTarget,
-        string? serverJobId,
-        long? trackedPlaceId,
+    private async Task<QueuedBatchLaunchResult> QueueBatchLaunchAsync(
+        VerifiedBatchLaunchPlan verifiedPlan,
         string position,
         CancellationToken cancellationToken)
     {
-        var currentAccount = _settings.Accounts.FirstOrDefault(candidate =>
+        var plan = verifiedPlan.Plan;
+        var account = _settings.Accounts.FirstOrDefault(candidate =>
             candidate.Key.Equals(
-                account.Key,
-                StringComparison.OrdinalIgnoreCase));
-        if (currentAccount is null ||
-            !IsCurrentWebSessionOwner(sessionToken) ||
-            !TryGetCurrentWebSessionToken(
-                currentAccount,
-                out var currentToken) ||
-            currentToken != sessionToken)
-        {
-            return false;
-        }
-        account = currentAccount;
-
-        var target = parsedTarget;
-        if (target.ShareCode is not null)
-        {
-            SetStatus(
-                $"Batch {position}: resolving server",
-                $"Resolving the private-server link for @{account.Username}…",
-                "BATCH RESOLVE");
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
-            target = await _webSession.ResolvePrivateServerAsync(
-                target.ShareCode,
-                sessionToken,
-                cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentWebSessionOwner(sessionToken) || target is null)
-                return false;
-        }
-
-        if (trackedPlaceId is not null && target.PlaceId != trackedPlaceId)
-            return false;
-
-        _launchInProgress = true;
+                plan.Account.Key,
+                StringComparison.OrdinalIgnoreCase)) ?? plan.Account;
         SetStatus(
-            $"Batch {position}: preparing @{account.Username}",
-            "Requesting this account's secure Roblox game-client ticket…",
-            "BATCH TICKET");
+            $"Queueing batch {position}: {GetAccountDisplayName(account)}",
+            "Loading this account's isolated session while the current launch settles…",
+            "BATCH QUEUE");
 
         try
         {
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
-            var ticketTask = _webSession.GetAuthenticationTicketAsync(
-                sessionToken,
+            var sessionToken = await ActivateBatchAccountAsync(
+                account.Key,
                 cancellationToken);
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
+            if (sessionToken is null)
+            {
+                return QueuedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: sign-in unavailable");
+            }
+
+            var currentAccount = _settings.Accounts.FirstOrDefault(candidate =>
+                candidate.Key.Equals(
+                    account.Key,
+                    StringComparison.OrdinalIgnoreCase));
+            if (currentAccount is null ||
+                !IsCurrentWebSessionOwner(sessionToken.Value) ||
+                !TryGetCurrentWebSessionToken(
+                    currentAccount,
+                    out var currentToken) ||
+                currentToken != sessionToken.Value)
+            {
+                return QueuedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: account session unavailable");
+            }
+            account = currentAccount;
+
+            var target = verifiedPlan.Target;
+            if (plan.LaunchInput.TrackedPlaceId is not null &&
+                target.PlaceId != plan.LaunchInput.TrackedPlaceId)
+            {
+                return QueuedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: tracked server changed");
+            }
+
+            SetStatus(
+                $"Queueing batch {position}: @{account.Username}",
+                "Preparing destination details. Its launch ticket will be requested only when Roblox is ready to start.",
+                "BATCH QUEUE");
+            if (!IsCurrentWebSessionOwner(sessionToken.Value))
+            {
+                return QueuedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: account session unavailable");
+            }
+
             var nameTask = _webSession.GetExperienceNameAsync(
                 target.PlaceId,
-                sessionToken,
+                sessionToken.Value,
                 cancellationToken);
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
             var localeTask = _webSession.GetUserLocaleAsync(
-                sessionToken,
+                sessionToken.Value,
                 cancellationToken);
-            await Task.WhenAll(ticketTask, nameTask, localeTask);
+            await Task.WhenAll(nameTask, localeTask);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
+            if (!IsCurrentWebSessionOwner(sessionToken.Value))
+            {
+                return QueuedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: account session unavailable");
+            }
 
-            var ticket = await ticketTask;
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
+            var queued = new QueuedBatchLaunch(
+                account,
+                sessionToken.Value,
+                plan.LaunchInput.Destination,
+                target,
+                plan.LaunchInput.ServerJobId,
+                await nameTask,
+                await localeTask);
+            return new QueuedBatchLaunchResult(account, queued, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (
+            WebSessionException.IsExpectedLifecycleFailure(ex))
+        {
+            Trace.WriteLine(
+                $"Batch queueing failed for one account: {ex.GetType().Name}.");
+            return QueuedBatchLaunchResult.Failed(
+                account,
+                $"@{account.Username}: launch preparation failed");
+        }
+    }
+
+    private async Task<StartedBatchLaunchResult> StartQueuedBatchAccountAsync(
+        QueuedBatchLaunch queued,
+        string position,
+        CancellationToken cancellationToken)
+    {
+        _launchInProgress = true;
+        var account = queued.Account;
+        var handedOffToCompletion = false;
+
+        try
+        {
+            if (!IsCurrentWebSessionOwner(queued.SessionToken) ||
+                !TryGetCurrentWebSessionToken(account, out var currentToken) ||
+                currentToken != queued.SessionToken)
+            {
+                return StartedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: account session unavailable");
+            }
+
+            SetStatus(
+                $"Batch {position}: preparing @{account.Username}",
+                "Requesting a fresh secure Roblox game-client ticket…",
+                "BATCH TICKET");
+            var ticket = await _webSession.GetAuthenticationTicketAsync(
+                queued.SessionToken,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsCurrentWebSessionOwner(queued.SessionToken))
+            {
+                return StartedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: account session unavailable");
+            }
             if (string.IsNullOrWhiteSpace(ticket))
-                return false;
-
-            var locale = await localeTask;
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
-            var experienceName = await nameTask;
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
+            {
+                return StartedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: launch ticket unavailable");
+            }
 
             var recent = new RecentExperience
             {
-                Destination = destination,
-                PlaceId = target.PlaceId,
-                Name = experienceName,
-                IsPrivateServer = target.IsPrivateServer,
-                ServerJobId = serverJobId,
+                Destination = queued.Destination,
+                PlaceId = queued.Target.PlaceId,
+                Name = queued.ExperienceName,
+                IsPrivateServer = queued.Target.IsPrivateServer,
+                ServerJobId = queued.ServerJobId,
                 AccountUserId = account.UserId,
                 AccountUsername = account.Username,
                 LastLaunchedAt = DateTimeOffset.UtcNow
             };
-
             SetStatus(
                 $"Batch {position}: launching @{account.Username}",
-                "Handing this account's ticket directly to Roblox Player…",
+                "Handing this fresh account ticket directly to Roblox Player…",
                 "BATCH LAUNCH");
-            if (!IsCurrentWebSessionOwner(sessionToken))
-                return false;
             var launchStartedAt = DateTimeOffset.UtcNow;
             var result = await _robloxClient.LaunchAsync(
                 RobloxLaunchUriBuilder.Build(
-                    target,
+                    queued.Target,
                     ticket,
-                    serverJobId,
-                    locale),
+                    queued.ServerJobId,
+                    queued.Locale),
                 cancellationToken);
             TrackLaunchedClient(result.PlayerIdentity, account, recent);
             cancellationToken.ThrowIfCancellationRequested();
             if (result is not { Success: true, ProcessId: int processId })
-                return false;
+            {
+                return StartedBatchLaunchResult.Failed(
+                    account,
+                    $"@{account.Username}: launch failed");
+            }
 
-            await SaveRecentExperienceAsync(recent);
-            if (_settings.RecentExperiences.Contains(recent))
-                BeginServerTracking(recent, launchStartedAt);
+            handedOffToCompletion = true;
+            return new StartedBatchLaunchResult(
+                account,
+                new StartedBatchLaunch(
+                    account,
+                    recent,
+                    processId,
+                    launchStartedAt,
+                    position),
+                null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (
+            WebSessionException.IsExpectedLifecycleFailure(ex))
+        {
+            Trace.WriteLine(
+                $"Batch ticket request failed for one account: {ex.GetType().Name}.");
+            return StartedBatchLaunchResult.Failed(
+                account,
+                $"@{account.Username}: launch preparation failed");
+        }
+        finally
+        {
+            if (!handedOffToCompletion)
+                _launchInProgress = false;
+        }
+    }
+
+    private async Task CompleteStartedBatchLaunchAsync(
+        StartedBatchLaunch started,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SaveRecentExperienceAsync(started.Recent);
+            if (_settings.RecentExperiences.Contains(started.Recent))
+            {
+                BeginServerTracking(
+                    started.Recent,
+                    started.LaunchStartedAt);
+            }
             SetStatus(
-                $"Batch {position}: @{account.Username} started",
-                "Waiting for optional local launch hooks to finish…",
+                $"Batch {started.Position}: @{started.Account.Username} started",
+                "Waiting for optional local launch hooks to finish while the next account is prepared…",
                 "BATCH HOOK");
             await NotifyLaunchHookAsync(
-                recent,
-                processId,
-                account.Label,
+                started.Recent,
+                started.ProcessId,
+                started.Account.Label,
                 cancellationToken);
-            return true;
+            cancellationToken.ThrowIfCancellationRequested();
         }
         finally
         {
@@ -714,6 +783,56 @@ public partial class MainWindow
         account.Label is null
             ? $"@{account.Username}"
             : $"{account.Label} (@{account.Username})";
+
+    private sealed record BatchPreflightResult(
+        IReadOnlyList<VerifiedBatchLaunchPlan> Plans,
+        IReadOnlyList<string> Failures);
+
+    private sealed record VerifiedBatchLaunchPlan(
+        BatchLaunchPlan Plan,
+        LaunchTarget Target);
+
+    private sealed record QueuedBatchLaunch(
+        AccountProfile Account,
+        WebSessionToken SessionToken,
+        string Destination,
+        LaunchTarget Target,
+        string? ServerJobId,
+        string? ExperienceName,
+        string? Locale);
+
+    private sealed record QueuedBatchLaunchResult(
+        AccountProfile Account,
+        QueuedBatchLaunch? Queued,
+        string? Failure)
+    {
+        internal static QueuedBatchLaunchResult Failed(
+            AccountProfile account,
+            string failure) =>
+            new(account, null, failure);
+    }
+
+    private sealed record StartedBatchLaunch(
+        AccountProfile Account,
+        RecentExperience Recent,
+        int ProcessId,
+        DateTimeOffset LaunchStartedAt,
+        string Position);
+
+    private sealed record StartedBatchLaunchResult(
+        AccountProfile Account,
+        StartedBatchLaunch? Started,
+        string? Failure)
+    {
+        internal static StartedBatchLaunchResult Failed(
+            AccountProfile account,
+            string failure) =>
+            new(account, null, failure);
+    }
+
+    private sealed record BatchAccountLaunchResult(
+        bool Started,
+        string? Failure);
 
     private sealed record BatchLaunchResult(
         int Started,
