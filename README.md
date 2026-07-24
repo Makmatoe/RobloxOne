@@ -18,9 +18,11 @@ repository, so there is no release page or asset list to navigate.
 
 Release installers are published only on the canonical GitHub Releases page.
 If that page has no release yet, a production installer is not currently
-available. New production releases must be timestamped Authenticode-signed by
-the exact publisher named on the release; the protected workflow cannot publish
-an unsigned or differently signed executable.
+available. SessionDock does not currently have a paid Authenticode certificate,
+so Windows identifies the installer as an unknown publisher. The protected
+workflow instead binds every release to a signed update descriptor, exact
+SHA-256 checksums, GitHub attestations, and a separately approved immutable
+draft. These controls do not make Windows display a verified publisher.
 
 > SessionDock is an independent project. It is not affiliated with, endorsed by,
 > or sponsored by Roblox Corporation. Roblox and the Roblox logo are trademarks
@@ -34,10 +36,10 @@ an unsigned or differently signed executable.
    [official Microsoft WebView2 repair and download page](https://developer.microsoft.com/en-us/microsoft-edge/webview2/consumer/).
 2. Select **Install Latest SessionDock release** above and open the downloaded
    Setup. You do not need to choose a release asset manually.
-3. Confirm the browser download came from `github.com/Makmatoe/SessionDock` and
-   Windows shows the verified publisher named on that release. **Unknown
-   publisher** is a failure for new releases. Checksums and GitHub attestations
-   remain useful secondary checks; see the
+3. Confirm the browser download came from `github.com/Makmatoe/SessionDock`.
+   Windows may show **Unknown publisher** because the project does not currently
+   buy an Authenticode certificate. Before continuing through that warning,
+   verify the checksum or GitHub attestation using the
    [regular-user verification steps](docs/UPDATES.md#verify-a-manual-installer-download).
 4. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
@@ -128,9 +130,10 @@ before it downloads anything, and installs only after confirmation.
 Production updates require a release descriptor authorized by the public key
 pinned in the app. The descriptor binds the version, notes, exact package name,
 size, and SHA-256; the app then enforces an exact package-content allowlist.
-The protected release pipeline also requires timestamped Authenticode on the
-project executable and final Setup. Source, debug, raw publish, and portable
-builds cannot replace themselves. See
+The Windows executables are currently unsigned, but the protected release
+pipeline still requires the signed update descriptor, exact hashes, package
+allowlists, SBOM, GitHub attestations, and separate publication approval.
+Source, debug, raw publish, and portable builds cannot replace themselves. See
 [Updates](docs/UPDATES.md) for the regular-user flow.
 
 ## Build and verify

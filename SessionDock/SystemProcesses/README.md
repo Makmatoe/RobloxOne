@@ -10,8 +10,10 @@ cannot change a successful launch into a failed launch.
 
 This button downloads the correct Windows x64 Setup asset from the latest
 stable canonical release without requiring users to navigate the release asset
-list. Open the downloaded Setup before configuring the optional integrations
-described below.
+list. SessionDock does not currently have an Authenticode certificate, so
+Windows may show Unknown publisher; verify the published checksum or GitHub
+attestation before continuing. Open the downloaded Setup before configuring the
+optional integrations described below.
 
 SessionDock waits for each bounded integration attempt before marking that step
 finished. The activity panel distinguishes a configured attempt from a skipped

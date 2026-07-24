@@ -81,11 +81,12 @@ Use only assets attached to releases in
 include a signed release descriptor, Velopack package metadata, an SPDX SBOM,
 complete dependency notices, checksums covering every other asset, and a GitHub
 artifact attestation. The release verifier rejects unexpected package files and
-requires a valid timestamped Authenticode signature from the exact configured
-publisher on the project executable inside the NUPKG and portable ZIP and on
-the final Setup. **Unknown publisher** is not valid for a new production
-release. A GitHub attestation records build provenance; it does not replace
-Authenticode, in-app descriptor, or package-hash verification.
+requires exact byte equality for the application files carried by the NUPKG and
+portable ZIP. SessionDock does not currently have an Authenticode certificate,
+so Windows reports Unknown publisher for Setup. The signed update descriptor,
+package hash, checksums, and GitHub attestation reduce substitution risk but do
+not provide Windows publisher identity and do not make an unsigned executable
+equivalent to an Authenticode-signed one.
 
 Roblox executable verification requests whole-chain Windows revocation checking
 with online retrieval and root exclusion only. Revoked, offline, unknown,

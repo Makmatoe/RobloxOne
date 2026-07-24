@@ -54,14 +54,13 @@ Invoke-GhMutation 'enforce read-only default workflow permissions' @(
 $actions = Invoke-GhJson @('api', "repos/$Repository/actions/permissions")
 $selected = Invoke-GhJson @(
     'api', "repos/$Repository/actions/permissions/selected-actions")
-$requiredActionPatterns = @(
-    'Azure/artifact-signing-action@*',
-    'Azure/login@*')
-$missingActionPatterns = @($requiredActionPatterns | Where-Object {
-    $_ -notin @($selected.patterns_allowed)
-})
-$patterns = @($selected.patterns_allowed + $requiredActionPatterns |
-    Sort-Object -Unique)
+$obsoleteActionPatterns = @(
+    ('Azure/artifact-' + 'signing-action@*'),
+    ('Azure/' + 'login@*'))
+$patterns = @($selected.patterns_allowed | Where-Object {
+        $_ -notin $obsoleteActionPatterns
+    } | Sort-Object -Unique)
+$patternsChanged = @($selected.patterns_allowed).Count -ne $patterns.Count
 if (-not $actions.sha_pinning_required) {
     Invoke-GhMutation 'require full commit SHA pinning for every Action' @(
         'api', '--method', 'PUT', "repos/$Repository/actions/permissions",
@@ -69,16 +68,22 @@ if (-not $actions.sha_pinning_required) {
         '-f', 'allowed_actions=selected',
         '-F', 'sha_pinning_required=true')
 }
-if ($missingActionPatterns.Count -gt 0) {
-    $arguments = @(
-        'api', '--method', 'PUT',
-        "repos/$Repository/actions/permissions/selected-actions",
-        '-F', "github_owned_allowed=$($selected.github_owned_allowed.ToString().ToLowerInvariant())",
-        '-F', "verified_allowed=$($selected.verified_allowed.ToString().ToLowerInvariant())")
-    foreach ($pattern in $patterns) {
-        $arguments += @('-f', "patterns_allowed[]=$pattern")
+if ($patternsChanged) {
+    if ($PSCmdlet.ShouldProcess(
+            $Repository,
+            'remove unused managed signing Action repositories')) {
+        $body = @{
+            github_owned_allowed = [bool] $selected.github_owned_allowed
+            verified_allowed = [bool] $selected.verified_allowed
+            patterns_allowed = [string[]] $patterns
+        } | ConvertTo-Json -Compress
+        $output = @($body | & gh api --method PUT `
+            "repos/$Repository/actions/permissions/selected-actions" `
+            --input - 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Removing unused managed signing Action repositories failed:`n$($output -join [Environment]::NewLine)"
+        }
     }
-    Invoke-GhMutation 'allow the two required managed signing Action repositories' $arguments
 }
 
 $rulesets = @(Invoke-GhJson @('api', "repos/$Repository/rulesets"))

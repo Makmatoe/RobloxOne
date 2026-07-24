@@ -50,10 +50,9 @@ try {
         'scripts/Configure-GitHubSecurity.ps1',
         'scripts/Rename-SessionDockReleaseAssets.ps1',
         'scripts/ReleaseJson.ps1',
+        'scripts/Sign-ReleaseDescriptorDigest.ps1',
         'scripts/Test-RuntimeSmoke.ps1',
         'scripts/Test-DotNetSecurityPatch.ps1',
-        'scripts/Test-AuthenticodeSignature.ps1',
-        'scripts/Test-ManagedReleaseSigningConfiguration.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
@@ -166,13 +165,17 @@ try {
         $releaseStageJob -notmatch '(?m)^      artifact-metadata:\s*write\s*$' -or
         $releaseStageJob -notmatch 'gh release create[^\r\n]*--draft' -or
         $releaseStageJob -notmatch 'actions/attest@' -or
-        $releaseStageJob -notmatch 'Azure/artifact-signing-action@[0-9a-f]{40}' -or
-        $releaseStageJob -notmatch 'Azure/login@[0-9a-f]{40}' -or
-        $releaseStageJob -notmatch 'Test-AuthenticodeSignature\.ps1' -or
-        $releaseStageJob -notmatch 'az keyvault key sign' -or
+        $releaseStageJob -notmatch 'secrets\.UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64' -or
+        $releaseStageJob -notmatch 'Sign-ReleaseDescriptorDigest\.ps1' -or
         $releaseStageJob -notmatch 'ReleaseSigner\.exe prepare' -or
         $releaseStageJob -notmatch 'ReleaseSigner\.exe complete') {
-        throw 'The protected staging job must sign, draft, and attest with its required permissions.'
+        throw 'The protected staging job must sign only the descriptor, draft, and attest with its required permissions.'
+    }
+    $retiredAuthenticodeVerifier = 'Test-' + 'AuthenticodeSignature\.ps1'
+    if ($releaseStageJob -match 'Azure/(?:login|artifact-signing-action)@' -or
+        $releaseStageJob -match $retiredAuthenticodeVerifier -or
+        $releaseStageJob -match '--private-key') {
+        throw 'The unsigned release path must not claim Authenticode or pass the descriptor key to repository-built executables.'
     }
     if ($releaseStageJob -match 'gh release edit|--draft=false') {
         throw 'The protected staging job must not publish the verified draft.'
@@ -191,14 +194,13 @@ try {
         $releasePublishJob -notmatch 'EXPECTED_SIGNER_WORKFLOW:\s*Makmatoe/SessionDock/\.github/workflows/release\.yml' -or
         $releasePublishJob -notmatch 'EXPECTED_SOURCE_REF:\s*\$\{\{\s*github\.ref\s*\}\}' -or
         $releasePublishJob -notmatch 'EXPECTED_SOURCE_DIGEST:\s*\$\{\{\s*github\.sha\s*\}\}' -or
-        $releasePublishJob -notmatch 'Test-AuthenticodeSignature\.ps1' -or
         $releasePublishJob -notmatch 'gh release edit[^\r\n]*--draft=false[^\r\n]*--latest') {
         throw 'Final publication must be separately approved and must reverify the exact draft and bounded provenance before publishing it.'
     }
     if ($releasePublishJob -match '(?m)^      (?:id-token|artifact-metadata):\s*write\s*$' -or
         $releasePublishJob -match '(?m)^      attestations:\s*write\s*$' -or
         $releasePublishJob -match '\$\{\{\s*secrets\.' -or
-        $releasePublishJob -match 'ReleaseSigner|private-key|Azure/login|artifact-signing-action') {
+        $releasePublishJob -match 'ReleaseSigner|private-key') {
         throw 'The final publication job must not receive signing secrets or attestation write permissions.'
     }
     if (@([regex]::Matches($releaseWorkflowContents, '--draft=false')).Count -ne 1) {
@@ -209,20 +211,29 @@ try {
         (Join-Path $root 'docs/RELEASING.md') -Raw
     if ($releaseGuideContents -notmatch '`release-publication`' -or
         $releaseGuideContents -notmatch 'Build-RuntimeSmoke\.ps1' -or
-        $releaseGuideContents -notmatch 'AUTHENTICODE_PUBLISHER_SUBJECT' -or
-        $releaseGuideContents -notmatch 'UPDATE_SIGNING_KEY_VERSION' -or
+        $releaseGuideContents -notmatch 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64' -or
+        $releaseGuideContents -notmatch 'Unknown publisher' -or
         $releaseGuideContents -notmatch '(?i)draft[\s\S]{0,500}approval') {
         throw 'The release guide must document runtime smoke and the separate draft-publication approval.'
     }
 
-    $removedRawKeyVariable = 'UPDATE_SIGNING_PRIVATE_KEY_' + 'PKCS8_BASE64'
-    $removedRawKeyOption = '--private-key-' + 'base64-env'
-    if ($releaseWorkflowContents -match [regex]::Escape($removedRawKeyVariable) -or
-        $releaseWorkflowContents -match '\$\{\{\s*secrets\.' -or
-        $releaseWorkflowContents -match [regex]::Escape($removedRawKeyOption) -or
-        $releaseStageJob -notmatch 'AUTHENTICODE_PUBLISHER_SUBJECT' -or
-        $releaseStageJob -notmatch 'UPDATE_SIGNING_KEY_VERSION') {
-        throw 'Production signing must use only managed OIDC signers and immutable public configuration.'
+    $descriptorKeySecret = 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64'
+    $descriptorSigningContents = Get-Content -LiteralPath `
+        (Join-Path $root 'scripts/Sign-ReleaseDescriptorDigest.ps1') -Raw
+    if ($descriptorSigningContents -notmatch 'ImportPkcs8PrivateKey' -or
+        $descriptorSigningContents -notmatch 'IeeeP1363FixedFieldConcatenation' -or
+        $descriptorSigningContents -notmatch 'CryptographicOperations\]::ZeroMemory' -or
+        $descriptorSigningContents -notmatch 'Remove-Item Env:UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64') {
+        throw 'The update-descriptor signer must validate P-256 and clear decoded key material.'
+    }
+    $secretReferences = @([regex]::Matches(
+        $releaseWorkflowContents,
+        '\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}') |
+        ForEach-Object { $_.Groups[1].Value } |
+        Sort-Object -Unique)
+    if ($secretReferences.Count -ne 1 -or
+        $secretReferences[0] -cne $descriptorKeySecret) {
+        throw 'The release workflow may receive only the protected update-descriptor key.'
     }
 
     $trackedFiles = @(& git ls-files)
@@ -369,8 +380,9 @@ try {
                     '\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}') |
                     ForEach-Object { $_.Groups[1].Value } |
                     Sort-Object -Unique)
-                if ($secretReferences.Count -ne 0) {
-                    throw 'The managed OIDC release workflow must not receive repository secret values.'
+                if ($secretReferences.Count -ne 1 -or
+                    $secretReferences[0] -cne $descriptorKeySecret) {
+                    throw 'The release workflow may receive only the protected update-descriptor key.'
                 }
                 if ($contents -notmatch '(?m)^\s+artifact-metadata:\s*write\s*$' -or
                     $contents -notmatch 'actions/attest@') {
@@ -394,17 +406,6 @@ try {
         $maintenanceWorkflow -notmatch '(?m)^permissions:\s*\r?\n\s+contents:\s*read\s*$') {
         throw 'A scheduled fail-closed official .NET patch check is required.'
     }
-
-    & git grep -I -q $removedRawKeyVariable -- . `
-        ':(exclude)scripts/Verify-Repository.ps1'
-    $rawSigningKeyReference = $LASTEXITCODE
-    if ($rawSigningKeyReference -eq 0) {
-        throw 'The removed raw production descriptor private-key variable was restored.'
-    }
-    if ($rawSigningKeyReference -ne 1) {
-        throw 'Unable to scan for removed raw production signing-key references.'
-    }
-    $global:LASTEXITCODE = 0
 
     if ($CI) {
         foreach ($projectFile in $projects) {

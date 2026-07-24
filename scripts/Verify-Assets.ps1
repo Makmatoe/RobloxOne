@@ -13,10 +13,7 @@ param(
 
     [string] $ExpectedChannel = 'win-x64-sessiondock',
 
-    [string] $ExpectedTag,
-
-    [Parameter(Mandatory)]
-    [string] $ExpectedPublisherSubject
+    [string] $ExpectedTag
 )
 
 Set-StrictMode -Version Latest
@@ -154,9 +151,6 @@ Assert-ExactSet `
     -Description 'Published application input'
 & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
     -LicensePath (Join-Path $applicationPath 'LICENSE.md')
-& (Join-Path $PSScriptRoot 'Test-AuthenticodeSignature.ps1') `
-    -Path (Join-Path $applicationPath 'SessionDock.exe') `
-    -ExpectedPublisherSubject $ExpectedPublisherSubject
 
 $manifestInfo = Get-Item -LiteralPath $manifestPath
 if ($manifestInfo.Length -le 0 -or $manifestInfo.Length -gt 128 * 1024) {
@@ -354,9 +348,6 @@ try {
     Assert-ExecutableVersion `
         -Path $packagedMainExecutable `
         -ExpectedVersion ([string] $descriptor.version)
-    & (Join-Path $PSScriptRoot 'Test-AuthenticodeSignature.ps1') `
-        -Path $packagedMainExecutable `
-        -ExpectedPublisherSubject $ExpectedPublisherSubject
     $nuspecPath = Join-Path $packageExtraction 'SessionDockApp.nuspec'
     $versionMetadataPath = Join-Path $packageExtraction 'lib/app/sq.version'
     Assert-FileHashEqual `
@@ -442,9 +433,6 @@ try {
     Assert-ExecutableVersion `
         -Path $portableMainExecutable `
         -ExpectedVersion ([string] $descriptor.version)
-    & (Join-Path $PSScriptRoot 'Test-AuthenticodeSignature.ps1') `
-        -Path $portableMainExecutable `
-        -ExpectedPublisherSubject $ExpectedPublisherSubject
     $portableVersionHash = (Get-FileHash `
         -LiteralPath (Join-Path $portableExtraction 'current/sq.version') `
         -Algorithm SHA256).Hash
@@ -461,9 +449,6 @@ finally {
     }
 }
 Assert-PortableExecutable $setupPath
-& (Join-Path $PSScriptRoot 'Test-AuthenticodeSignature.ps1') `
-    -Path $setupPath `
-    -ExpectedPublisherSubject $ExpectedPublisherSubject
 
 $sbomPath = Join-Path $directoryPath $sbomName
 $sbomInfo = Get-Item -LiteralPath $sbomPath

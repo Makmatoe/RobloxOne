@@ -23,9 +23,10 @@ dotnet run --project .\SessionDock\SessionDock.csproj
 
 Development and raw `dotnet publish` builds are intentionally not self-updating.
 Only a Velopack Setup installation from the canonical latest-release button
-enables the production update path. Production releases require both a valid,
-timestamped Authenticode publisher signature and the independently signed
-update descriptor with exact package integrity checks.
+enables the production update path. The project currently publishes unsigned
+Windows executables, so Windows may show Unknown publisher. Production updates
+still require the independently signed update descriptor and exact package
+integrity checks.
 
 ## Local data
 
