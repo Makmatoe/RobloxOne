@@ -15,8 +15,9 @@ or production certificates.
 
 ## Development
 
-SessionDock targets Windows x64 and .NET 10. Use the SDK selected by
-`global.json` and work from a short-lived branch based on `main`.
+SessionDock targets Windows x64, self-contained .NET 10.0.10, and SDK 10.0.302.
+Use the exact SDK selected by `global.json` and work from a short-lived branch
+based on `main`.
 
 ```powershell
 dotnet restore --locked-mode

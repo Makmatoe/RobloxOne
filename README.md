@@ -18,10 +18,11 @@ repository, so there is no release page or asset list to navigate.
 
 Release installers are published only on the canonical GitHub Releases page.
 If that page has no release yet, a production installer is not currently
-available. The project uses a no-cost release model: its update descriptor is
-cryptographically signed, but its Windows executables are not Authenticode
-code-signed and Windows may display **Unknown publisher** or a SmartScreen
-warning.
+available. SessionDock does not currently have a paid Authenticode certificate,
+so Windows identifies the installer as an unknown publisher. The protected
+workflow instead binds every release to a signed update descriptor, exact
+SHA-256 checksums, GitHub attestations, and a separately approved immutable
+draft. These controls do not make Windows display a verified publisher.
 
 > SessionDock is an independent project. It is not affiliated with, endorsed by,
 > or sponsored by Roblox Corporation. Roblox and the Roblox logo are trademarks
@@ -36,9 +37,10 @@ warning.
 2. Select **Install Latest SessionDock release** above and open the downloaded
    Setup. You do not need to choose a release asset manually.
 3. Confirm the browser download came from `github.com/Makmatoe/SessionDock`.
-   Windows can show **Unknown publisher** because this project does not buy an
-   Authenticode certificate. For an independent check before running Setup, use
-   the [regular-user checksum steps](docs/UPDATES.md#verify-a-manual-installer-download).
+   Windows may show **Unknown publisher** because the project does not currently
+   buy an Authenticode certificate. Before continuing through that warning,
+   verify the checksum or GitHub attestation using the
+   [regular-user verification steps](docs/UPDATES.md#verify-a-manual-installer-download).
 4. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
 5. Choose a destination and select **Launch Roblox**.
@@ -91,11 +93,12 @@ until the user configures them. HandleScope is optional, off by default, and
 never bundled or elevated by SessionDock. When the user explicitly selects
 **Install Latest HandleScope release**, SessionDock resolves the latest stable,
 immutable release from the canonical `Makmatoe/HandleScope` GitHub repository,
-downloads its Windows x64 ZIP and checksum file, verifies the GitHub asset
-digests, same-release checksum, safe archive layout, and internal file manifest,
-then runs HandleScope's standard-user per-user installer. HandleScope is not
-Authenticode-signed; these checks confirm that the package matches the canonical
-GitHub release, not an independently authenticated publisher identity.
+downloads the Windows x64 ZIP and checksum file, then verifies GitHub's exact
+asset digests, the same-release checksum, safe archive layout, and every file in
+the bundle manifest before running the standard-user installer. It records the
+verified inventory and rechecks the installed API hash before starting or
+trusting it. HandleScope is unsigned, so this trust comes from the canonical
+immutable GitHub release rather than a certificate-backed publisher.
 
 To use the optional connector, select **Integrations** in the SessionDock
 sidebar. Installation starts the API immediately and enables HandleScope's
@@ -125,13 +128,16 @@ before it downloads anything, and installs only after confirmation.
 Production updates require a release descriptor authorized by the public key
 pinned in the app. The descriptor binds the version, notes, exact package name,
 size, and SHA-256; the app then enforces an exact package-content allowlist.
-The free release pipeline does not claim Windows publisher identity. Source,
-debug, raw publish, and portable builds cannot replace themselves. See
+The Windows executables are currently unsigned, but the protected release
+pipeline still requires the signed update descriptor, exact hashes, package
+allowlists, SBOM, GitHub attestations, and separate publication approval.
+Source, debug, raw publish, and portable builds cannot replace themselves. See
 [Updates](docs/UPDATES.md) for the regular-user flow.
 
 ## Build and verify
 
-The repository selects its pinned .NET SDK and packaging tool from
+The repository pins .NET SDK 10.0.302, self-contained runtime 10.0.10, and its
+packaging tool from
 `global.json` and the local tool manifest, so these commands stay the same when
 the pins change. From the repository root:
 

@@ -10,8 +10,10 @@ cannot change a successful launch into a failed launch.
 
 This button downloads the correct Windows x64 Setup asset from the latest
 stable canonical release without requiring users to navigate the release asset
-list. Open the downloaded Setup before configuring the optional integrations
-described below.
+list. SessionDock does not currently have an Authenticode certificate, so
+Windows may show Unknown publisher; verify the published checksum or GitHub
+attestation before continuing. Open the downloaded Setup before configuring the
+optional integrations described below.
 
 SessionDock waits for each bounded integration attempt before marking that step
 finished. The activity panel distinguishes a configured attempt from a skipped
@@ -76,13 +78,10 @@ PowerShell:
    This is the only panel action that contacts the canonical
    `Makmatoe/HandleScope` GitHub repository. SessionDock requires a stable,
    immutable release with the exact versioned Windows x64 package and checksum
-   assets, verifies both GitHub-published asset digests and the package hash in
-   that same checksum file, rejects unsafe or oversized archive entries, checks
-   the complete internal manifest, and then runs the included standard-user
-   installer with its documented `StartNow` and limited per-user
-   `EnableAutostart` options. Because the verified installer is unsigned,
-   SessionDock gives only that child PowerShell process an execution-policy
-   bypass. This does not change the user's or computer's saved policy and cannot
+   assets. SessionDock verifies GitHub's asset digests, the matching checksum,
+   safe bounded archive extraction, and every internal file before it runs the included standard-user
+   installer with `StartNow` and limited per-user `EnableAutostart`. The scoped
+   child PowerShell execution-policy argument does not change saved policy or
    override Group Policy. SessionDock never supplies integration, downgrade, or
    elevation switches.
 3. Select **Enable** to write the fixed, minimal per-user opt-in.
@@ -94,15 +93,17 @@ PowerShell:
    the connection file and same-session process identity pass local checks.
    This test never enumerates or closes a handle.
 
-HandleScope releases are not Authenticode-signed and do not currently include
-a descriptor signed by a key pinned in SessionDock. The install checks prove
-that the downloaded bytes match the immutable canonical GitHub release; they
-do not independently prove the publisher of an unsigned executable stored in a
-user-writable directory. The panel checks the exact standard path, rejects
-reparse points, requires a structurally valid Windows executable, and checks
-the running process path, session, owner, and non-elevated token before testing
-the connection; these are local safety checks, not cryptographic publisher
-verification.
+HandleScope is not Authenticode-signed and its current release has no separate
+signed descriptor. The install therefore trusts the canonical immutable GitHub
+release, its published SHA-256 digests, and its same-release checksum; these
+checks do not prove a certificate-backed publisher. If a future release adds a
+signed descriptor, SessionDock also requires its pinned HandleScope key. After
+installation, SessionDock stores the verified manifest and a local GitHub
+release receipt under its own data, hashes `HandleScope.Api.exe` against that
+inventory before start or trust, checks the exact standard path and reparse points, and retains the
+process-path, session, owner, non-elevated token, PID, start-time, and loopback
+discovery checks. Replacing the installed executable makes the integration fail
+closed unless the same-user receipt and manifest are also replaced.
 
 Installation starts HandleScope immediately and enables its limited per-user
 interactive-logon task, but it does not change SessionDock's opt-in. Updating

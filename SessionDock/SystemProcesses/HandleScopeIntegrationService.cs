@@ -21,6 +21,7 @@ public sealed class HandleScopeIntegrationService : IDisposable
     private readonly HandleScopeConnectionLoader _connectionLoader;
     private readonly HandleScopeIntegrationConfigurationStore _configurationStore;
     private readonly IHandleScopeProcessVerifier _processVerifier;
+    private readonly IHandleScopeInstalledRuntimeVerifier _installedRuntimeVerifier;
     private readonly Func<ProcessStartInfo, int?> _startProcess;
     private readonly Func<string, bool>? _isReparsePoint;
     private readonly TimeProvider _timeProvider;
@@ -51,7 +52,8 @@ public sealed class HandleScopeIntegrationService : IDisposable
         IHandleScopeProcessVerifier? processVerifier,
         Func<ProcessStartInfo, int?>? startProcess,
         Func<string, bool>? isReparsePoint,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IHandleScopeInstalledRuntimeVerifier? installedRuntimeVerifier = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localAppDataRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionDockDataRoot);
@@ -80,10 +82,17 @@ public sealed class HandleScopeIntegrationService : IDisposable
             _localAppDataRoot,
             configurationPath,
             isReparsePoint);
+        _installedRuntimeVerifier = installedRuntimeVerifier ??
+            new HandleScopeInstalledRuntimeVerifier(
+                _localAppDataRoot,
+                sessionDockDataRoot,
+                EmbeddedHandleScopeReleaseKeyProvider.Instance,
+                isReparsePoint);
         _processVerifier = processVerifier ?? new HandleScopeProcessVerifier(
             _localAppDataRoot,
             _executablePath,
-            isReparsePoint);
+            isReparsePoint,
+            _installedRuntimeVerifier);
         _startProcess = startProcess ?? StartProcess;
         _isReparsePoint = isReparsePoint;
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -452,7 +461,8 @@ public sealed class HandleScopeIntegrationService : IDisposable
                 return InstallInspection.Invalid;
             }
 
-            return HasPortableExecutableHeader(_executablePath)
+            return HasPortableExecutableHeader(_executablePath) &&
+                _installedRuntimeVerifier.IsAuthorized(_executablePath)
                 ? InstallInspection.Valid
                 : InstallInspection.Invalid;
         }

@@ -22,17 +22,25 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
     private readonly string _localAppDataRoot;
     private readonly string _expectedExecutablePath;
     private readonly Func<string, bool>? _isReparsePoint;
+    private readonly IHandleScopeInstalledRuntimeVerifier _installedRuntimeVerifier;
 
     internal HandleScopeProcessVerifier(
         string localAppDataRoot,
         string expectedExecutablePath,
-        Func<string, bool>? isReparsePoint = null)
+        Func<string, bool>? isReparsePoint = null,
+        IHandleScopeInstalledRuntimeVerifier? installedRuntimeVerifier = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localAppDataRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedExecutablePath);
         _localAppDataRoot = Path.GetFullPath(localAppDataRoot);
         _expectedExecutablePath = Path.GetFullPath(expectedExecutablePath);
         _isReparsePoint = isReparsePoint;
+        _installedRuntimeVerifier = installedRuntimeVerifier ??
+            new HandleScopeInstalledRuntimeVerifier(
+                _localAppDataRoot,
+                AppDataPaths.RootDirectory,
+                EmbeddedHandleScopeReleaseKeyProvider.Instance,
+                isReparsePoint);
     }
 
     internal static HandleScopeProcessVerifier CreateDefault()
@@ -158,6 +166,8 @@ internal sealed class HandleScopeProcessVerifier : IHandleScopeProcessVerifier
         {
             return false;
         }
+        if (!_installedRuntimeVerifier.IsAuthorized(_expectedExecutablePath))
+            return false;
 
         using var process = Process.GetProcessById(processId);
         var actualPath = process.MainModule?.FileName;

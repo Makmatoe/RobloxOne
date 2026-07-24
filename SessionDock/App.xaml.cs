@@ -13,42 +13,38 @@ public partial class App : Application
 {
     private const string ProductionApplicationId = "RobloxOneLauncher";
     private readonly string _applicationId;
+#if SESSIONDOCK_SMOKE_HARNESS
     private readonly RuntimeSmokeTestOptions? _runtimeSmokeTest;
+#endif
     private SingleInstanceService? _singleInstance;
     private AppThemeService? _themeService;
     public UiSoundService SoundService { get; private set; } = null!;
     public bool UiSoundsEnabled { get; set; } = true;
+#if SESSIONDOCK_SMOKE_HARNESS
     private bool IsRuntimeSmokeTest => _runtimeSmokeTest is not null;
+#endif
     internal AppThemeService ThemeService => _themeService ??
         throw new InvalidOperationException(
             "The application theme service has not started.");
 
     public App()
-        : this(ProductionApplicationId, runtimeSmokeTest: null)
     {
+        _applicationId = ProductionApplicationId;
     }
 
+#if SESSIONDOCK_SMOKE_HARNESS
     internal App(RuntimeSmokeTestOptions runtimeSmokeTest)
-        : this(
-            runtimeSmokeTest?.ApplicationId ??
-                throw new ArgumentNullException(nameof(runtimeSmokeTest)),
-            runtimeSmokeTest)
     {
-    }
-
-    private App(
-        string applicationId,
-        RuntimeSmokeTestOptions? runtimeSmokeTest)
-    {
-        _applicationId = applicationId;
+        ArgumentNullException.ThrowIfNull(runtimeSmokeTest);
+        _applicationId = runtimeSmokeTest.ApplicationId;
         _runtimeSmokeTest = runtimeSmokeTest;
     }
+#endif
 
     protected override void OnStartup(StartupEventArgs e)
     {
         // Production retains the original mutex name so renamed and older
         // copies cannot run against the same browser profiles at the same time.
-        // A smoke run has both an isolated root and an isolated mutex.
         _singleInstance = new SingleInstanceService(_applicationId);
         if (!_singleInstance.IsPrimaryInstance)
         {
@@ -80,6 +76,7 @@ public partial class App : Application
                     SoundService = new UiSoundService();
                     var mainWindow = new MainWindow();
                     MainWindow = mainWindow;
+#if SESSIONDOCK_SMOKE_HARNESS
                     if (_runtimeSmokeTest is not null)
                     {
                         // Start WPF normally so Loaded, layout, and dispatcher
@@ -100,6 +97,7 @@ public partial class App : Application
                             mainWindow,
                             _runtimeSmokeTest);
                     }
+#endif
                 },
                 ReportStartupFailure))
         {
@@ -118,6 +116,7 @@ public partial class App : Application
 
     private void ReportStartupFailure(string message)
     {
+#if SESSIONDOCK_SMOKE_HARNESS
         if (IsRuntimeSmokeTest)
         {
             // A non-interactive harness must fail by exit code rather than
@@ -126,6 +125,7 @@ public partial class App : Application
                 $"Isolated runtime-smoke startup failed safely: {message}");
             return;
         }
+#endif
 
         MessageBox.Show(
             message,
@@ -174,8 +174,12 @@ public partial class App : Application
             return;
 
         ApplyNativeWindowTheme(window);
+#if SESSIONDOCK_SMOKE_HARNESS
         if (_runtimeSmokeTest is null)
             WindowLayoutService.FitToWorkArea(window);
+#else
+        WindowLayoutService.FitToWorkArea(window);
+#endif
     }
 
     private void ThemeService_ThemeChanged(object? sender, EventArgs e)
@@ -211,6 +215,7 @@ public partial class App : Application
         window.Focus();
     }
 
+#if SESSIONDOCK_SMOKE_HARNESS
     private async Task CompleteRuntimeSmokeTestAsync(
         MainWindow mainWindow,
         RuntimeSmokeTestOptions options)
@@ -314,4 +319,5 @@ public partial class App : Application
             }
         }
     }
+#endif
 }

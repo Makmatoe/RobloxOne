@@ -787,9 +787,7 @@ public partial class MainWindow : Window
 
         SetStatus(
             $"Active account: @{_currentUser.Name}",
-            _robloxClient.FindPlayerPath() is not null
-                ? "Verified. Only this selected account will be used for the next launch."
-                : "Install Roblox Player before launching an experience.",
+            "Ready. Roblox Player will be verified by Windows when you launch.",
             _launchInProgress ? "LAUNCHING" : "ACCOUNT VERIFIED");
         SignInButton.Visibility = Visibility.Collapsed;
         RefreshLaunchAvailability();

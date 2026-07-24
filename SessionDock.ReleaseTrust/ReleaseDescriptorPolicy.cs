@@ -84,11 +84,13 @@ public static class ReleaseDescriptorPolicy
         {
             using var publicKey = ECDsa.Create();
             publicKey.ImportFromPem(publicKeyPem);
-            if (publicKey.KeySize != 256 ||
+            if (signature.Length != 64 ||
+                publicKey.KeySize != 256 ||
                 !publicKey.VerifyData(
                     CreateCanonicalPayload(descriptor),
                     signature,
-                    HashAlgorithmName.SHA256))
+                    HashAlgorithmName.SHA256,
+                    DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
             {
                 throw new ReleaseTrustException(
                     "The update was not signed by the trusted SessionDock release key.");

@@ -124,7 +124,7 @@
                         <TextBlock Text="SETUP AND CONTROLS"
                                    Foreground="{DynamicResource SubtleBrush}"
                                    FontSize="11" FontWeight="Bold"/>
-                        <TextBlock Text="The install button contacts the canonical HandleScope GitHub Releases source, verifies the stable Windows package against GitHub's immutable release digest, the same-release checksum, safe ZIP layout, and the bundle manifest, then runs HandleScope's standard-user installer. HandleScope is not Authenticode-signed, so these checks confirm the package matches the GitHub release rather than independently proving its publisher. Installation starts the API now and enables its limited per-user autostart at Windows sign-in; it never elevates or changes SessionDock's integration setting."
+                        <TextBlock Text="The install button contacts only the canonical immutable HandleScope GitHub release. SessionDock verifies exact asset sizes and hashes, the matching checksum, safe ZIP layout, every internal file, and the installed API hash before trusting it. HandleScope is unsigned, so these checks confirm the GitHub release rather than a certificate-backed publisher. Installation starts the API now and enables its limited per-user autostart at Windows sign-in; it never elevates or changes SessionDock's integration setting."
                                    Foreground="{DynamicResource MutedBrush}" FontSize="12"
                                    Margin="0,7,0,0" TextWrapping="Wrap"/>
 

@@ -15,19 +15,27 @@ public sealed class HandleScopeReleaseInstallerTests
     private const string TagName = "v1.2.3";
     private const string PackageName = "HandleScope-1.2.3-win-x64.zip";
     private const string ChecksumsName = "SHA256SUMS.txt";
+    private const string DescriptorName = "handlescope-release.json";
     private static readonly Uri PackageUri = new(
         $"https://github.com/Makmatoe/HandleScope/releases/download/{TagName}/{PackageName}");
     private static readonly Uri ChecksumsUri = new(
         $"https://github.com/Makmatoe/HandleScope/releases/download/{TagName}/{ChecksumsName}");
+    private static readonly Uri DescriptorUri = new(
+        $"https://github.com/Makmatoe/HandleScope/releases/download/{TagName}/{DescriptorName}");
 
     [Fact]
-    public void ParseLatestRelease_AcceptsImmutableStableReleaseWithExactAssets()
+    public void ParseLatestRelease_AcceptsImmutableStableReleaseWithoutDescriptor()
     {
         var packageHash = SHA256.HashData("package"u8);
         var checksumsHash = SHA256.HashData("checksums"u8);
 
         var release = HandleScopeReleasePolicy.ParseLatestRelease(
-            CreateReleaseJson(packageHash, 7, checksumsHash, 9));
+            CreateReleaseJson(
+                packageHash,
+                7,
+                checksumsHash,
+                9,
+                includeDescriptor: false));
 
         Assert.Equal(Version, release.Version);
         Assert.Equal(TagName, release.TagName);
@@ -39,6 +47,25 @@ public sealed class HandleScopeReleaseInstallerTests
         Assert.Equal(9, release.Checksums.Size);
         Assert.Equal(checksumsHash, release.Checksums.Sha256);
         Assert.Equal(ChecksumsUri, release.Checksums.DownloadUri);
+        Assert.Null(release.Descriptor);
+    }
+
+    [Fact]
+    public void ParseLatestRelease_ValidatesOptInRealReleaseMetadata()
+    {
+        var metadataPath = Environment.GetEnvironmentVariable(
+            "HANDLESCOPE_TEST_RELEASE_JSON");
+        if (string.IsNullOrWhiteSpace(metadataPath))
+            return;
+
+        var release = HandleScopeReleasePolicy.ParseLatestRelease(
+            File.ReadAllBytes(metadataPath));
+
+        Assert.Equal($"v{release.Version}", release.TagName);
+        Assert.Equal(
+            $"HandleScope-{release.Version}-win-x64.zip",
+            release.Package.Name);
+        Assert.Equal(ChecksumsName, release.Checksums.Name);
     }
 
     [Theory]
@@ -262,6 +289,63 @@ public sealed class HandleScopeReleaseInstallerTests
     }
 
     [Fact]
+    public async Task ExtractAndVerifyAsync_RejectsLinkedEntry()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var archivePath = Path.Combine(root, "link.zip");
+            using (var output = new FileStream(
+                       archivePath,
+                       FileMode.CreateNew,
+                       FileAccess.Write))
+            using (var archive = new ZipArchive(output, ZipArchiveMode.Create))
+            {
+                var entry = archive.CreateEntry(
+                    $"HandleScope-{Version}-win-x64/api/HandleScope.Api.exe");
+                entry.ExternalAttributes = 0xA000 << 16;
+                using var stream = entry.Open();
+                stream.Write("link"u8);
+            }
+
+            await Assert.ThrowsAsync<HandleScopeInstallException>(() =>
+                HandleScopeReleasePolicy.ExtractAndVerifyAsync(
+                    archivePath,
+                    Path.Combine(root, "extracted"),
+                    Version,
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractAndVerifyAsync_RejectsReservedWindowsPath()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var archivePath = Path.Combine(root, "reserved.zip");
+            WriteZip(
+                archivePath,
+                ($"HandleScope-{Version}-win-x64/api/CON.txt", "invalid"u8.ToArray()));
+
+            await Assert.ThrowsAsync<HandleScopeInstallException>(() =>
+                HandleScopeReleasePolicy.ExtractAndVerifyAsync(
+                    archivePath,
+                    Path.Combine(root, "extracted"),
+                    Version,
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task ExtractAndVerifyAsync_AcceptsValidSyntheticBundle()
     {
         var root = CreateTemporaryRoot();
@@ -336,7 +420,7 @@ public sealed class HandleScopeReleaseInstallerTests
     }
 
     [Fact]
-    public async Task InstallLatestAsync_VerifiesThenInstallsValidatedFakeHttpBundle()
+    public async Task InstallLatestAsync_VerifiesGitHubReleaseThenInstallsValidatedBundle()
     {
         var root = CreateTemporaryRoot();
         try
@@ -350,11 +434,13 @@ public sealed class HandleScopeReleaseInstallerTests
                 packageHash,
                 packageBytes.LongLength,
                 checksumHash,
-                checksumBytes.LongLength);
+                checksumBytes.LongLength,
+                includeDescriptor: false);
             using var handler = new FakeReleaseHandler(
                 metadata,
                 packageBytes,
-                checksumBytes);
+                checksumBytes,
+                descriptor: null);
             var invocations = new List<ProcessInvocation>();
             Task<int> RunProcess(
                 ProcessStartInfo startInfo,
@@ -369,10 +455,21 @@ public sealed class HandleScopeReleaseInstallerTests
                 return Task.FromResult(0);
             }
 
+            var operationRoot = Path.Combine(root, "operations");
+            var dataRoot = Path.Combine(root, "data");
+            Directory.CreateDirectory(operationRoot);
+            Directory.CreateDirectory(dataRoot);
+            var provider = new TestKeyProvider(string.Empty);
+            var runtimeVerifier = new HandleScopeInstalledRuntimeVerifier(
+                root,
+                dataRoot,
+                provider);
             using var installer = new HandleScopeReleaseInstaller(
                 handler,
-                root,
-                RunProcess);
+                operationRoot,
+                RunProcess,
+                provider,
+                runtimeVerifier);
             var progress = new RecordingProgress();
             using var cancellation = new CancellationTokenSource();
 
@@ -404,7 +501,15 @@ public sealed class HandleScopeReleaseInstallerTests
                 },
                 progress.Values.Select(value => value.Stage));
             Assert.Equal(5, handler.RequestUris.Count);
-            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(operationRoot));
+            Assert.True(File.Exists(Path.Combine(
+                dataRoot,
+                "HandleScopeAuthorization",
+                "github-release-receipt.json")));
+            Assert.False(File.Exists(Path.Combine(
+                dataRoot,
+                "HandleScopeAuthorization",
+                DescriptorName)));
         }
         finally
         {
@@ -422,23 +527,40 @@ public sealed class HandleScopeReleaseInstallerTests
             var packageHash = SHA256.HashData(packageBytes);
             var checksumBytes = Encoding.UTF8.GetBytes(
                 $"{Hex(packageHash)}  {PackageName}\n");
+            var manifestBytes = ReadBundleManifest(packageBytes);
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var provider = new TestKeyProvider(signingKey.ExportSubjectPublicKeyInfoPem());
+            var descriptorBytes = CreateSignedDescriptor(
+                packageBytes,
+                checksumBytes,
+                manifestBytes,
+                signingKey);
             using var handler = new FakeReleaseHandler(
                 CreateReleaseJson(
                     packageHash,
                     packageBytes.LongLength,
                     SHA256.HashData(checksumBytes),
-                    checksumBytes.LongLength),
+                    checksumBytes.LongLength,
+                    descriptorHash: SHA256.HashData(descriptorBytes),
+                    descriptorSize: descriptorBytes.LongLength),
                 packageBytes,
-                checksumBytes);
+                checksumBytes,
+                descriptorBytes);
             static Task<int> RejectProcessStart(
                 ProcessStartInfo startInfo,
                 CancellationToken cancellationToken) =>
                 throw new Win32Exception("Process creation was blocked.");
 
+            var operationRoot = Path.Combine(root, "operations");
+            var dataRoot = Path.Combine(root, "data");
+            Directory.CreateDirectory(operationRoot);
+            Directory.CreateDirectory(dataRoot);
             using var installer = new HandleScopeReleaseInstaller(
                 handler,
-                root,
-                RejectProcessStart);
+                operationRoot,
+                RejectProcessStart,
+                provider,
+                new HandleScopeInstalledRuntimeVerifier(root, dataRoot, provider));
 
             var exception = await Assert.ThrowsAsync<HandleScopeInstallException>(() =>
                 installer.InstallLatestAsync(
@@ -447,7 +569,68 @@ public sealed class HandleScopeReleaseInstallerTests
 
             Assert.IsType<Win32Exception>(exception.InnerException);
             Assert.Contains("could not be installed safely", exception.Message);
-            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(operationRoot));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task InstallLatestAsync_DoesNotExecuteBeforeDescriptorVerification()
+    {
+        var root = CreateTemporaryRoot();
+        try
+        {
+            var packageBytes = CreateValidBundle();
+            var checksumBytes = Encoding.UTF8.GetBytes(
+                $"{Hex(SHA256.HashData(packageBytes))}  {PackageName}\n");
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var provider = new TestKeyProvider(signingKey.ExportSubjectPublicKeyInfoPem());
+            var descriptorBytes = CreateSignedDescriptor(
+                packageBytes,
+                checksumBytes,
+                ReadBundleManifest(packageBytes),
+                signingKey);
+            descriptorBytes[^1] ^= 1;
+            var metadata = CreateReleaseJson(
+                SHA256.HashData(packageBytes),
+                packageBytes.LongLength,
+                SHA256.HashData(checksumBytes),
+                checksumBytes.LongLength,
+                descriptorHash: SHA256.HashData(descriptorBytes),
+                descriptorSize: descriptorBytes.LongLength);
+            using var handler = new FakeReleaseHandler(
+                metadata,
+                packageBytes,
+                checksumBytes,
+                descriptorBytes);
+            var processRequests = 0;
+            Task<int> RunProcess(
+                ProcessStartInfo startInfo,
+                CancellationToken cancellationToken)
+            {
+                processRequests++;
+                return Task.FromResult(0);
+            }
+            var operations = Path.Combine(root, "operations");
+            var data = Path.Combine(root, "data");
+            Directory.CreateDirectory(operations);
+            Directory.CreateDirectory(data);
+            using var installer = new HandleScopeReleaseInstaller(
+                handler,
+                operations,
+                RunProcess,
+                provider,
+                new HandleScopeInstalledRuntimeVerifier(root, data, provider));
+
+            await Assert.ThrowsAsync<HandleScopeInstallException>(() =>
+                installer.InstallLatestAsync(
+                    progress: null,
+                    TestContext.Current.CancellationToken));
+
+            Assert.Equal(0, processRequests);
         }
         finally
         {
@@ -472,7 +655,12 @@ public sealed class HandleScopeReleaseInstallerTests
                 ChecksumsName,
                 1,
                 SHA256.HashData("checksums"u8),
-                ChecksumsUri));
+                ChecksumsUri),
+            new HandleScopeReleaseAsset(
+                DescriptorName,
+                1,
+                SHA256.HashData("descriptor"u8),
+                DescriptorUri));
 
     private static byte[] CreateReleaseJson(
         byte[] packageHash,
@@ -483,13 +671,23 @@ public sealed class HandleScopeReleaseInstallerTests
         bool draft = false,
         bool prerelease = false,
         string packageName = PackageName,
-        bool duplicatePackage = false)
+        bool duplicatePackage = false,
+        byte[]? descriptorHash = null,
+        long descriptorSize = 10,
+        bool includeDescriptor = true)
     {
         var assets = new List<Dictionary<string, object?>>
         {
             CreateAsset(packageName, packageSize, packageHash),
             CreateAsset(ChecksumsName, checksumsSize, checksumsHash)
         };
+        if (includeDescriptor)
+        {
+            assets.Add(CreateAsset(
+                DescriptorName,
+                descriptorSize,
+                descriptorHash ?? SHA256.HashData("descriptor"u8)));
+        }
         if (duplicatePackage)
             assets.Add(CreateAsset(packageName, packageSize, packageHash));
 
@@ -540,6 +738,60 @@ public sealed class HandleScopeReleaseInstallerTests
                 Encoding.UTF8.GetBytes(manifest));
         }
         return output.ToArray();
+    }
+
+    private static byte[] ReadBundleManifest(byte[] archiveBytes)
+    {
+        using var input = new MemoryStream(archiveBytes);
+        using var archive = new ZipArchive(input, ZipArchiveMode.Read);
+        var entry = archive.GetEntry(
+            $"HandleScope-{Version}-win-x64/CONTENTS.sha256")
+            ?? throw new InvalidOperationException("Synthetic manifest missing.");
+        using var stream = entry.Open();
+        using var output = new MemoryStream();
+        stream.CopyTo(output);
+        return output.ToArray();
+    }
+
+    private static byte[] CreateSignedDescriptor(
+        byte[] packageBytes,
+        byte[] checksumBytes,
+        byte[] manifestBytes,
+        ECDsa signingKey)
+    {
+        var unsigned = new HandleScopeReleaseDescriptor(
+            HandleScopeReleaseAuthorizationPolicy.SchemaVersion,
+            HandleScopeReleaseAuthorizationPolicy.Product,
+            HandleScopeReleaseAuthorizationPolicy.Repository,
+            HandleScopeReleaseAuthorizationPolicy.Channel,
+            "handlescope-release-2026-01",
+            Version,
+            TagName,
+            new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero).ToString("O"),
+            PackageName,
+            packageBytes.LongLength,
+            Convert.ToHexString(SHA256.HashData(packageBytes)),
+            ChecksumsName,
+            checksumBytes.LongLength,
+            Convert.ToHexString(SHA256.HashData(checksumBytes)),
+            Convert.ToHexString(SHA256.HashData(manifestBytes)),
+            HandleScopeReleaseAuthorizationPolicy.Platform,
+            HandleScopeReleaseAuthorizationPolicy.Architecture,
+            string.Empty);
+        var signature = signingKey.SignData(
+            HandleScopeReleaseAuthorizationPolicy.CreateCanonicalPayload(unsigned),
+            HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        var descriptor = unsigned with
+        {
+            Signature = Convert.ToBase64String(signature)
+        };
+        return JsonSerializer.SerializeToUtf8Bytes(
+            descriptor,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
     }
 
     private static void WriteZip(
@@ -622,13 +874,16 @@ public sealed class HandleScopeReleaseInstallerTests
     private sealed class FakeReleaseHandler(
         byte[] metadata,
         byte[] package,
-        byte[] checksums)
+        byte[] checksums,
+        byte[]? descriptor)
         : HttpMessageHandler
     {
         private static readonly Uri PackageRedirect = new(
             "https://objects.githubusercontent.com/release/package?signature=test");
         private static readonly Uri ChecksumsRedirect = new(
             "https://release-assets.githubusercontent.com/release/checksums?signature=test");
+        private static readonly Uri DescriptorRedirect = new(
+            "https://objects.githubusercontent.com/release/descriptor?signature=test");
 
         internal List<Uri> RequestUris { get; } = [];
 
@@ -646,10 +901,17 @@ public sealed class HandleScopeReleaseInstallerTests
                 return Task.FromResult(Redirect(PackageRedirect));
             if (uri == ChecksumsUri)
                 return Task.FromResult(Redirect(ChecksumsRedirect));
+            if (uri == DescriptorUri)
+                return Task.FromResult(Redirect(DescriptorRedirect));
             if (uri == PackageRedirect)
                 return Task.FromResult(Ok(package));
             if (uri == ChecksumsRedirect)
                 return Task.FromResult(Ok(checksums));
+            if (uri == DescriptorRedirect)
+            {
+                if (descriptor is not null)
+                    return Task.FromResult(Ok(descriptor));
+            }
             throw new InvalidOperationException($"Unexpected request URI: {uri}");
         }
 
@@ -664,6 +926,16 @@ public sealed class HandleScopeReleaseInstallerTests
             var response = new HttpResponseMessage(HttpStatusCode.Found);
             response.Headers.Location = location;
             return response;
+        }
+    }
+
+    private sealed class TestKeyProvider(string publicKeyPem) :
+        IHandleScopeReleaseKeyProvider
+    {
+        public bool TryGetPublicKeyPem(string keyId, out string value)
+        {
+            value = publicKeyPem;
+            return keyId == "handlescope-release-2026-01";
         }
     }
 }

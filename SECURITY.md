@@ -54,13 +54,17 @@ SessionDock is designed around these boundaries:
   release** action may contact the canonical HandleScope GitHub repository and
   run its per-user installer. That path requires a stable immutable release,
   exact Windows asset names and sizes, GitHub's published asset digests, the
-  matching same-release checksum, a safe bounded ZIP layout, and the bundle's
-  internal manifest before execution. Because HandleScope has no
-  Authenticode signature or separately signed descriptor, this proves a byte
-  match to the GitHub release rather than an independent publisher identity.
-  The verified unsigned installer runs with an execution-policy override scoped
-  only to its child PowerShell process; no saved policy is changed and Windows
-  Group Policy still takes precedence.
+  matching same-release checksum, a safe bounded ZIP layout, and exact internal
+  manifest verification. The current HandleScope release is unsigned and has no
+  independent release descriptor, so this model trusts the canonical immutable
+  GitHub release and does not provide certificate-backed publisher identity. If
+  a future release supplies a signed descriptor, SessionDock requires its
+  distinct pinned HandleScope key. The installed API is rehashed against the
+  saved verified inventory before SessionDock starts or trusts it; replacement
+  fails closed unless the same-user authorization state is also modified. The
+  verified installer runs with an execution-policy override scoped only to its
+  child PowerShell process; no saved policy is changed and Windows Group Policy
+  still takes precedence.
   Install starts the API and enables HandleScope's limited, per-user,
   interactive-logon autostart task. It does not elevate or enable the
   SessionDock integration.
@@ -79,7 +83,16 @@ Use only assets attached to releases in
 include a signed release descriptor, Velopack package metadata, an SPDX SBOM,
 complete dependency notices, checksums covering every other asset, and a GitHub
 artifact attestation. The release verifier rejects unexpected package files and
-checks every expected executable's structure. The no-cost releases are not
-Authenticode code-signed, so Windows reports an unknown publisher. A GitHub
-attestation records build provenance; it does not replace in-app descriptor and
-package-hash verification.
+requires exact byte equality for the application files carried by the NUPKG and
+portable ZIP. SessionDock does not currently have an Authenticode certificate,
+so Windows reports Unknown publisher for Setup. The signed update descriptor,
+package hash, checksums, and GitHub attestation reduce substitution risk but do
+not provide Windows publisher identity and do not make an unsigned executable
+equivalent to an Authenticode-signed one.
+
+Roblox executable verification requests whole-chain Windows revocation checking
+with online retrieval and root exclusion only. Revoked, offline, unknown,
+malformed, expired-without-valid-timestamp, untrusted, or incorrectly purposed
+signatures fail closed. Successful results may be cached briefly only against a
+canonical path, length, last-write timestamp, and SHA-256; launches and process
+termination revalidate immediately.

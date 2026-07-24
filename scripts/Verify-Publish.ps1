@@ -64,6 +64,44 @@ if (-not [Version]::TryParse($fileVersion, [ref] $parsedFileVersion) -or
     throw "Published SessionDock.exe version '$fileVersion' does not match project version '$version'."
 }
 
+function Test-FileContainsBytes {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [byte[]] $Pattern
+    )
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        $buffer = [byte[]]::new(128KB)
+        $matched = 0
+        while (($count = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            for ($index = 0; $index -lt $count; $index++) {
+                if ($buffer[$index] -eq $Pattern[$matched]) {
+                    $matched++
+                    if ($matched -eq $Pattern.Length) { return $true }
+                }
+                else {
+                    $matched = if ($buffer[$index] -eq $Pattern[0]) { 1 } else { 0 }
+                }
+            }
+        }
+        return $false
+    }
+    finally { $stream.Dispose() }
+}
+
+$removedSmokeArgument = '--isolated-runtime-smoke'
+if ((Test-FileContainsBytes $applicationPath `
+        ([Text.Encoding]::UTF8.GetBytes($removedSmokeArgument))) -or
+    (Test-FileContainsBytes $applicationPath `
+        ([Text.Encoding]::Unicode.GetBytes($removedSmokeArgument)))) {
+    throw 'Production SessionDock.exe contains the test-only runtime smoke switch.'
+}
+
 $assetsPath = Join-Path $root 'SessionDock/obj/project.assets.json'
 if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) {
     throw 'Restore assets are unavailable; publish notices cannot be verified.'
@@ -112,13 +150,13 @@ $sources = [ordered]@{
     'THIRD_PARTY_NOTICES.md' = Join-Path $root 'THIRD_PARTY_NOTICES.md'
     'licenses/Velopack-LICENSE.txt' = Join-Path $root 'licenses/Velopack-LICENSE.txt'
     'licenses/DotNet-LICENSE.txt' = Resolve-PinnedPackageFile `
-        'microsoft.netcore.app.runtime.win-x64/10.0.8/LICENSE.TXT' `
+        'microsoft.netcore.app.runtime.win-x64/10.0.10/LICENSE.TXT' `
         'D7A68596AB69B06F51CA278A6545148E4269A9381C26D597C13DF5D88E08CF5B'
     'licenses/DotNet-THIRD-PARTY-NOTICES.txt' = Resolve-PinnedPackageFile `
-        'microsoft.netcore.app.runtime.win-x64/10.0.8/THIRD-PARTY-NOTICES.TXT' `
+        'microsoft.netcore.app.runtime.win-x64/10.0.10/THIRD-PARTY-NOTICES.TXT' `
         '6D15E10A101C6BFFF2AB4429ED061BF76C456FC4B23AD6B03E0D0F8377148A21'
     'licenses/Microsoft.WindowsDesktop-LICENSE.txt' = Resolve-PinnedPackageFile `
-        'microsoft.windowsdesktop.app.runtime.win-x64/10.0.8/LICENSE' `
+        'microsoft.windowsdesktop.app.runtime.win-x64/10.0.10/LICENSE' `
         'A89886665765362EB77E0F8E26602C924520041D1711B2EEDC136434FE4D01AB'
     'licenses/Microsoft.Web.WebView2-LICENSE.txt' = Resolve-PinnedPackageFile `
         'microsoft.web.webview2/1.0.4078.44/LICENSE.txt' `
@@ -139,4 +177,4 @@ foreach ($entry in $sources.GetEnumerator()) {
     }
 }
 
-Write-Host "Verified exact publish inventory, version, and complete pinned notices for SessionDock $version."
+Write-Host "Verified exact production publish inventory, version, smoke-harness exclusion, and complete pinned notices for SessionDock $version."

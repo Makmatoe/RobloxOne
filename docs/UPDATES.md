@@ -11,11 +11,11 @@ It always selects `SessionDock-win-x64-Setup.exe` from the latest stable
 canonical release, so a first-time user does not have to identify the correct
 file in GitHub's asset list. Open the download to start Setup.
 
-The project uses a no-cost signing model, so Windows can display **Unknown
-publisher**. Confirm the download came from `github.com/Makmatoe/SessionDock`.
-Users who want an independent file check can follow
-[Verify a manual installer download](#verify-a-manual-installer-download)
-before opening Setup.
+Confirm the download came from `github.com/Makmatoe/SessionDock`. SessionDock
+does not currently have a paid Authenticode certificate, so Windows may show
+**Unknown publisher** or a SmartScreen warning. Before opening Setup or
+continuing through that warning, follow
+[Verify a manual installer download](#verify-a-manual-installer-download).
 
 ## Normal update flow
 
@@ -129,19 +129,19 @@ the application. That descriptor authorizes the exact target version, package
 filename, size, SHA-256 digest, channel, and release notes. Velopack also checks
 the downloaded package against the authorized package metadata.
 
-The project intentionally uses a free release model. Its Windows executables
-are not Authenticode code-signed, so Windows may display **Unknown publisher**
-or a SmartScreen warning. The signed descriptor protects the in-app release
-decision independently of GitHub asset metadata. GitHub artifact attestations
-and published checksums provide additional, manually verifiable provenance.
+The project executable and final Setup are currently unsigned. The signed
+update descriptor protects the in-app release decision and exact package hash.
+GitHub artifact attestations and published checksums provide additional,
+manually verifiable provenance, but Windows cannot display a verified publisher.
 
 Immediately before scheduling installation, SessionDock rechecks the downloaded
 full package against the signed size and SHA-256, extracts only its application
 executables into a locked temporary directory, rejects missing, duplicate,
 path-like, oversized, or unexpected archive entries, validates the package
 identity/version metadata, and checks that each expected executable is
-structurally a Windows PE file. This confirms exact signed-package integrity;
-it does not establish a certificate-backed Windows publisher identity.
+structurally a Windows PE file and requires the embedded project executable's
+exact hash to match the verified release input. This preserves signed-package
+integrity but does not add certificate-backed Windows publisher identity.
 
 Release notes are displayed as bounded, inert text. Web content from a release
 is not executed in the application.
@@ -172,7 +172,7 @@ application's account removal controls first when profile deletion is desired.
   [release page](https://github.com/Makmatoe/SessionDock/releases) for notices.
 - Do not download a replacement executable from chat, email, file-sharing, or
   a repository fork.
-- Windows is expected to report an unknown publisher because the project does
-  not buy an Authenticode certificate. Continue only for assets from the
-  canonical release page whose published checksum matches. Treat any claim
-  that SessionDock currently has a verified Windows publisher as suspicious.
+- Expect Windows to report **Unknown publisher** while SessionDock has no
+  Authenticode certificate. Continue only for a download from the canonical
+  release after its checksum or GitHub attestation verifies. A matching checksum
+  still does not create Windows publisher identity.
