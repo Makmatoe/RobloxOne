@@ -4,6 +4,15 @@ The integrations in this directory run only after Roblox Player starts
 successfully. They are optional, loopback-only, bounded by short timeouts, and
 cannot change a successful launch into a failed launch.
 
+## Install SessionDock first
+
+[![Install Latest SessionDock release](../../docs/assets/install-latest-sessiondock.svg)](https://github.com/Makmatoe/SessionDock/releases/latest/download/SessionDock-win-x64-Setup.exe)
+
+This button downloads the correct Windows x64 Setup asset from the latest
+stable canonical release without requiring users to navigate the release asset
+list. Open the downloaded Setup before configuring the optional integrations
+described below.
+
 SessionDock waits for each bounded integration attempt before marking that step
 finished. The activity panel distinguishes a configured attempt from a skipped
 step, but it never reports an optional integration as the reason Roblox itself

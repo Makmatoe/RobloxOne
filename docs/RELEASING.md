@@ -118,8 +118,9 @@ The protected workflow then:
 3. publishes the self-contained Windows x64 application;
 4. runs `Test-RuntimeSmoke.ps1` against that exact published executable in an
    isolated, disposable data root;
-5. uses the exact pinned Velopack CLI to create Setup, full-package, and
-   portable assets without Authenticode signing;
+5. reads the exact pinned Velopack CLI version from the repository tool
+   manifest and uses it to create Setup, full-package, and portable assets
+   without Authenticode signing;
 6. signs a bounded descriptor containing the final package filename, size,
    SHA-256, channel, key ID, version, timestamp, and release notes;
 7. verifies that signature with the public key embedded in the application;
