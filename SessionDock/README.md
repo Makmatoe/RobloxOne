@@ -23,9 +23,9 @@ dotnet run --project .\SessionDock\SessionDock.csproj
 
 Development and raw `dotnet publish` builds are intentionally not self-updating.
 Only a Velopack Setup installation from the canonical latest-release button
-enables the production update path. Release executables are intentionally not
-Authenticode code-signed; the updater instead requires the independently
-signed release descriptor and exact package integrity checks.
+enables the production update path. Production releases require both a valid,
+timestamped Authenticode publisher signature and the independently signed
+update descriptor with exact package integrity checks.
 
 ## Local data
 
@@ -61,8 +61,12 @@ stable canonical GitHub release only after the user explicitly selects
 **Install Latest HandleScope release** and accepts the confirmation. Install is
 per-user, starts the API immediately, and enables HandleScope's limited
 interactive-logon autostart task. It does not change SessionDock's integration
-setting. The panel can start only the API at the expected per-user installation
-path after local safety checks if a manual restart is later needed. See
+setting. Before any installer runs, a distinct pinned HandleScope key must
+authorize the exact package, checksum, and internal manifest; the installed API
+hash is rechecked against that signed inventory before every start or trust
+decision. Builds without a genuine production HandleScope public key fail
+closed and cannot install it. The panel can start only the API at the expected
+per-user installation path after those checks if a manual restart is later needed. See
 [SystemProcesses/README.md](SystemProcesses/README.md).
 
 ## Updates

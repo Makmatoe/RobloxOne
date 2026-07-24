@@ -30,7 +30,7 @@ jobs:
       - name: Install the pinned .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.300'
+          dotnet-version: '10.0.302'
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
@@ -43,9 +43,9 @@ jobs:
         shell: pwsh
         run: ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 -OutputDirectory artifacts/ci-publish -CI
 
-      - name: Run the isolated published-executable smoke
+      - name: Build and run the test-only isolated runtime smoke
         shell: pwsh
-        run: ./scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/ci-publish/SessionDock.exe -TimeoutSeconds 30
+        run: ./scripts/Build-RuntimeSmoke.ps1 -OutputDirectory artifacts/ci-runtime-smoke -TimeoutSeconds 30
 
       - name: Upload diagnostic build output
         if: failure()
@@ -60,9 +60,7 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: >-
-      github.event_name == 'pull_request' &&
-      vars.DEPENDENCY_REVIEW_ENABLED == 'true'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

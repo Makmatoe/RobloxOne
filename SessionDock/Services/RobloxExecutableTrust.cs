@@ -4,8 +4,32 @@ namespace SessionDock.Services;
 
 internal static class RobloxExecutableTrust
 {
-    public static bool IsTrustedPlayerPath(string path)
+    public static bool IsTrustedPlayerPath(
+        string path,
+        bool forceRefresh = false)
     {
+        var localVersionsRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Roblox", "Versions");
+        var programFilesRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Roblox");
+        return IsTrustedPlayerPath(
+            path,
+            localVersionsRoot,
+            programFilesRoot,
+            forceRefresh,
+            WindowsExecutableTrust.TryGetTrustedSigner);
+    }
+
+    internal static bool IsTrustedPlayerPath(
+        string path,
+        string localVersionsRoot,
+        string programFilesRoot,
+        bool forceRefresh,
+        TryGetWindowsSigner tryGetSigner)
+    {
+        ArgumentNullException.ThrowIfNull(tryGetSigner);
         try
         {
             var fullPath = Path.GetFullPath(path);
@@ -16,16 +40,17 @@ internal static class RobloxExecutableTrust
                 return false;
             }
 
-            var localVersionsRoot = Path.GetFullPath(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Roblox", "Versions")) + Path.DirectorySeparatorChar;
-            var programFilesRoot = Path.GetFullPath(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Roblox")) + Path.DirectorySeparatorChar;
+            localVersionsRoot = Path.GetFullPath(localVersionsRoot) +
+                Path.DirectorySeparatorChar;
+            programFilesRoot = Path.GetFullPath(programFilesRoot) +
+                Path.DirectorySeparatorChar;
             var trustedLocation =
                 fullPath.StartsWith(localVersionsRoot, StringComparison.OrdinalIgnoreCase) ||
                 fullPath.StartsWith(programFilesRoot, StringComparison.OrdinalIgnoreCase);
-            return trustedLocation && HasValidRobloxSignature(fullPath);
+            return trustedLocation && HasValidRobloxSignature(
+                fullPath,
+                forceRefresh,
+                tryGetSigner);
         }
         catch
         {
@@ -33,13 +58,17 @@ internal static class RobloxExecutableTrust
         }
     }
 
-    private static bool HasValidRobloxSignature(string path)
+    private static bool HasValidRobloxSignature(
+        string path,
+        bool forceRefresh,
+        TryGetWindowsSigner tryGetSigner)
     {
         try
         {
-            return WindowsExecutableTrust.TryGetTrustedSigner(
+            return tryGetSigner(
                     Path.GetFullPath(path),
-                    out var signer) &&
+                    out var signer,
+                    forceRefresh) &&
                 signer.SimpleName.Equals(
                     "Roblox Corporation",
                     StringComparison.OrdinalIgnoreCase);
@@ -49,4 +78,9 @@ internal static class RobloxExecutableTrust
             return false;
         }
     }
+
+    internal delegate bool TryGetWindowsSigner(
+        string path,
+        out TrustedWindowsSigner signer,
+        bool forceRefresh);
 }

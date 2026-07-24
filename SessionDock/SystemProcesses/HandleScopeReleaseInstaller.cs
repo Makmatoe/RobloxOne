@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
+using SessionDock.Services;
 
 namespace SessionDock.SystemProcesses;
 
@@ -17,6 +18,8 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
     private readonly string _temporaryRoot;
     private readonly Func<ProcessStartInfo, CancellationToken, Task<int>>
         _runProcess;
+    private readonly IHandleScopeReleaseKeyProvider _keyProvider;
+    private readonly HandleScopeInstalledRuntimeVerifier _installedRuntimeVerifier;
     private readonly HttpClient _client;
     private bool _disposed;
 
@@ -24,20 +27,31 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
         : this(
             CreateDownloadHandler(),
             Path.Combine(Path.GetTempPath(), "SessionDock.HandleScope"),
-            RunProcessAsync)
+            RunProcessAsync,
+            keyProvider: null,
+            installedRuntimeVerifier: null)
     {
     }
 
     internal HandleScopeReleaseInstaller(
         HttpMessageHandler handler,
         string temporaryRoot,
-        Func<ProcessStartInfo, CancellationToken, Task<int>> runProcess)
+        Func<ProcessStartInfo, CancellationToken, Task<int>> runProcess,
+        IHandleScopeReleaseKeyProvider? keyProvider = null,
+        HandleScopeInstalledRuntimeVerifier? installedRuntimeVerifier = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentException.ThrowIfNullOrWhiteSpace(temporaryRoot);
         ArgumentNullException.ThrowIfNull(runProcess);
         _temporaryRoot = Path.GetFullPath(temporaryRoot);
         _runProcess = runProcess;
+        _keyProvider = keyProvider ??
+            EmbeddedHandleScopeReleaseKeyProvider.Instance;
+        _installedRuntimeVerifier = installedRuntimeVerifier ?? new(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            AppDataPaths.RootDirectory,
+            _keyProvider);
         _client = new HttpClient(handler, disposeHandler: true)
         {
             Timeout = RequestTimeout
@@ -65,6 +79,19 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
         try
         {
             var release = await FetchLatestReleaseAsync(cancellationToken);
+            var descriptorBytes = await DownloadSmallAssetAsync(
+                release.Descriptor,
+                HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes,
+                cancellationToken);
+            VerifyHash(
+                descriptorBytes,
+                release.Descriptor.Sha256,
+                "The HandleScope authorization download failed its GitHub SHA-256 check.");
+            var authorization = HandleScopeReleaseAuthorizationPolicy.Verify(
+                descriptorBytes,
+                release,
+                _keyProvider);
+
             var checksumBytes = await DownloadSmallAssetAsync(
                 release.Checksums,
                 HandleScopeReleasePolicy.MaximumChecksumBytes,
@@ -97,14 +124,17 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
                 release.Version,
                 Percentage: null));
             var extractionRoot = Path.Combine(operationRoot, "extracted");
-            var installerPath = await HandleScopeReleasePolicy.ExtractAndVerifyAsync(
+            var bundle = await
+                HandleScopeReleasePolicy.ExtractAndVerifyAuthorizedAsync(
                 archivePath,
                 extractionRoot,
                 release.Version,
+                HandleScopeReleaseAuthorizationPolicy.ParseSha256(
+                    authorization.Descriptor.InternalManifestSha256),
                 cancellationToken);
 
             var verificationStartInfo = CreateInstallerStartInfo(
-                installerPath,
+                bundle.InstallerPath,
                 verifyOnly: true);
             var verificationExitCode = await _runProcess(
                 verificationStartInfo,
@@ -121,7 +151,7 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
                 release.Version,
                 Percentage: null));
             var installStartInfo = CreateInstallerStartInfo(
-                installerPath,
+                bundle.InstallerPath,
                 verifyOnly: false);
 
             // Once the reviewed installer starts, let its atomic replacement
@@ -134,6 +164,10 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
                 throw new HandleScopeInstallException(
                     "HandleScope's per-user installer did not complete. Its atomic file step preserves the prior install on replacement failure, but a later start or autostart step may have failed after the new files were installed. Refresh the status before retrying.");
             }
+
+            _installedRuntimeVerifier.PersistAuthorization(
+                descriptorBytes,
+                bundle.ManifestContents);
 
             return new HandleScopeReleaseInstallResult(release.Version);
         }

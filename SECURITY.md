@@ -54,11 +54,13 @@ SessionDock is designed around these boundaries:
   release** action may contact the canonical HandleScope GitHub repository and
   run its per-user installer. That path requires a stable immutable release,
   exact Windows asset names and sizes, GitHub's published asset digests, the
-  matching same-release checksum, a safe bounded ZIP layout, and the bundle's
-  internal manifest before execution. Because HandleScope has no
-  Authenticode signature or separately signed descriptor, this proves a byte
-  match to the GitHub release rather than an independent publisher identity.
-  The verified unsigned installer runs with an execution-policy override scoped
+  matching same-release checksum, a safe bounded ZIP layout, and an
+  independently signed descriptor from a distinct pinned HandleScope key. The
+  descriptor binds the exact internal-manifest hash before execution. The
+  installed API is rehashed against that descriptor-bound inventory before
+  SessionDock starts or trusts it; replacement fails closed. A build without a
+  genuine production HandleScope public key cannot install HandleScope.
+  The signed-descriptor-authorized installer runs with an execution-policy override scoped
   only to its child PowerShell process; no saved policy is changed and Windows
   Group Policy still takes precedence.
   Install starts the API and enables HandleScope's limited, per-user,
@@ -79,7 +81,15 @@ Use only assets attached to releases in
 include a signed release descriptor, Velopack package metadata, an SPDX SBOM,
 complete dependency notices, checksums covering every other asset, and a GitHub
 artifact attestation. The release verifier rejects unexpected package files and
-checks every expected executable's structure. The no-cost releases are not
-Authenticode code-signed, so Windows reports an unknown publisher. A GitHub
-attestation records build provenance; it does not replace in-app descriptor and
-package-hash verification.
+requires a valid timestamped Authenticode signature from the exact configured
+publisher on the project executable inside the NUPKG and portable ZIP and on
+the final Setup. **Unknown publisher** is not valid for a new production
+release. A GitHub attestation records build provenance; it does not replace
+Authenticode, in-app descriptor, or package-hash verification.
+
+Roblox executable verification requests whole-chain Windows revocation checking
+with online retrieval and root exclusion only. Revoked, offline, unknown,
+malformed, expired-without-valid-timestamp, untrusted, or incorrectly purposed
+signatures fail closed. Successful results may be cached briefly only against a
+canonical path, length, last-write timestamp, and SHA-256; launches and process
+termination revalidate immediately.

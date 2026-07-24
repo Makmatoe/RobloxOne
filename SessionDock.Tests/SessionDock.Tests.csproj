@@ -7,6 +7,7 @@
     <IsTestProject>true</IsTestProject>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
+    <EnableRuntimeSmokeHarness>true</EnableRuntimeSmokeHarness>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SessionDock.ReleaseTrust\SessionDock.ReleaseTrust.csproj" />
-    <ProjectReference Include="..\SessionDock\SessionDock.csproj" />
+    <ProjectReference Include="..\SessionDock\SessionDock.csproj"
+                      AdditionalProperties="EnableRuntimeSmokeHarness=true" />
   </ItemGroup>
 </Project>

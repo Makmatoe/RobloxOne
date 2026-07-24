@@ -32,6 +32,7 @@ try {
     $requiredFiles = @(
         '.config/dotnet-tools.json',
         '.github/workflows/ci.yml',
+        '.github/workflows/dotnet-security-maintenance.yml',
         '.github/workflows/release.yml',
         'Directory.Build.props',
         'global.json',
@@ -45,9 +46,14 @@ try {
         'licenses/Velopack-LICENSE.txt',
         'scripts/New-ReleaseChecksums.ps1',
         'scripts/New-ReleaseSbom.ps1',
+        'scripts/Build-RuntimeSmoke.ps1',
+        'scripts/Configure-GitHubSecurity.ps1',
         'scripts/Rename-SessionDockReleaseAssets.ps1',
         'scripts/ReleaseJson.ps1',
         'scripts/Test-RuntimeSmoke.ps1',
+        'scripts/Test-DotNetSecurityPatch.ps1',
+        'scripts/Test-AuthenticodeSignature.ps1',
+        'scripts/Test-ManagedReleaseSigningConfiguration.ps1',
         'scripts/Enable-HandleScope.ps1',
         'scripts/Verify-Assets.ps1',
         'scripts/Verify-Publish.ps1',
@@ -86,6 +92,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $actualSdk -ne $expectedSdk) {
         throw "The repository requires .NET SDK $expectedSdk; dotnet selected '$actualSdk'."
     }
+    & (Join-Path $PSScriptRoot 'Test-DotNetSecurityPatch.ps1')
 
     $toolManifest = Get-Content -LiteralPath (Join-Path $root '.config/dotnet-tools.json') -Raw | ConvertFrom-Json
     if ($toolManifest.tools.vpk.version -ne '1.2.0' -or $toolManifest.tools.vpk.rollForward -ne $false) {
@@ -111,9 +118,9 @@ try {
         (Join-Path $root '.github/workflows/ci.yml') -Raw
     $releaseWorkflowContents = Get-Content -LiteralPath `
         (Join-Path $root '.github/workflows/release.yml') -Raw
-    if ($publishContents -notmatch "'--packId'\s+'SessionDockApp'" -or
-        $releaseWorkflowContents -notmatch '--packId\s+SessionDockApp') {
-        throw 'Local and protected release packaging must use the non-colliding SessionDockApp package ID.'
+    if ($releaseWorkflowContents -notmatch '--packId\s+SessionDockApp' -or
+        $publishContents -notmatch 'Local production release packaging is intentionally disabled') {
+        throw 'Only the protected workflow may package the non-colliding SessionDockApp production release.'
     }
     if ($publishContents -match "'--framework'\s+'webview2'" -or
         $releaseWorkflowContents -match '--framework\s+webview2') {
@@ -130,14 +137,24 @@ try {
     $releasePublishJob = Get-WorkflowJobBlock `
         -Contents $releaseWorkflowContents `
         -Name 'publish-verified-release'
+    $dependencyReviewJob = Get-WorkflowJobBlock `
+        -Contents $ciWorkflowContents `
+        -Name 'dependency-review'
+
+    if ($dependencyReviewJob -notmatch "(?m)^    if:\s*github\.event_name == 'pull_request'\s*$" -or
+        $dependencyReviewJob -match '(?i)vars\.|DEPENDENCY_REVIEW_ENABLED' -or
+        $dependencyReviewJob -notmatch 'actions/dependency-review-action@[0-9a-f]{40}' -or
+        $dependencyReviewJob -notmatch 'fail-on-severity:\s*moderate') {
+        throw 'Dependency review must run fail-closed at moderate severity on every pull request.'
+    }
 
     $ciRuntimeSmoke =
-        './scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/ci-publish/SessionDock.exe -TimeoutSeconds 30'
+        './scripts/Build-RuntimeSmoke.ps1 -OutputDirectory artifacts/ci-runtime-smoke -TimeoutSeconds 30'
     if (-not $ciBuildJob.Contains($ciRuntimeSmoke)) {
         throw 'CI must execute the isolated published-executable runtime smoke.'
     }
     $releaseRuntimeSmoke =
-        './scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/release-input/app/SessionDock.exe -TimeoutSeconds 30'
+        './scripts/Build-RuntimeSmoke.ps1 -OutputDirectory artifacts/release-runtime-smoke -TimeoutSeconds 30'
     if (-not $releaseValidateJob.Contains($releaseRuntimeSmoke)) {
         throw 'Protected release validation must execute the isolated published-executable runtime smoke.'
     }
@@ -148,7 +165,13 @@ try {
         $releaseStageJob -notmatch '(?m)^      attestations:\s*write\s*$' -or
         $releaseStageJob -notmatch '(?m)^      artifact-metadata:\s*write\s*$' -or
         $releaseStageJob -notmatch 'gh release create[^\r\n]*--draft' -or
-        $releaseStageJob -notmatch 'actions/attest@') {
+        $releaseStageJob -notmatch 'actions/attest@' -or
+        $releaseStageJob -notmatch 'Azure/artifact-signing-action@[0-9a-f]{40}' -or
+        $releaseStageJob -notmatch 'Azure/login@[0-9a-f]{40}' -or
+        $releaseStageJob -notmatch 'Test-AuthenticodeSignature\.ps1' -or
+        $releaseStageJob -notmatch 'az keyvault key sign' -or
+        $releaseStageJob -notmatch 'ReleaseSigner\.exe prepare' -or
+        $releaseStageJob -notmatch 'ReleaseSigner\.exe complete') {
         throw 'The protected staging job must sign, draft, and attest with its required permissions.'
     }
     if ($releaseStageJob -match 'gh release edit|--draft=false') {
@@ -168,13 +191,14 @@ try {
         $releasePublishJob -notmatch 'EXPECTED_SIGNER_WORKFLOW:\s*Makmatoe/SessionDock/\.github/workflows/release\.yml' -or
         $releasePublishJob -notmatch 'EXPECTED_SOURCE_REF:\s*\$\{\{\s*github\.ref\s*\}\}' -or
         $releasePublishJob -notmatch 'EXPECTED_SOURCE_DIGEST:\s*\$\{\{\s*github\.sha\s*\}\}' -or
+        $releasePublishJob -notmatch 'Test-AuthenticodeSignature\.ps1' -or
         $releasePublishJob -notmatch 'gh release edit[^\r\n]*--draft=false[^\r\n]*--latest') {
         throw 'Final publication must be separately approved and must reverify the exact draft and bounded provenance before publishing it.'
     }
     if ($releasePublishJob -match '(?m)^      (?:id-token|artifact-metadata):\s*write\s*$' -or
         $releasePublishJob -match '(?m)^      attestations:\s*write\s*$' -or
         $releasePublishJob -match '\$\{\{\s*secrets\.' -or
-        $releasePublishJob -match 'ReleaseSigner|private-key') {
+        $releasePublishJob -match 'ReleaseSigner|private-key|Azure/login|artifact-signing-action') {
         throw 'The final publication job must not receive signing secrets or attestation write permissions.'
     }
     if (@([regex]::Matches($releaseWorkflowContents, '--draft=false')).Count -ne 1) {
@@ -184,9 +208,21 @@ try {
     $releaseGuideContents = Get-Content -LiteralPath `
         (Join-Path $root 'docs/RELEASING.md') -Raw
     if ($releaseGuideContents -notmatch '`release-publication`' -or
-        $releaseGuideContents -notmatch 'Test-RuntimeSmoke\.ps1' -or
+        $releaseGuideContents -notmatch 'Build-RuntimeSmoke\.ps1' -or
+        $releaseGuideContents -notmatch 'AUTHENTICODE_PUBLISHER_SUBJECT' -or
+        $releaseGuideContents -notmatch 'UPDATE_SIGNING_KEY_VERSION' -or
         $releaseGuideContents -notmatch '(?i)draft[\s\S]{0,500}approval') {
         throw 'The release guide must document runtime smoke and the separate draft-publication approval.'
+    }
+
+    $removedRawKeyVariable = 'UPDATE_SIGNING_PRIVATE_KEY_' + 'PKCS8_BASE64'
+    $removedRawKeyOption = '--private-key-' + 'base64-env'
+    if ($releaseWorkflowContents -match [regex]::Escape($removedRawKeyVariable) -or
+        $releaseWorkflowContents -match '\$\{\{\s*secrets\.' -or
+        $releaseWorkflowContents -match [regex]::Escape($removedRawKeyOption) -or
+        $releaseStageJob -notmatch 'AUTHENTICODE_PUBLISHER_SUBJECT' -or
+        $releaseStageJob -notmatch 'UPDATE_SIGNING_KEY_VERSION') {
+        throw 'Production signing must use only managed OIDC signers and immutable public configuration.'
     }
 
     $trackedFiles = @(& git ls-files)
@@ -272,8 +308,27 @@ try {
     }
     $runtimeVersions = @($applicationProject.SelectNodes('/Project/PropertyGroup/RuntimeFrameworkVersion') |
         ForEach-Object { $_.InnerText } | Where-Object { $_ })
-    if ($runtimeVersions.Count -ne 1 -or $runtimeVersions[0] -cne '10.0.8') {
-        throw 'The self-contained .NET runtime and shipped notices must remain pinned to 10.0.8.'
+    if ($runtimeVersions.Count -ne 1 -or $runtimeVersions[0] -cne '10.0.10') {
+        throw 'The self-contained .NET runtime and shipped notices must remain pinned to 10.0.10.'
+    }
+    $directoryBuildContents = Get-Content -LiteralPath `
+        (Join-Path $root 'Directory.Build.props') -Raw
+    if ($directoryBuildContents -notmatch '<NuGetAuditMode>all</NuGetAuditMode>' -or
+        $directoryBuildContents -notmatch '<NuGetAuditLevel>moderate</NuGetAuditLevel>' -or
+        $directoryBuildContents -notmatch 'NU1902;NU1903;NU1904') {
+        throw 'NuGet auditing must include transitives and fail for moderate-or-higher vulnerabilities.'
+    }
+    $applicationProjectText = Get-Content -LiteralPath (Get-ApplicationProject) -Raw
+    if ($applicationProjectText -notmatch 'EnableRuntimeSmokeHarness' -or
+        $applicationProjectText -notmatch 'SESSIONDOCK_SMOKE_HARNESS' -or
+        $applicationProjectText -notmatch 'Compile Remove="Services\\RuntimeSmokeTestOptions\.cs"') {
+        throw 'The isolated runtime smoke harness must remain compile-time test-only.'
+    }
+    $publishVerifierContents = Get-Content -LiteralPath `
+        (Join-Path $root 'scripts/Verify-Publish.ps1') -Raw
+    if ($publishVerifierContents -notmatch '--isolated-runtime-smoke' -or
+        $publishVerifierContents -notmatch 'Production SessionDock\.exe contains') {
+        throw 'Production publish verification must prove the privileged smoke switch is absent.'
     }
 
     $workflowDirectory = Join-Path $root '.github/workflows'
@@ -309,17 +364,13 @@ try {
                 throw 'Release workflow must be tag-only, separately environment-protected, and non-clobbering.'
             }
             if ($workflow.Name -ceq 'release.yml') {
-                if ($contents -match '(?i)azure/login|AzureTrustedSign|AZURE_(?:CLIENT|TENANT|SUBSCRIPTION|SIGNING)|EXPECTED_PUBLISHER_SUBJECT') {
-                    throw 'The release workflow must not depend on Azure or paid Authenticode signing.'
-                }
                 $secretReferences = @([regex]::Matches(
                     $contents,
                     '\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}') |
                     ForEach-Object { $_.Groups[1].Value } |
                     Sort-Object -Unique)
-                if ($secretReferences.Count -ne 1 -or
-                    $secretReferences[0] -cne 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64') {
-                    throw 'The release workflow may use only the protected descriptor-signing key.'
+                if ($secretReferences.Count -ne 0) {
+                    throw 'The managed OIDC release workflow must not receive repository secret values.'
                 }
                 if ($contents -notmatch '(?m)^\s+artifact-metadata:\s*write\s*$' -or
                     $contents -notmatch 'actions/attest@') {
@@ -335,6 +386,25 @@ try {
             }
         }
     }
+
+    $maintenanceWorkflow = Get-Content -LiteralPath `
+        (Join-Path $root '.github/workflows/dotnet-security-maintenance.yml') -Raw
+    if ($maintenanceWorkflow -notmatch '(?m)^\s*schedule:\s*$' -or
+        $maintenanceWorkflow -notmatch 'Test-DotNetSecurityPatch\.ps1 -CheckOnline' -or
+        $maintenanceWorkflow -notmatch '(?m)^permissions:\s*\r?\n\s+contents:\s*read\s*$') {
+        throw 'A scheduled fail-closed official .NET patch check is required.'
+    }
+
+    & git grep -I -q $removedRawKeyVariable -- . `
+        ':(exclude)scripts/Verify-Repository.ps1'
+    $rawSigningKeyReference = $LASTEXITCODE
+    if ($rawSigningKeyReference -eq 0) {
+        throw 'The removed raw production descriptor private-key variable was restored.'
+    }
+    if ($rawSigningKeyReference -ne 1) {
+        throw 'Unable to scan for removed raw production signing-key references.'
+    }
+    $global:LASTEXITCODE = 0
 
     if ($CI) {
         foreach ($projectFile in $projects) {

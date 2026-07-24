@@ -57,6 +57,8 @@ internal static partial class HandleScopeReleasePolicy
             var versionText = version.ToString(3);
             var packageName = $"HandleScope-{versionText}-win-x64.zip";
             const string checksumsName = "SHA256SUMS.txt";
+            const string descriptorName =
+                HandleScopeReleaseAuthorizationPolicy.DescriptorFileName;
             var assetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var parsedAssets = new List<HandleScopeReleaseAsset>();
             foreach (var assetElement in assets.EnumerateArray())
@@ -71,10 +73,15 @@ internal static partial class HandleScopeReleasePolicy
                 asset.Name.Equals(packageName, StringComparison.Ordinal)).ToArray();
             var checksumAssets = parsedAssets.Where(asset =>
                 asset.Name.Equals(checksumsName, StringComparison.Ordinal)).ToArray();
+            var descriptorAssets = parsedAssets.Where(asset =>
+                asset.Name.Equals(descriptorName, StringComparison.Ordinal)).ToArray();
             if (packages.Length != 1 ||
                 checksumAssets.Length != 1 ||
+                descriptorAssets.Length != 1 ||
                 packages[0].Size is <= 0 or > MaximumPackageBytes ||
-                checksumAssets[0].Size is <= 0 or > MaximumChecksumBytes)
+                checksumAssets[0].Size is <= 0 or > MaximumChecksumBytes ||
+                descriptorAssets[0].Size is <= 0 or >
+                    HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes)
             {
                 throw InvalidRelease();
             }
@@ -83,7 +90,8 @@ internal static partial class HandleScopeReleasePolicy
                 versionText,
                 tagName,
                 packages[0],
-                checksumAssets[0]);
+                checksumAssets[0],
+                descriptorAssets[0]);
         }
         catch (JsonException exception)
         {
@@ -179,6 +187,23 @@ internal static partial class HandleScopeReleasePolicy
         string version,
         CancellationToken cancellationToken)
     {
+        var bundle = await ExtractAndVerifyAuthorizedAsync(
+            archivePath,
+            extractionRoot,
+            version,
+            expectedManifestHash: null,
+            cancellationToken);
+        return bundle.InstallerPath;
+    }
+
+    internal static async Task<HandleScopeVerifiedBundle>
+        ExtractAndVerifyAuthorizedAsync(
+        string archivePath,
+        string extractionRoot,
+        string version,
+        byte[]? expectedManifestHash,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(extractionRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -270,11 +295,14 @@ internal static partial class HandleScopeReleasePolicy
             await output.FlushAsync(cancellationToken);
         }
 
-        await VerifyExtractedManifestAsync(
+        var manifestContents = await VerifyExtractedManifestAsync(
             bundleRoot,
             manifestPath,
+            expectedManifestHash,
             cancellationToken);
-        return installerPath;
+        return new HandleScopeVerifiedBundle(
+            installerPath,
+            manifestContents);
     }
 
     private static HandleScopeReleaseAsset ParseAsset(
@@ -413,9 +441,10 @@ internal static partial class HandleScopeReleasePolicy
             throw InvalidArchive();
     }
 
-    private static async Task VerifyExtractedManifestAsync(
+    private static async Task<byte[]> VerifyExtractedManifestAsync(
         string bundleRoot,
         string manifestPath,
+        byte[]? expectedManifestHash,
         CancellationToken cancellationToken)
     {
         var manifestInfo = new FileInfo(manifestPath);
@@ -428,6 +457,14 @@ internal static partial class HandleScopeReleasePolicy
         var manifestBytes = await File.ReadAllBytesAsync(
             manifestPath,
             cancellationToken);
+        if (expectedManifestHash is not null &&
+            !CryptographicOperations.FixedTimeEquals(
+                SHA256.HashData(manifestBytes),
+                expectedManifestHash))
+        {
+            throw new HandleScopeInstallException(
+                "The HandleScope internal inventory does not match the independently signed release authorization.");
+        }
         string manifestText;
         try
         {
@@ -458,7 +495,6 @@ internal static partial class HandleScopeReleasePolicy
                 throw InvalidArchive();
             }
         }
-
         var actualFiles = Directory.EnumerateFiles(
                 bundleRoot,
                 "*",
@@ -495,6 +531,7 @@ internal static partial class HandleScopeReleasePolicy
                     "The HandleScope bundle failed its internal integrity check.");
             }
         }
+        return manifestBytes;
     }
 
     private static bool IsSafeManifestPath(string path)
@@ -583,7 +620,12 @@ internal sealed record HandleScopeReleaseIdentity(
     string Version,
     string TagName,
     HandleScopeReleaseAsset Package,
-    HandleScopeReleaseAsset Checksums);
+    HandleScopeReleaseAsset Checksums,
+    HandleScopeReleaseAsset Descriptor);
+
+internal sealed record HandleScopeVerifiedBundle(
+    string InstallerPath,
+    byte[] ManifestContents);
 
 internal sealed record HandleScopeReleaseAsset(
     string Name,

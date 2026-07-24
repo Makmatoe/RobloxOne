@@ -43,7 +43,8 @@ public sealed class RobloxClientService
                 .Select(path => new FileInfo(path))
                 .OrderByDescending(file => file.LastWriteTimeUtc)
                 .Select(file => file.FullName)
-                .FirstOrDefault(RobloxExecutableTrust.IsTrustedPlayerPath);
+                .FirstOrDefault(path =>
+                    RobloxExecutableTrust.IsTrustedPlayerPath(path));
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException or
@@ -67,6 +68,17 @@ public sealed class RobloxClientService
                 {
                     return LaunchResult.Failed(
                         "Roblox Player was not found. Install Roblox Player, then restart SessionDock.");
+                }
+
+                // A cached discovery result is never sufficient for a launch.
+                // Re-run online revocation and signer validation immediately
+                // before Windows is asked to execute the file.
+                if (!RobloxExecutableTrust.IsTrustedPlayerPath(
+                        playerPath,
+                        forceRefresh: true))
+                {
+                    return LaunchResult.Failed(
+                        "Roblox Player could not be verified by Windows. Check your internet connection or reinstall Roblox Player.");
                 }
 
                 var startInfo = CreatePlayerStartInfo(playerPath, launchUri);
@@ -545,7 +557,9 @@ public sealed class RobloxClientService
                        process.Id,
                        process.StartTime.ToUniversalTime(),
                        path) &&
-                   RobloxExecutableTrust.IsTrustedPlayerPath(path) &&
+                   RobloxExecutableTrust.IsTrustedPlayerPath(
+                       path,
+                       forceRefresh: true) &&
                    WindowsProcessSecurity.IsOwnedStandardUserProcessInCurrentSession(
                        process);
         }

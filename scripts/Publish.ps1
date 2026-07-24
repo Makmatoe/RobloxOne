@@ -7,86 +7,14 @@ param(
     [string] $OutputDirectory = 'artifacts/release'
 )
 
-. (Join-Path $PSScriptRoot 'Common.ps1')
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-$root = Get-RepositoryRoot
-$project = Get-ApplicationProject
-$output = Assert-SafeOutputDirectory (Join-Path $root $OutputDirectory)
-$appOutput = Assert-SafeOutputDirectory (Join-Path $root 'artifacts/publish')
-if ($output.Equals($appOutput, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Release output must be different from the application publish directory.'
-}
-if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64)) {
-    throw 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 is required to sign the release descriptor.'
-}
-
-Push-Location $root
-try {
-    & (Join-Path $PSScriptRoot 'Verify-Release.ps1') `
-        -Tag $Tag `
-        -RequireTagAtHead `
-        -RequireMainAtHead `
-        -RequireAnnotatedTag `
-        -RequireCleanWorkingTree
-    & (Join-Path $PSScriptRoot 'Build.ps1') -Configuration Release -Runtime win-x64 -OutputDirectory 'artifacts/publish' -CI
-    & (Join-Path $PSScriptRoot 'Verify-ReleaseLicense.ps1') `
-        -LicensePath (Join-Path $appOutput 'LICENSE.md')
-    Invoke-CheckedCommand dotnet tool restore
-
-    $version = Get-ProjectVersion
-    if (Test-Path -LiteralPath $output) {
-        Remove-SafeOutputDirectory $output
-    }
-    New-Item -ItemType Directory -Path $output -Force | Out-Null
-    Invoke-CheckedCommand dotnet tool run vpk -- pack `
-        '--packId' 'SessionDockApp' `
-        '--packVersion' $version `
-        '--packDir' $appOutput `
-        '--mainExe' 'SessionDock.exe' `
-        '--packTitle' 'SessionDock' `
-        '--packAuthors' 'Makmatoe' `
-        '--releaseNotes' (Join-Path $root "SessionDock/ReleaseNotes/$version.md") `
-        '--runtime' 'win-x64' `
-        '--channel' 'win-x64-sessiondock' `
-        '--outputDir' $output
-
-    & (Join-Path $PSScriptRoot 'Rename-SessionDockReleaseAssets.ps1') `
-        -Directory $output `
-        -Channel 'win-x64-sessiondock'
-
-    $fullPackages = @(Get-ChildItem -LiteralPath $output -File -Filter '*-full.nupkg')
-    if ($fullPackages.Count -ne 1) {
-        throw "Expected exactly one full Velopack package; found $($fullPackages.Count)."
-    }
-
-    $signerProject = Join-Path $root 'SessionDock/tools/ReleaseSigner/ReleaseSigner.csproj'
-    $notesPath = Join-Path $root "SessionDock/ReleaseNotes/$version.md"
-    $descriptorPath = Join-Path $output 'sessiondock-release.json'
-    Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
-        '--no-restore' '--' `
-        'sign' '--package' $fullPackages[0].FullName '--notes' $notesPath '--output' $descriptorPath `
-        '--repository' 'Makmatoe/SessionDock' '--channel' 'win-x64-sessiondock' '--version' $version `
-        '--tag' $Tag '--private-key-base64-env' 'UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64' `
-        '--identity' 'current'
-
-    $publicKeyPath = Join-Path $root 'SessionDock/Resources/update-public-key.pem'
-    Invoke-CheckedCommand dotnet run '--project' $signerProject '--configuration' 'Release' '--runtime' 'win-x64' `
-        '--no-restore' '--' `
-        'verify' '--manifest' $descriptorPath '--package' $fullPackages[0].FullName '--public-key' $publicKeyPath
-
-    $sbomPath = Join-Path $output "SessionDock-$version-sbom.spdx.json"
-    & (Join-Path $PSScriptRoot 'New-ReleaseSbom.ps1') `
-        -Descriptor $descriptorPath `
-        -Project $project `
-        -LockFile (Join-Path $root 'SessionDock/packages.lock.json') `
-        -License (Join-Path $appOutput 'LICENSE.md') `
-        -Output $sbomPath
-    & (Join-Path $PSScriptRoot 'New-ReleaseChecksums.ps1') -Directory $output
-
-    & (Join-Path $PSScriptRoot 'Verify-Assets.ps1') -Directory $output -Manifest $descriptorPath `
-        -PublishedApplicationDirectory $appOutput `
-        -ExpectedTag $Tag
-}
-finally {
-    Pop-Location
-}
+throw @"
+Local production release packaging is intentionally disabled. SessionDock
+releases require the protected GitHub release environment, Azure OIDC,
+Azure Artifact Signing, and the pinned Azure Key Vault P-256 descriptor key.
+Use scripts/Verify-Release.ps1 for a non-publishing local policy check. The
+tag-triggered .github/workflows/release.yml workflow is the only production
+packaging and publication path.
+"@

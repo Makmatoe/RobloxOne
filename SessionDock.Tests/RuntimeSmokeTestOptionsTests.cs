@@ -54,13 +54,6 @@ public sealed class RuntimeSmokeTestOptionsTests : IDisposable
             Path.Combine(root, RuntimeSmokeTestOptions.ResultFileName),
             options.ResultPath);
         Assert.Equal($"SessionDockRuntimeSmoke{suffix}", options.ApplicationId);
-        Assert.False(Program.RequiresProductionSecurityContext(options));
-    }
-
-    [Fact]
-    public void ProductionStartup_RequiresProductionSecurityContext()
-    {
-        Assert.True(Program.RequiresProductionSecurityContext(null));
     }
 
     [Theory]

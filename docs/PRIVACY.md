@@ -69,7 +69,8 @@ The optional HandleScope integration inspects only the expected local install
 and SessionDock opt-in files when its panel opens or the user selects Refresh.
 SessionDock contacts GitHub for `Makmatoe/HandleScope` only when the user
 selects **Install Latest HandleScope release**, to resolve the latest stable
-release and download its checksum and Windows package. Those requests contain
+release and download its independently signed authorization descriptor,
+checksum, and Windows package. Those requests contain
 ordinary request metadata such as the source IP address and user agent; they do
 not include a HandleScope token, configuration, local path, or Roblox account
 data. The verified package is staged in a random temporary directory and
@@ -80,9 +81,11 @@ connection** and only after local connection-file and same-session process
 checks. The user can explicitly ask SessionDock to start the separately
 installed API at its expected per-user path. The explicit install action also
 starts it and enables its limited per-user sign-in task; opening SessionDock or
-the integration panel never starts it by itself. These checks do not
-cryptographically authenticate the publisher of the unsigned, user-installed
-executable.
+the integration panel never starts it by itself. The signed descriptor binds
+the package and installed-file manifest to a distinct pinned HandleScope key.
+SessionDock rehashes the installed API against that inventory before it starts
+or trusts the process; without a genuine production key, installation remains
+unavailable.
 SessionDock never bundles or elevates HandleScope. When testing or using the
 enabled integration, it reads the rotating bearer token from HandleScope's
 checked local connection file and sends it only to the validated loopback API;

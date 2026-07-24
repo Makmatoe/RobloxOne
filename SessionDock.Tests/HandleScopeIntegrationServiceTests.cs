@@ -1022,7 +1022,8 @@ public sealed class HandleScopeIntegrationServiceTests
                 processVerifier,
                 startProcess ?? (_ => null),
                 isReparsePoint,
-                timeProvider);
+                timeProvider,
+                new TestInstalledRuntimeVerifier());
         }
 
         public void Dispose()
@@ -1037,6 +1038,12 @@ public sealed class HandleScopeIntegrationServiceTests
                 // Test cleanup is best effort.
             }
         }
+    }
+
+    private sealed class TestInstalledRuntimeVerifier :
+        IHandleScopeInstalledRuntimeVerifier
+    {
+        public bool IsAuthorized(string executablePath) => true;
     }
 
     private sealed class TestProcessVerifier(

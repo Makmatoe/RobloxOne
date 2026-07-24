@@ -9,7 +9,7 @@
     <RootNamespace>SessionDock</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>SessionDock.Program</StartupObject>
-    <Version>2.6.1</Version>
+    <Version>2.6.2</Version>
     <Product>SessionDock</Product>
     <Authors>Makmatoe</Authors>
     <Copyright>Copyright (c) 2026 Makmatoe</Copyright>
@@ -22,16 +22,23 @@
     <NoWarn>$(NoWarn);CA1001;CA1305;CA1822;CA1859</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(EnableRuntimeSmokeHarness)' == 'true'">
+    <DefineConstants>$(DefineConstants);SESSIONDOCK_SMOKE_HARNESS</DefineConstants>
+  </PropertyGroup>
+
   <PropertyGroup>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Remove="tools\**\*.cs" />
+    <Compile Remove="Services\RuntimeSmokeTestOptions.cs" />
+    <Compile Include="Services\RuntimeSmokeTestOptions.cs"
+             Condition="'$(EnableRuntimeSmokeHarness)' == 'true'" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
     <PackageReference Include="Velopack" Version="1.2.0" />
     <ProjectReference Include="..\SessionDock.ReleaseTrust\SessionDock.ReleaseTrust.csproj" />
@@ -47,13 +54,13 @@
     <None Include="..\licenses\Velopack-LICENSE.txt"
           Link="licenses\Velopack-LICENSE.txt"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.8\LICENSE.TXT"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.10\LICENSE.TXT"
           Link="licenses\DotNet-LICENSE.txt"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.8\THIRD-PARTY-NOTICES.TXT"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.10\THIRD-PARTY-NOTICES.TXT"
           Link="licenses\DotNet-THIRD-PARTY-NOTICES.txt"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.runtime.win-x64\10.0.8\LICENSE"
+    <None Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.runtime.win-x64\10.0.10\LICENSE"
           Link="licenses\Microsoft.WindowsDesktop-LICENSE.txt"
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.4078.44\LICENSE.txt"
@@ -64,6 +71,9 @@
           CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="Resources\update-public-key.pem"
                       LogicalName="SessionDock.Embedded.ReleasePublicKey.pem" />
+    <EmbeddedResource Include="Resources\handlescope-release-public-keys.json"
+                      Condition="Exists('Resources\handlescope-release-public-keys.json')"
+                      LogicalName="SessionDock.Embedded.HandleScopeReleasePublicKeys.json" />
     <EmbeddedResource Include="ReleaseNotes\*.md"
                       LogicalName="SessionDock.Embedded.ReleaseNotes.%(Filename)%(Extension)" />
   </ItemGroup>

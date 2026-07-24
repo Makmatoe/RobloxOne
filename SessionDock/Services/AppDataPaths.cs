@@ -46,7 +46,9 @@ internal static class AppDataPaths
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly object MigrationConflictLock = new();
     private static readonly object RootConfigurationLock = new();
+#if SESSIONDOCK_SMOKE_HARNESS
     private static string? IsolatedRuntimeRoot;
+#endif
     private static string? ProtectedInstallRoot;
     private static bool RootResolutionStarted;
 
@@ -75,14 +77,17 @@ internal static class AppDataPaths
             lock (RootConfigurationLock)
             {
                 RootResolutionStarted = true;
+#if SESSIONDOCK_SMOKE_HARNESS
                 if (IsolatedRuntimeRoot is not null)
                     return IsolatedRuntimeRoot;
+#endif
             }
 
             return DefaultRoot.Value;
         }
     }
 
+#if SESSIONDOCK_SMOKE_HARNESS
     internal static void ConfigureIsolatedRuntimeRoot(string rootDirectory)
     {
         lock (RootConfigurationLock)
@@ -117,6 +122,7 @@ internal static class AppDataPaths
             IsolatedRuntimeRoot = validatedRoot;
         }
     }
+#endif
 
     internal static void ConfigureProtectedInstallRoot(string? rootDirectory)
     {

@@ -10,6 +10,7 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+#if SESSIONDOCK_SMOKE_HARNESS
         if (!RuntimeSmokeTestOptions.TryParse(
                 args,
                 out var runtimeSmokeTest,
@@ -18,8 +19,10 @@ public static class Program
             Environment.ExitCode = 2;
             return;
         }
-
         var velopackArguments = runtimeSmokeTest is null ? args : [];
+#else
+        var velopackArguments = args;
+#endif
         VelopackApp.Build()
             .SetArgs(velopackArguments)
             .SetAutoApplyOnStartup(false)
@@ -27,6 +30,7 @@ public static class Program
         AppDataPaths.ConfigureProtectedInstallRoot(
             VelopackLocator.Current.RootAppDir);
 
+#if SESSIONDOCK_SMOKE_HARNESS
         if (runtimeSmokeTest is not null)
         {
             try
@@ -42,13 +46,15 @@ public static class Program
                 return;
             }
         }
+#endif
 
-        // GitHub-hosted Windows runners intentionally run elevated. The
-        // strictly parsed smoke harness has already been confined to a fresh,
-        // non-redirected Temp child and cannot resolve production user data,
-        // so only that harness skips the production user-context admission
-        // check. Every ordinary invocation retains the full policy.
-        if (RequiresProductionSecurityContext(runtimeSmokeTest) &&
+#if SESSIONDOCK_SMOKE_HARNESS
+        var requiresProductionSecurityContext = runtimeSmokeTest is null;
+#else
+        var requiresProductionSecurityContext =
+            ProductionRuntimeAdmissionPolicy.RequiresAdmission(args);
+#endif
+        if (requiresProductionSecurityContext &&
             !RuntimeSecurityPolicy.IsCurrentProcessSupported(out var reason))
         {
             MessageBox.Show(
@@ -60,14 +66,23 @@ public static class Program
             return;
         }
 
+#if SESSIONDOCK_SMOKE_HARNESS
         var application = runtimeSmokeTest is null
             ? new App()
             : new App(runtimeSmokeTest);
+#else
+        var application = new App();
+#endif
         application.InitializeComponent();
         Environment.ExitCode = application.Run();
     }
+}
 
-    internal static bool RequiresProductionSecurityContext(
-        RuntimeSmokeTestOptions? runtimeSmokeTest) =>
-        runtimeSmokeTest is null;
+internal static class ProductionRuntimeAdmissionPolicy
+{
+    internal static bool RequiresAdmission(IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        return true;
+    }
 }

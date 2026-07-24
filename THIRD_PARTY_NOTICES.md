@@ -38,7 +38,7 @@ projects.
 
 ## .NET and bundled runtime components
 
-Self-contained releases pin and include the .NET 10.0.8 runtime selected by the
+Self-contained releases pin and include the .NET 10.0.10 runtime selected by the
 repository's exact SDK. The .NET runtime license and its complete bundled
 third-party notice are shipped as `licenses/DotNet-LICENSE.txt` and
 `licenses/DotNet-THIRD-PARTY-NOTICES.txt`. The Windows Desktop runtime license

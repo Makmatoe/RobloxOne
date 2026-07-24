@@ -34,7 +34,7 @@ jobs:
       - name: Install the pinned .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.300'
+          dotnet-version: '10.0.302'
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
@@ -51,9 +51,9 @@ jobs:
         shell: pwsh
         run: ./scripts/Build.ps1 -Configuration Release -Runtime win-x64 -OutputDirectory artifacts/release-input/app -CI
 
-      - name: Run the isolated published-executable smoke
+      - name: Build and run the separate test-only runtime smoke
         shell: pwsh
-        run: ./scripts/Test-RuntimeSmoke.ps1 -ApplicationPath artifacts/release-input/app/SessionDock.exe -TimeoutSeconds 30
+        run: ./scripts/Build-RuntimeSmoke.ps1 -OutputDirectory artifacts/release-runtime-smoke -TimeoutSeconds 30
 
       - name: Publish the descriptor signer
         shell: pwsh
@@ -99,6 +99,8 @@ jobs:
           Copy-Item scripts/New-ReleaseSbom.ps1 artifacts/release-input/scripts/New-ReleaseSbom.ps1
           Copy-Item scripts/Rename-SessionDockReleaseAssets.ps1 artifacts/release-input/scripts/Rename-SessionDockReleaseAssets.ps1
           Copy-Item scripts/ReleaseJson.ps1 artifacts/release-input/scripts/ReleaseJson.ps1
+          Copy-Item scripts/Test-AuthenticodeSignature.ps1 artifacts/release-input/scripts/Test-AuthenticodeSignature.ps1
+          Copy-Item scripts/Test-ManagedReleaseSigningConfiguration.ps1 artifacts/release-input/scripts/Test-ManagedReleaseSigningConfiguration.ps1
           Copy-Item scripts/Verify-Assets.ps1 artifacts/release-input/scripts/Verify-Assets.ps1
           Copy-Item scripts/Verify-ReleaseLicense.ps1 artifacts/release-input/scripts/Verify-ReleaseLicense.ps1
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -135,7 +137,7 @@ jobs:
       - name: Install the pinned .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.300'
+          dotnet-version: '10.0.302'
 
       - name: Validate protected release context and license
         shell: pwsh
@@ -147,6 +149,49 @@ jobs:
           }
           & ./release-input/scripts/Verify-ReleaseLicense.ps1 `
             -LicensePath ./release-input/app/LICENSE.md
+
+      - name: Require complete managed signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AUTHENTICODE_PUBLISHER_SUBJECT: ${{ vars.AUTHENTICODE_PUBLISHER_SUBJECT }}
+          UPDATE_SIGNING_KEY_VAULT_NAME: ${{ vars.UPDATE_SIGNING_KEY_VAULT_NAME }}
+          UPDATE_SIGNING_KEY_NAME: ${{ vars.UPDATE_SIGNING_KEY_NAME }}
+          UPDATE_SIGNING_KEY_VERSION: ${{ vars.UPDATE_SIGNING_KEY_VERSION }}
+        run: ./release-input/scripts/Test-ManagedReleaseSigningConfiguration.ps1
+
+      - name: Sign in to Azure with the protected environment OIDC identity
+        uses: Azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Authenticode-sign the project executable
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          files: ${{ github.workspace }}\release-input\app\SessionDock.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          exclude-azure-cli-credential: false
+          cache-dependencies: true
+
+      - name: Verify the signed project executable
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ vars.AUTHENTICODE_PUBLISHER_SUBJECT }}
+        run: >-
+          ./release-input/scripts/Test-AuthenticodeSignature.ps1
+          -Path ./release-input/app/SessionDock.exe
+          -ExpectedPublisherSubject $env:EXPECTED_PUBLISHER
 
       - name: Build Velopack assets
         shell: pwsh
@@ -170,31 +215,83 @@ jobs:
             -Directory ./release-output `
             -Channel win-x64-sessiondock
 
-      - name: Sign the release descriptor
+      - name: Authenticode-sign the final Setup executable
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          files: ${{ github.workspace }}\release-output\SessionDock-win-x64-Setup.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          exclude-azure-cli-credential: false
+          cache-dependencies: true
+
+      - name: Verify the final Setup Authenticode signature
         shell: pwsh
         env:
-          UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ""
-          ACTIONS_ID_TOKEN_REQUEST_URL: ""
+          EXPECTED_PUBLISHER: ${{ vars.AUTHENTICODE_PUBLISHER_SUBJECT }}
+        run: >-
+          ./release-input/scripts/Test-AuthenticodeSignature.ps1
+          -Path ./release-output/SessionDock-win-x64-Setup.exe
+          -ExpectedPublisherSubject $env:EXPECTED_PUBLISHER
+
+      - name: Prepare the canonical unsigned release descriptor
+        shell: pwsh
+        env:
           RELEASE_VERSION: ${{ needs.validate-and-build.outputs.version }}
           RELEASE_TAG: ${{ needs.validate-and-build.outputs.tag }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64)) {
-            throw 'The protected release descriptor signing key is not configured.'
-          }
           $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
           if ($package.Count -ne 1) { throw "Expected one full package; found $($package.Count)." }
-          & ./release-input/signer/ReleaseSigner.exe sign `
+          & ./release-input/signer/ReleaseSigner.exe prepare `
             --package $package[0].FullName `
             --notes ./release-input/notes.md `
-            --output ./release-output/sessiondock-release.json `
+            --output ./descriptor.unsigned.json `
+            --digest-output ./descriptor.digest.base64url `
             --repository Makmatoe/SessionDock `
             --channel win-x64-sessiondock `
             --version $env:RELEASE_VERSION `
             --tag $env:RELEASE_TAG `
-            --private-key-base64-env UPDATE_SIGNING_PRIVATE_KEY_PKCS8_BASE64 `
             --identity current
-          if ($LASTEXITCODE -ne 0) { throw "Descriptor signing failed with exit code $LASTEXITCODE." }
+          if ($LASTEXITCODE -ne 0) { throw "Descriptor preparation failed with exit code $LASTEXITCODE." }
+
+      - name: Sign the descriptor digest with the managed P-256 Key Vault key
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY_VAULT_NAME: ${{ vars.UPDATE_SIGNING_KEY_VAULT_NAME }}
+          UPDATE_SIGNING_KEY_NAME: ${{ vars.UPDATE_SIGNING_KEY_NAME }}
+          UPDATE_SIGNING_KEY_VERSION: ${{ vars.UPDATE_SIGNING_KEY_VERSION }}
+        run: |
+          $digest = (Get-Content ./descriptor.digest.base64url -Raw).Trim()
+          if ($digest -cnotmatch '^[A-Za-z0-9_-]{43}$') {
+            throw 'The descriptor payload digest is not canonical SHA-256 base64url.'
+          }
+          $signature = az keyvault key sign `
+            --vault-name $env:UPDATE_SIGNING_KEY_VAULT_NAME `
+            --name $env:UPDATE_SIGNING_KEY_NAME `
+            --version $env:UPDATE_SIGNING_KEY_VERSION `
+            --algorithm ES256 `
+            --digest $digest `
+            --query result `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or $signature -cnotmatch '^[A-Za-z0-9_-]{86}$') {
+            throw 'The managed descriptor signer did not return one P-256 ES256 signature.'
+          }
+          Set-Content ./descriptor.signature.base64url -Value $signature -Encoding ascii -NoNewline
+
+      - name: Complete and verify the externally signed release descriptor
+        shell: pwsh
+        run: |
+          $package = @(Get-ChildItem release-output -File -Filter *-full.nupkg)
+          & ./release-input/signer/ReleaseSigner.exe complete `
+            --manifest ./descriptor.unsigned.json `
+            --package $package[0].FullName `
+            --signature-file ./descriptor.signature.base64url `
+            --output ./release-output/sessiondock-release.json `
+            --public-key ./release-input/update-public-key.pem
+          if ($LASTEXITCODE -ne 0) { throw "External descriptor completion failed with exit code $LASTEXITCODE." }
 
       - name: Verify the signed descriptor and assemble release metadata
         shell: pwsh
@@ -225,7 +322,8 @@ jobs:
             -Directory ./release-output `
             -Manifest ./release-output/sessiondock-release.json `
             -PublishedApplicationDirectory ./release-input/app `
-            -ExpectedTag $env:RELEASE_TAG
+            -ExpectedTag $env:RELEASE_TAG `
+            -ExpectedPublisherSubject '${{ vars.AUTHENTICODE_PUBLISHER_SUBJECT }}'
 
       - name: Create a fresh draft GitHub release
         shell: pwsh
@@ -286,6 +384,12 @@ jobs:
       contents: write
       attestations: read
     steps:
+      - name: Download immutable verification tools
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-input-${{ github.sha }}
+          path: release-verification
+
       - name: Re-download and verify the approved draft
         shell: pwsh
         env:
@@ -295,6 +399,7 @@ jobs:
           EXPECTED_SIGNER_WORKFLOW: Makmatoe/SessionDock/.github/workflows/release.yml
           EXPECTED_SOURCE_REF: ${{ github.ref }}
           EXPECTED_SOURCE_DIGEST: ${{ github.sha }}
+          EXPECTED_PUBLISHER: ${{ vars.AUTHENTICODE_PUBLISHER_SUBJECT }}
         run: |
           if ($env:GITHUB_REPOSITORY -cne 'Makmatoe/SessionDock') {
             throw 'This workflow may publish only from Makmatoe/SessionDock.'
@@ -370,6 +475,21 @@ jobs:
               throw "Approved draft attestation verification failed: $($asset.Name)"
             }
           }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          New-Item -ItemType Directory approved-expanded -Force | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory(
+            (Join-Path approved-assets "SessionDockApp-$env:RELEASE_VERSION-win-x64-sessiondock-full.nupkg"),
+            (Join-Path approved-expanded package))
+          [IO.Compression.ZipFile]::ExtractToDirectory(
+            (Join-Path approved-assets 'SessionDock-win-x64-Portable.zip'),
+            (Join-Path approved-expanded portable))
+          & ./release-verification/scripts/Test-AuthenticodeSignature.ps1 `
+            -Path @(
+              (Join-Path approved-assets 'SessionDock-win-x64-Setup.exe'),
+              (Join-Path approved-expanded 'package/lib/app/SessionDock.exe'),
+              (Join-Path approved-expanded 'portable/current/SessionDock.exe')) `
+            -ExpectedPublisherSubject $env:EXPECTED_PUBLISHER
 
       - name: Publish the reverified draft
         shell: pwsh

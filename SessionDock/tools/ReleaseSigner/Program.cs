@@ -6,37 +6,58 @@ return await ReleaseSignerProgram.RunAsync(args);
 
 internal static class ReleaseSignerProgram
 {
-    private static readonly HashSet<string> SignOptions = new(StringComparer.Ordinal)
-    {
-        "package", "notes", "output", "repository", "channel", "version", "tag",
-        "private-key-base64-env", "identity"
-    };
-
-    private static readonly HashSet<string> VerifyOptions = new(StringComparer.Ordinal)
-    {
-        "manifest", "package", "public-key"
-    };
+    private static readonly HashSet<string> DescriptorOptions = new(
+        [
+            "package", "notes", "output", "repository", "channel",
+            "version", "tag", "identity"
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> PrepareOptions = new(
+        DescriptorOptions.Append("digest-output"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> CompleteOptions = new(
+        ["manifest", "package", "signature-file", "output", "public-key"],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> LocalSignOptions = new(
+        DescriptorOptions.Append("private-key-file"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> VerifyOptions = new(
+        ["manifest", "package", "public-key"],
+        StringComparer.Ordinal);
 
     public static async Task<int> RunAsync(string[] arguments)
     {
         try
         {
             if (arguments.Length == 0)
-                throw new ArgumentException("Specify either 'sign' or 'verify'.");
+                throw new ArgumentException("Specify prepare, complete, verify, or sign-local.");
 
             var command = arguments[0];
             var options = ParseOptions(arguments[1..], command switch
             {
-                "sign" => SignOptions,
+                "prepare" => PrepareOptions,
+                "complete" => CompleteOptions,
                 "verify" => VerifyOptions,
-                _ => throw new ArgumentException("Specify either 'sign' or 'verify'.")
+                "sign-local" => LocalSignOptions,
+                _ => throw new ArgumentException(
+                    "Specify prepare, complete, verify, or sign-local.")
             });
 
-            if (command == "sign")
-                await SignAsync(options);
-            else
-                await VerifyAsync(options);
-
+            switch (command)
+            {
+                case "prepare":
+                    await PrepareAsync(options);
+                    break;
+                case "complete":
+                    await CompleteAsync(options);
+                    break;
+                case "sign-local":
+                    await SignLocalAsync(options);
+                    break;
+                default:
+                    await VerifyAsync(options);
+                    break;
+            }
             return 0;
         }
         catch (Exception exception) when (
@@ -44,21 +65,104 @@ internal static class ReleaseSignerProgram
             UnauthorizedAccessException or CryptographicException or
             ReleaseTrustException)
         {
-            Console.Error.WriteLine($"Release descriptor operation failed: {exception.Message}");
+            Console.Error.WriteLine(
+                $"Release descriptor operation failed: {exception.Message}");
             return 1;
         }
     }
 
-    private static async Task SignAsync(IReadOnlyDictionary<string, string> options)
+    private static async Task PrepareAsync(
+        IReadOnlyDictionary<string, string> options)
+    {
+        var descriptor = await CreateUnsignedDescriptorAsync(options);
+        var outputPath = Require(options, "output");
+        var digestPath = Require(options, "digest-output");
+        await WriteDescriptorAsync(outputPath, descriptor);
+        var digest = SHA256.HashData(
+            ReleaseDescriptorPolicy.CreateCanonicalPayload(descriptor));
+        await WriteCanonicalTextAsync(
+            digestPath,
+            Base64UrlEncode(digest));
+    }
+
+    private static async Task CompleteAsync(
+        IReadOnlyDictionary<string, string> options)
+    {
+        var manifestPath = RequireFile(options, "manifest");
+        var packagePath = RequireFile(options, "package");
+        var signaturePath = RequireFile(options, "signature-file");
+        var publicKeyPath = RequireFile(options, "public-key");
+        var unsigned = ReleaseDescriptorPolicy.Deserialize(
+            await File.ReadAllTextAsync(manifestPath));
+        if (!string.IsNullOrEmpty(unsigned.Signature))
+        {
+            throw new ArgumentException(
+                "The prepared descriptor already contains a signature.");
+        }
+        var signatureText = (await File.ReadAllTextAsync(signaturePath)).Trim();
+        if (signatureText.Length is <= 0 or > 256 ||
+            signatureText.Any(char.IsWhiteSpace))
+        {
+            throw new ArgumentException(
+                "The managed signature must be one canonical base64url value.");
+        }
+        var signature = Base64UrlDecode(signatureText);
+        if (signature.Length != 64)
+        {
+            throw new ArgumentException(
+                "The managed signer must return one 64-byte P-256 ES256 signature.");
+        }
+        var signed = unsigned with
+        {
+            Signature = Convert.ToBase64String(signature)
+        };
+        var package = new FileInfo(packagePath);
+        var identity = new ReleaseAssetIdentity(
+            unsigned.Version,
+            package.Name,
+            package.Length,
+            await ComputeSha256Async(packagePath));
+        _ = ReleaseDescriptorPolicy.Verify(
+            ReleaseDescriptorPolicy.Serialize(signed),
+            identity,
+            await File.ReadAllTextAsync(publicKeyPath));
+        await WriteDescriptorAsync(Require(options, "output"), signed);
+    }
+
+    private static async Task SignLocalAsync(
+        IReadOnlyDictionary<string, string> options)
+    {
+        var descriptor = await CreateUnsignedDescriptorAsync(options);
+        var privateKeyPath = RequireFile(options, "private-key-file");
+        var privateKeyText = await File.ReadAllTextAsync(privateKeyPath);
+        byte[] signature;
+        using (var privateKey = ECDsa.Create())
+        {
+            privateKey.ImportFromPem(privateKeyText);
+            if (privateKey.KeySize != 256)
+            {
+                throw new ArgumentException(
+                    "The developer-only private key must be P-256.");
+            }
+            signature = privateKey.SignData(
+                ReleaseDescriptorPolicy.CreateCanonicalPayload(descriptor),
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        }
+        await WriteDescriptorAsync(
+            Require(options, "output"),
+            descriptor with { Signature = Convert.ToBase64String(signature) });
+    }
+
+    private static async Task<ReleaseDescriptor> CreateUnsignedDescriptorAsync(
+        IReadOnlyDictionary<string, string> options)
     {
         var packagePath = RequireFile(options, "package");
         var notesPath = RequireFile(options, "notes");
-        var outputPath = Require(options, "output");
         var repository = Require(options, "repository");
         var channel = Require(options, "channel");
         var versionText = Require(options, "version");
         var tag = Require(options, "tag");
-        var privateKeyEnvironmentName = Require(options, "private-key-base64-env");
         var identityName = options.GetValueOrDefault("identity", "current");
         var identity = identityName switch
         {
@@ -73,19 +177,16 @@ internal static class ReleaseSignerProgram
                 ReleaseDescriptorPolicy.LegacyChannel,
                 ReleaseDescriptorPolicy.LegacyKeyId),
             _ => throw new ArgumentException(
-                "The release identity must be either 'current' or 'legacy'.")
+                "The release identity must be current or legacy.")
         };
-
         if (repository != identity.Repository || channel != identity.Channel)
-        {
             throw new ArgumentException("Repository or channel does not match release policy.");
-        }
-
         if (!Version.TryParse(versionText, out var version) ||
             version.Build < 0 || version.Revision >= 0 ||
             version.ToString(3) != versionText || tag != $"v{versionText}")
         {
-            throw new ArgumentException("Version must be a three-part stable version matching the v* tag.");
+            throw new ArgumentException(
+                "Version must be a three-part stable version matching the tag.");
         }
 
         var package = new FileInfo(packagePath);
@@ -95,14 +196,7 @@ internal static class ReleaseSignerProgram
         {
             throw new ArgumentException("The release package has an invalid name or size.");
         }
-
-        var releaseNotes = NormalizeReleaseNotes(
-            await File.ReadAllTextAsync(notesPath));
-        var packageHash = await ComputeSha256Async(packagePath);
-        var publishedAt = DateTimeOffset.UtcNow.ToString(
-            "O",
-            CultureInfo.InvariantCulture);
-        var unsignedDescriptor = new ReleaseDescriptor(
+        return new ReleaseDescriptor(
             ReleaseDescriptorPolicy.SchemaVersion,
             identity.Product,
             repository,
@@ -110,76 +204,25 @@ internal static class ReleaseSignerProgram
             identity.KeyId,
             versionText,
             tag,
-            publishedAt,
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             package.Name,
             package.Length,
-            packageHash,
-            releaseNotes,
+            await ComputeSha256Async(packagePath),
+            NormalizeReleaseNotes(await File.ReadAllTextAsync(notesPath)),
             string.Empty);
-
-        var privateKeyBase64 = Environment.GetEnvironmentVariable(
-            privateKeyEnvironmentName);
-        if (string.IsNullOrWhiteSpace(privateKeyBase64))
-            throw new ArgumentException("The configured release signing key is unavailable.");
-        if (privateKeyBase64.Length > 1024 ||
-            privateKeyBase64.Any(char.IsWhiteSpace))
-        {
-            throw new ArgumentException(
-                "The configured release signing key must be one canonical base64 value.");
-        }
-
-        byte[] privateKeyBytes;
-        try
-        {
-            privateKeyBytes = Convert.FromBase64String(privateKeyBase64);
-        }
-        catch (FormatException exception)
-        {
-            throw new ArgumentException(
-                "The configured release signing key is not valid base64.",
-                exception);
-        }
-
-        byte[] signature;
-        try
-        {
-            using var privateKey = ECDsa.Create();
-            privateKey.ImportPkcs8PrivateKey(privateKeyBytes, out var bytesRead);
-            if (bytesRead != privateKeyBytes.Length || privateKey.KeySize != 256)
-            {
-                throw new CryptographicException(
-                    "The release signing key must be one P-256 PKCS#8 key.");
-            }
-
-            signature = privateKey.SignData(
-                ReleaseDescriptorPolicy.CreateCanonicalPayload(unsignedDescriptor),
-                HashAlgorithmName.SHA256);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(privateKeyBytes);
-        }
-        var signedDescriptor = unsignedDescriptor with
-        {
-            Signature = Convert.ToBase64String(signature)
-        };
-
-        var outputDirectory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
-        if (!string.IsNullOrWhiteSpace(outputDirectory))
-            Directory.CreateDirectory(outputDirectory);
-        await File.WriteAllTextAsync(
-            outputPath,
-            ReleaseDescriptorPolicy.Serialize(signedDescriptor));
     }
 
-    private static async Task VerifyAsync(IReadOnlyDictionary<string, string> options)
+    private static async Task VerifyAsync(
+        IReadOnlyDictionary<string, string> options)
     {
         var manifestPath = RequireFile(options, "manifest");
         var packagePath = RequireFile(options, "package");
         var publicKeyPath = RequireFile(options, "public-key");
         var package = new FileInfo(packagePath);
+        var descriptor = ReleaseDescriptorPolicy.Deserialize(
+            await File.ReadAllTextAsync(manifestPath));
         var identity = new ReleaseAssetIdentity(
-            ReadDescriptorVersion(manifestPath),
+            descriptor.Version,
             package.Name,
             package.Length,
             await ComputeSha256Async(packagePath));
@@ -191,27 +234,29 @@ internal static class ReleaseSignerProgram
             $"Verified {verified.Descriptor.Tag} ({verified.Descriptor.PackageFile}).");
     }
 
-    private static string ReadDescriptorVersion(string manifestPath) =>
-        ReleaseDescriptorPolicy.Deserialize(File.ReadAllText(manifestPath)).Version;
-
     private static Dictionary<string, string> ParseOptions(
         string[] arguments,
         HashSet<string> allowed)
     {
         if (arguments.Length % 2 != 0)
             throw new ArgumentException("Every option must have a value.");
-
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var index = 0; index < arguments.Length; index += 2)
         {
             var option = arguments[index];
-            if (!option.StartsWith("--", StringComparison.Ordinal) || option.Length < 3)
+            if (!option.StartsWith("--", StringComparison.Ordinal) ||
+                option.Length < 3)
+            {
                 throw new ArgumentException($"Invalid option '{option}'.");
+            }
             var name = option[2..];
-            if (!allowed.Contains(name) || !result.TryAdd(name, arguments[index + 1]))
-                throw new ArgumentException($"Unsupported or duplicate option '--{name}'.");
+            if (!allowed.Contains(name) ||
+                !result.TryAdd(name, arguments[index + 1]))
+            {
+                throw new ArgumentException(
+                    $"Unsupported or duplicate option '--{name}'.");
+            }
         }
-
         return result;
     }
 
@@ -219,8 +264,11 @@ internal static class ReleaseSignerProgram
         IReadOnlyDictionary<string, string> options,
         string name)
     {
-        if (!options.TryGetValue(name, out var value) || string.IsNullOrWhiteSpace(value))
+        if (!options.TryGetValue(name, out var value) ||
+            string.IsNullOrWhiteSpace(value))
+        {
             throw new ArgumentException($"Missing required option '--{name}'.");
+        }
         return value;
     }
 
@@ -244,9 +292,9 @@ internal static class ReleaseSignerProgram
             normalized.Any(character =>
                 char.IsControl(character) && character is not ('\n' or '\t')))
         {
-            throw new ArgumentException("Release notes are empty, too large, or contain control characters.");
+            throw new ArgumentException(
+                "Release notes are empty, too large, or contain control characters.");
         }
-
         return normalized;
     }
 
@@ -260,6 +308,46 @@ internal static class ReleaseSignerProgram
             bufferSize: 128 * 1024,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         return Convert.ToHexString(await SHA256.HashDataAsync(stream));
+    }
+
+    private static async Task WriteDescriptorAsync(
+        string path,
+        ReleaseDescriptor descriptor) =>
+        await WriteCanonicalTextAsync(
+            path,
+            ReleaseDescriptorPolicy.Serialize(descriptor).TrimEnd('\n'));
+
+    private static async Task WriteCanonicalTextAsync(string path, string value)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(fullPath, value + "\n");
+    }
+
+    private static string Base64UrlEncode(ReadOnlySpan<byte> value) =>
+        Convert.ToBase64String(value)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+    private static byte[] Base64UrlDecode(string value)
+    {
+        if (value.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
+        {
+            throw new ArgumentException("The managed signature is not canonical base64url.");
+        }
+        var base64 = value.Replace('-', '+').Replace('_', '/');
+        base64 += new string('=', (4 - base64.Length % 4) % 4);
+        try { return Convert.FromBase64String(base64); }
+        catch (FormatException exception)
+        {
+            throw new ArgumentException(
+                "The managed signature is not canonical base64url.",
+                exception);
+        }
     }
 
     private sealed record ReleaseIdentity(

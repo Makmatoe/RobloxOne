@@ -26,6 +26,47 @@ public sealed class ReleaseDescriptorPolicyTests
     }
 
     [Fact]
+    public void Verify_ManagedSignerP1363SignatureOverCanonicalDigest_IsAccepted()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var unsigned = CreateUnsignedDescriptor();
+        var digest = SHA256.HashData(
+            ReleaseDescriptorPolicy.CreateCanonicalPayload(unsigned));
+        var managedSignature = key.SignHash(
+            digest,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        var descriptor = unsigned with
+        {
+            Signature = Convert.ToBase64String(managedSignature)
+        };
+
+        var verified = Verify(descriptor, CreateAsset(), key);
+
+        Assert.Equal("2.3.1", verified.Descriptor.Version);
+    }
+
+    [Fact]
+    public void Verify_DerSignatureReturnedByWrongManagedSignerMode_IsRejected()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var unsigned = CreateUnsignedDescriptor();
+        var digest = SHA256.HashData(
+            ReleaseDescriptorPolicy.CreateCanonicalPayload(unsigned));
+        var derSignature = key.SignHash(
+            digest,
+            DSASignatureFormat.Rfc3279DerSequence);
+        var descriptor = unsigned with
+        {
+            Signature = Convert.ToBase64String(derSignature)
+        };
+
+        var exception = Assert.Throws<ReleaseTrustException>(() =>
+            Verify(descriptor, CreateAsset(), key));
+
+        Assert.Contains("signed", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Verify_LowercaseFeedHashMatchingSignedHash_IsAccepted()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -368,7 +409,8 @@ public sealed class ReleaseDescriptorPolicyTests
         {
             Signature = Convert.ToBase64String(key.SignData(
                 ReleaseDescriptorPolicy.CreateCanonicalPayload(descriptor),
-                HashAlgorithmName.SHA256))
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
         };
 
     private static ReleaseAssetIdentity CreateAsset() => new(

@@ -1,0 +1,28 @@
+name: .NET security maintenance
+
+on:
+  schedule:
+    - cron: "19 7 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-security-maintenance
+  cancel-in-progress: true
+
+jobs:
+  check-dotnet-security-patch:
+    name: Check .NET 10 security patch
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare the pinned runtime with official Microsoft metadata
+        shell: pwsh
+        run: ./scripts/Test-DotNetSecurityPatch.ps1 -CheckOnline

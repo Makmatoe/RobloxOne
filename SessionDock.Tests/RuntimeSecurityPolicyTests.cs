@@ -4,6 +4,18 @@ namespace SessionDock.Tests;
 
 public sealed class RuntimeSecurityPolicyTests
 {
+    [Theory]
+    [InlineData()]
+    [InlineData("--unexpected")]
+    [InlineData("--isolated-runtime-smoke", "C:\\Temp\\candidate")]
+    [InlineData("--squirrel-install", "2.6.2")]
+    public void ProductionRuntimeAdmission_IsRequiredForEveryInvocation(
+        params string[] arguments)
+    {
+        Assert.True(
+            ProductionRuntimeAdmissionPolicy.RequiresAdmission(arguments));
+    }
+
     [Fact]
     public void IsSupported_StandardInteractiveUser_ReturnsTrue()
     {
