@@ -65,11 +65,19 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false
 
-      - name: Stage the exact Velopack CLI
+      - name: Stage the manifest-selected Velopack CLI
         shell: pwsh
-        run: >-
-          dotnet tool install vpk --version 1.2.0 --tool-path artifacts/release-input/vpk-tool
-          --disable-parallel
+        run: |
+          $manifest = Get-Content .config/dotnet-tools.json -Raw | ConvertFrom-Json
+          $toolVersion = [string] $manifest.tools.vpk.version
+          if ($toolVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw 'The Velopack tool manifest must contain an exact stable version.'
+          }
+          dotnet tool install vpk --version $toolVersion `
+            --tool-path artifacts/release-input/vpk-tool --disable-parallel
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to stage Velopack CLI $toolVersion."
+          }
 
       - name: Stage immutable release metadata
         id: release-metadata

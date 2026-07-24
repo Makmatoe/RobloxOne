@@ -15,9 +15,7 @@ Safety/privacy notes:
 
 ## Validation
 
-- [ ] `dotnet restore`
-- [ ] `dotnet build -c Release --no-restore`
-- [ ] `dotnet test -c Release --no-build`
+- [ ] `./scripts/Build.ps1 -Configuration Release -Runtime win-x64 -CI`
 - [ ] Relevant manual behavior was exercised on Windows x64.
 - [ ] Tests and documentation were added or updated where needed.
 

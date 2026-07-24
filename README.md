@@ -5,7 +5,16 @@
 SessionDock is a Windows launcher that keeps Roblox website sessions separate,
 so you can choose the account and destination before opening Roblox Player.
 
-[View Windows downloads](https://github.com/Makmatoe/SessionDock/releases)
+## Install SessionDock
+
+[![Install Latest SessionDock release](docs/assets/install-latest-sessiondock.svg)](https://github.com/Makmatoe/SessionDock/releases/latest/download/SessionDock-win-x64-Setup.exe)
+
+Select the button on a Windows x64 PC, then open the downloaded
+`SessionDock-win-x64-Setup.exe`. The fixed link always selects the Setup asset
+from the latest stable release in the canonical `Makmatoe/SessionDock`
+repository, so there is no release page or asset list to navigate.
+
+[View release details, checksums, and the portable ZIP](https://github.com/Makmatoe/SessionDock/releases/latest)
 
 Release installers are published only on the canonical GitHub Releases page.
 If that page has no release yet, a production installer is not currently
@@ -24,14 +33,12 @@ warning.
    nearly all Windows 10 installations. If it is missing or damaged,
    SessionDock stays open and offers the
    [official Microsoft WebView2 repair and download page](https://developer.microsoft.com/en-us/microsoft-edge/webview2/consumer/).
-2. Open the canonical [GitHub Releases](https://github.com/Makmatoe/SessionDock/releases)
-   page and download both the Setup executable and its `SHA256SUMS.txt` asset
-   from the latest release. The checksum file also has a stable
-   [latest-release download link](https://github.com/Makmatoe/SessionDock/releases/latest/download/SHA256SUMS.txt).
-3. Confirm the download came from `Makmatoe/SessionDock`, then use the
-   [regular-user checksum commands](docs/UPDATES.md#verify-a-manual-installer-download)
-   before running it. If Windows warns about the unknown publisher, continue
-   only when the filename and SHA-256 match that same release.
+2. Select **Install Latest SessionDock release** above and open the downloaded
+   Setup. You do not need to choose a release asset manually.
+3. Confirm the browser download came from `github.com/Makmatoe/SessionDock`.
+   Windows can show **Unknown publisher** because this project does not buy an
+   Authenticode certificate. For an independent check before running Setup, use
+   the [regular-user checksum steps](docs/UPDATES.md#verify-a-manual-installer-download).
 4. Add an account, then sign in on the official Roblox page shown in its
    isolated browser session.
 5. Choose a destination and select **Launch Roblox**.
@@ -124,8 +131,9 @@ debug, raw publish, and portable builds cannot replace themselves. See
 
 ## Build and verify
 
-The repository pins its .NET SDK, dependencies, and packaging tool. From the
-repository root:
+The repository selects its pinned .NET SDK and packaging tool from
+`global.json` and the local tool manifest, so these commands stay the same when
+the pins change. From the repository root:
 
 ```powershell
 dotnet restore --locked-mode

@@ -3,6 +3,20 @@
 SessionDock uses a manual, one-click updater built with Velopack and backed by
 the canonical project's GitHub Releases. Updates are not silently installed.
 
+## First-time installation
+
+Use the repository's **Install Latest SessionDock release** button or this
+[direct latest Setup link](https://github.com/Makmatoe/SessionDock/releases/latest/download/SessionDock-win-x64-Setup.exe).
+It always selects `SessionDock-win-x64-Setup.exe` from the latest stable
+canonical release, so a first-time user does not have to identify the correct
+file in GitHub's asset list. Open the download to start Setup.
+
+The project uses a no-cost signing model, so Windows can display **Unknown
+publisher**. Confirm the download came from `github.com/Makmatoe/SessionDock`.
+Users who want an independent file check can follow
+[Verify a manual installer download](#verify-a-manual-installer-download)
+before opening Setup.
+
 ## Normal update flow
 
 1. Select the top-right update button in SessionDock.
@@ -44,8 +58,8 @@ path for every installed version through 2.3.0:
 
 1. Close every Roblox One and SessionDock window. Do not uninstall either app
    and do not delete either local-data directory.
-2. Download `SessionDock-win-x64-Setup.exe` and `SHA256SUMS.txt` from the
-   canonical SessionDock 2.3.1 or later release.
+2. Use the [direct latest Setup link](https://github.com/Makmatoe/SessionDock/releases/latest/download/SessionDock-win-x64-Setup.exe),
+   then download `SHA256SUMS.txt` from that same latest canonical release.
 3. Verify the Setup with the checksum procedure below.
 4. Run the verified Setup as the same standard Windows user. On first launch,
    SessionDock copies only recognized settings, browser profiles, sounds, and

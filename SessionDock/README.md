@@ -3,6 +3,16 @@
 This directory contains the Windows WPF application. Repository-level build,
 security, privacy, and release instructions are in the [root README](../README.md).
 
+## Install the production app
+
+[![Install Latest SessionDock release](../docs/assets/install-latest-sessiondock.svg)](https://github.com/Makmatoe/SessionDock/releases/latest/download/SessionDock-win-x64-Setup.exe)
+
+The button downloads the official Windows x64 Setup asset from the latest
+stable canonical release. Open `SessionDock-win-x64-Setup.exe` to install the
+updateable production app; no release asset selection is required. Release
+details and manual checksum verification remain available in the
+[root installation guide](../README.md#install-sessiondock).
+
 ## Development run
 
 From the repository root:
@@ -12,7 +22,7 @@ dotnet run --project .\SessionDock\SessionDock.csproj
 ```
 
 Development and raw `dotnet publish` builds are intentionally not self-updating.
-Only a Velopack Setup installation from the canonical GitHub Releases page
+Only a Velopack Setup installation from the canonical latest-release button
 enables the production update path. Release executables are intentionally not
 Authenticode code-signed; the updater instead requires the independently
 signed release descriptor and exact package integrity checks.
