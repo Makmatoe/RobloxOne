@@ -54,15 +54,17 @@ SessionDock is designed around these boundaries:
   release** action may contact the canonical HandleScope GitHub repository and
   run its per-user installer. That path requires a stable immutable release,
   exact Windows asset names and sizes, GitHub's published asset digests, the
-  matching same-release checksum, a safe bounded ZIP layout, and an
-  independently signed descriptor from a distinct pinned HandleScope key. The
-  descriptor binds the exact internal-manifest hash before execution. The
-  installed API is rehashed against that descriptor-bound inventory before
-  SessionDock starts or trusts it; replacement fails closed. A build without a
-  genuine production HandleScope public key cannot install HandleScope.
-  The signed-descriptor-authorized installer runs with an execution-policy override scoped
-  only to its child PowerShell process; no saved policy is changed and Windows
-  Group Policy still takes precedence.
+  matching same-release checksum, a safe bounded ZIP layout, and exact internal
+  manifest verification. The current HandleScope release is unsigned and has no
+  independent release descriptor, so this model trusts the canonical immutable
+  GitHub release and does not provide certificate-backed publisher identity. If
+  a future release supplies a signed descriptor, SessionDock requires its
+  distinct pinned HandleScope key. The installed API is rehashed against the
+  saved verified inventory before SessionDock starts or trusts it; replacement
+  fails closed unless the same-user authorization state is also modified. The
+  verified installer runs with an execution-policy override scoped only to its
+  child PowerShell process; no saved policy is changed and Windows Group Policy
+  still takes precedence.
   Install starts the API and enables HandleScope's limited, per-user,
   interactive-logon autostart task. It does not elevate or enable the
   SessionDock integration.

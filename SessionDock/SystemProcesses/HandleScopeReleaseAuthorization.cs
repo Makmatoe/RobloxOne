@@ -309,7 +309,7 @@ internal static partial class HandleScopeReleaseAuthorizationPolicy
                 character is (>= '0' and <= '9') or (>= 'A' and <= 'F')))
         {
             throw new HandleScopeInstallException(
-                "A signed HandleScope SHA-256 value is not canonical uppercase hexadecimal.");
+                "A HandleScope SHA-256 value is not canonical uppercase hexadecimal.");
         }
         return Convert.FromHexString(value);
     }

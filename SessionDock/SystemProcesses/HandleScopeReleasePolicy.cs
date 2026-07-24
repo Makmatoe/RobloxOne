@@ -77,11 +77,12 @@ internal static partial class HandleScopeReleasePolicy
                 asset.Name.Equals(descriptorName, StringComparison.Ordinal)).ToArray();
             if (packages.Length != 1 ||
                 checksumAssets.Length != 1 ||
-                descriptorAssets.Length != 1 ||
+                descriptorAssets.Length > 1 ||
                 packages[0].Size is <= 0 or > MaximumPackageBytes ||
                 checksumAssets[0].Size is <= 0 or > MaximumChecksumBytes ||
-                descriptorAssets[0].Size is <= 0 or >
-                    HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes)
+                (descriptorAssets.Length == 1 &&
+                 descriptorAssets[0].Size is <= 0 or >
+                     HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes))
             {
                 throw InvalidRelease();
             }
@@ -91,7 +92,7 @@ internal static partial class HandleScopeReleasePolicy
                 tagName,
                 packages[0],
                 checksumAssets[0],
-                descriptorAssets[0]);
+                descriptorAssets.SingleOrDefault());
         }
         catch (JsonException exception)
         {
@@ -621,7 +622,7 @@ internal sealed record HandleScopeReleaseIdentity(
     string TagName,
     HandleScopeReleaseAsset Package,
     HandleScopeReleaseAsset Checksums,
-    HandleScopeReleaseAsset Descriptor);
+    HandleScopeReleaseAsset? Descriptor);
 
 internal sealed record HandleScopeVerifiedBundle(
     string InstallerPath,

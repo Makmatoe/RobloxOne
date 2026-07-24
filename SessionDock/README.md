@@ -62,11 +62,11 @@ stable canonical GitHub release only after the user explicitly selects
 **Install Latest HandleScope release** and accepts the confirmation. Install is
 per-user, starts the API immediately, and enables HandleScope's limited
 interactive-logon autostart task. It does not change SessionDock's integration
-setting. Before any installer runs, a distinct pinned HandleScope key must
-authorize the exact package, checksum, and internal manifest; the installed API
-hash is rechecked against that signed inventory before every start or trust
-decision. Builds without a genuine production HandleScope public key fail
-closed and cannot install it. The panel can start only the API at the expected
+setting. Before any installer runs, SessionDock verifies the stable immutable
+GitHub release, exact asset digests, matching checksum, safe archive, and full
+internal manifest. It saves that verified inventory and rechecks the installed
+API hash before every start or trust decision. A future signed descriptor is
+also enforced when present. The panel can start only the API at the expected
 per-user installation path after those checks if a manual restart is later needed. See
 [SystemProcesses/README.md](SystemProcesses/README.md).
 

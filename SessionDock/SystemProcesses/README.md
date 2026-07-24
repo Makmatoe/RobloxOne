@@ -77,12 +77,9 @@ PowerShell:
 2. Select **Install Latest HandleScope release** and review the confirmation.
    This is the only panel action that contacts the canonical
    `Makmatoe/HandleScope` GitHub repository. SessionDock requires a stable,
-   immutable release with the exact independently signed descriptor, versioned
-   Windows x64 package, and checksum assets. The descriptor uses a distinct
-   pinned HandleScope P-256 key and binds the release identity, asset names,
-   sizes and hashes, platform, architecture, and internal-manifest hash.
-   SessionDock then verifies GitHub digests, the checksum, safe bounded archive
-   extraction, and every internal file before it runs the included standard-user
+   immutable release with the exact versioned Windows x64 package and checksum
+   assets. SessionDock verifies GitHub's asset digests, the matching checksum,
+   safe bounded archive extraction, and every internal file before it runs the included standard-user
    installer with `StartNow` and limited per-user `EnableAutostart`. The scoped
    child PowerShell execution-policy argument does not change saved policy or
    override Group Policy. SessionDock never supplies integration, downgrade, or
@@ -96,16 +93,17 @@ PowerShell:
    the connection file and same-session process identity pass local checks.
    This test never enumerates or closes a handle.
 
-SessionDock does not ship a fabricated HandleScope trust anchor. Until the real
-production public key is embedded and the canonical HandleScope release carries
-a valid signed `handlescope-release.json`, installation reports that it is
-unavailable and no downloaded script or executable starts. After installation,
-SessionDock stores the verified descriptor and signed manifest under its own
-local data, hashes `HandleScope.Api.exe` against that inventory before start or
-trust, checks the exact standard path and reparse points, and retains the
+HandleScope is not Authenticode-signed and its current release has no separate
+signed descriptor. The install therefore trusts the canonical immutable GitHub
+release, its published SHA-256 digests, and its same-release checksum; these
+checks do not prove a certificate-backed publisher. If a future release adds a
+signed descriptor, SessionDock also requires its pinned HandleScope key. After
+installation, SessionDock stores the verified manifest and a local GitHub
+release receipt under its own data, hashes `HandleScope.Api.exe` against that
+inventory before start or trust, checks the exact standard path and reparse points, and retains the
 process-path, session, owner, non-elevated token, PID, start-time, and loopback
 discovery checks. Replacing the installed executable makes the integration fail
-closed.
+closed unless the same-user receipt and manifest are also replaced.
 
 Installation starts HandleScope immediately and enables its limited per-user
 interactive-logon task, but it does not change SessionDock's opt-in. Updating

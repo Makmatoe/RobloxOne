@@ -108,7 +108,7 @@ public partial class HandleScopeIntegrationDialog : Window
 
         var confirmation = MessageBox.Show(
             this,
-            "SessionDock will download the latest stable Windows x64 release from the canonical Makmatoe/HandleScope repository. Before anything runs, a separate HandleScope release key pinned in SessionDock must authorize the exact package, checksum file, platform, and internal file manifest. SessionDock will also keep that signed inventory and recheck the installed API before starting or trusting it.\n\nThe verified per-user installer starts the API now and enables its limited per-user autostart at Windows sign-in. SessionDock will not elevate or change the integration setting. Installation is unavailable if the genuine HandleScope release key or signed descriptor has not been configured.\n\nContinue?",
+            "SessionDock will download the latest stable Windows x64 release from the canonical Makmatoe/HandleScope repository. Before anything runs, it verifies the immutable GitHub asset digest, matching checksum, safe ZIP layout, and every file in the internal inventory. It also saves that verified inventory and rechecks the installed API before starting or trusting it.\n\nHandleScope is unsigned, so this confirms the canonical GitHub release rather than a certificate-backed publisher. The per-user installer starts the API now and enables its limited autostart at Windows sign-in. SessionDock will not elevate or change the integration setting.\n\nContinue?",
             "Install latest HandleScope release",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,

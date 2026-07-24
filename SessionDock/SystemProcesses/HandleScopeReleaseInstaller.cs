@@ -79,18 +79,26 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
         try
         {
             var release = await FetchLatestReleaseAsync(cancellationToken);
-            var descriptorBytes = await DownloadSmallAssetAsync(
-                release.Descriptor,
-                HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes,
-                cancellationToken);
-            VerifyHash(
-                descriptorBytes,
-                release.Descriptor.Sha256,
-                "The HandleScope authorization download failed its GitHub SHA-256 check.");
-            var authorization = HandleScopeReleaseAuthorizationPolicy.Verify(
-                descriptorBytes,
-                release,
-                _keyProvider);
+            byte[]? descriptorBytes = null;
+            byte[]? expectedManifestHash = null;
+            if (release.Descriptor is { } descriptorAsset)
+            {
+                descriptorBytes = await DownloadSmallAssetAsync(
+                    descriptorAsset,
+                    HandleScopeReleaseAuthorizationPolicy.MaximumDescriptorBytes,
+                    cancellationToken);
+                VerifyHash(
+                    descriptorBytes,
+                    descriptorAsset.Sha256,
+                    "The HandleScope authorization download failed its GitHub SHA-256 check.");
+                var authorization = HandleScopeReleaseAuthorizationPolicy.Verify(
+                    descriptorBytes,
+                    release,
+                    _keyProvider);
+                expectedManifestHash =
+                    HandleScopeReleaseAuthorizationPolicy.ParseSha256(
+                        authorization.Descriptor.InternalManifestSha256);
+            }
 
             var checksumBytes = await DownloadSmallAssetAsync(
                 release.Checksums,
@@ -126,12 +134,11 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
             var extractionRoot = Path.Combine(operationRoot, "extracted");
             var bundle = await
                 HandleScopeReleasePolicy.ExtractAndVerifyAuthorizedAsync(
-                archivePath,
-                extractionRoot,
-                release.Version,
-                HandleScopeReleaseAuthorizationPolicy.ParseSha256(
-                    authorization.Descriptor.InternalManifestSha256),
-                cancellationToken);
+                    archivePath,
+                    extractionRoot,
+                    release.Version,
+                    expectedManifestHash,
+                    cancellationToken);
 
             var verificationStartInfo = CreateInstallerStartInfo(
                 bundle.InstallerPath,
@@ -165,9 +172,18 @@ internal sealed class HandleScopeReleaseInstaller : IDisposable
                     "HandleScope's per-user installer did not complete. Its atomic file step preserves the prior install on replacement failure, but a later start or autostart step may have failed after the new files were installed. Refresh the status before retrying.");
             }
 
-            _installedRuntimeVerifier.PersistAuthorization(
-                descriptorBytes,
-                bundle.ManifestContents);
+            if (descriptorBytes is not null)
+            {
+                _installedRuntimeVerifier.PersistAuthorization(
+                    descriptorBytes,
+                    bundle.ManifestContents);
+            }
+            else
+            {
+                _installedRuntimeVerifier.PersistGitHubReleaseAuthorization(
+                    release,
+                    bundle.ManifestContents);
+            }
 
             return new HandleScopeReleaseInstallResult(release.Version);
         }

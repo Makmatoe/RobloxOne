@@ -52,32 +52,29 @@ cryptographic package authorization without requiring a commercial Windows
 code-signing certificate. Never use this key to sign executables or HandleScope
 releases.
 
-## HandleScope release authorization prerequisite
+## HandleScope release verification
 
-SessionDock uses a separate HandleScope descriptor identity and never reuses
-the SessionDock update key. Before enabling HandleScope installation:
+The one-click integration supports the assets currently published by
+`Makmatoe/HandleScope`: a stable immutable GitHub release containing the exact
+`HandleScope-X.Y.Z-win-x64.zip` and `SHA256SUMS.txt` files. SessionDock requires
+GitHub's SHA-256 digest and exact size for both assets, requires the checksum to
+agree with the package digest, safely extracts a bounded archive, and verifies
+every file against `CONTENTS.sha256` before running the per-user installer.
 
-1. Create a production P-256 signing key that is distinct from the SessionDock
-   update key. Prefer a managed KMS where available; never commit its private
-   half.
-2. Add only its public key to
-   `SessionDock/Resources/handlescope-release-public-keys.json` as an array of
-   objects with exact `keyId` and `publicKeyPem` fields. Key IDs use
-   `handlescope-release-YYYY-MM`. Rotation adds a new explicit entry rather than
-   silently replacing an old key.
-3. In the HandleScope release producer, create `handlescope-release.json` with
-   the exact contract implemented by `HandleScopeReleaseAuthorizationPolicy`:
-   schema/product/repository/channel, key ID, stable version/tag, UTC publication
-   time, package and checksum names, sizes and uppercase SHA-256 values,
-   `CONTENTS.sha256` SHA-256, `windows`, `x64`, and a 64-byte P-256 P1363
-   signature.
-4. Sign SHA-256 of the canonical newline-delimited payload, encode the raw
-   64-byte signature as standard Base64, and publish the descriptor beside the
-   ZIP and `SHA256SUMS.txt` in one stable immutable HandleScope release.
+After installation it stores the verified manifest and a local release receipt,
+then rehashes `HandleScope.Api.exe` before starting or trusting it. HandleScope
+is not Authenticode-signed, and this receipt is not an independent signature:
+the trust boundary is the canonical immutable GitHub repository and same-release
+hashes. A process running as the same Windows user could replace both the local
+program and receipt, so do not describe this as certificate-backed publisher
+verification.
 
-There is no sibling HandleScope checkout in this workspace. Until its genuine
-public key and signed descriptor exist, SessionDock reports that HandleScope
-installation is unavailable and runs no downloaded installer.
+The stronger descriptor path remains available. If a future HandleScope release
+contains `handlescope-release.json`, SessionDock requires its signature to match
+a distinct key in `SessionDock/Resources/handlescope-release-public-keys.json`;
+it never reuses the SessionDock update key. Do not add the descriptor asset until
+the matching production public key is embedded, because descriptor presence
+intentionally makes signature verification mandatory.
 
 ## Prepare and validate
 

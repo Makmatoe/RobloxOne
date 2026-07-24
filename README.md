@@ -93,14 +93,12 @@ until the user configures them. HandleScope is optional, off by default, and
 never bundled or elevated by SessionDock. When the user explicitly selects
 **Install Latest HandleScope release**, SessionDock resolves the latest stable,
 immutable release from the canonical `Makmatoe/HandleScope` GitHub repository,
-downloads its independently signed authorization descriptor, Windows x64 ZIP,
-and checksum file, then verifies the distinct pinned HandleScope key, exact
-release identity and assets, safe archive layout, and descriptor-bound internal
-manifest before running the standard-user installer. It records that signed
-inventory and rechecks the installed API hash before starting or trusting it.
-Installation remains unavailable until a genuine production HandleScope public
-key and matching signed descriptor are configured; SessionDock never substitutes
-a test or SessionDock update key.
+downloads the Windows x64 ZIP and checksum file, then verifies GitHub's exact
+asset digests, the same-release checksum, safe archive layout, and every file in
+the bundle manifest before running the standard-user installer. It records the
+verified inventory and rechecks the installed API hash before starting or
+trusting it. HandleScope is unsigned, so this trust comes from the canonical
+immutable GitHub release rather than a certificate-backed publisher.
 
 To use the optional connector, select **Integrations** in the SessionDock
 sidebar. Installation starts the API immediately and enables HandleScope's

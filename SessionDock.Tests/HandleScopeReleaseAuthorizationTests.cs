@@ -214,6 +214,85 @@ public sealed class HandleScopeReleaseAuthorizationTests : IDisposable
         Assert.False(verifier.IsAuthorized(executablePath));
     }
 
+    [Fact]
+    public void InstalledRuntimeVerifier_AcceptsGitHubReceiptAndRejectsTampering()
+    {
+        Directory.CreateDirectory(_root);
+        var dataRoot = Path.Combine(_root, "SessionDock");
+        var installRoot = Path.Combine(_root, "Programs", "HandleScope", "Api");
+        Directory.CreateDirectory(dataRoot);
+        Directory.CreateDirectory(installRoot);
+        using var fixture = CreateFixture();
+        var executablePath = Path.Combine(installRoot, "HandleScope.Api.exe");
+        File.WriteAllBytes(executablePath, fixture.ApiBytes);
+        var verifier = new HandleScopeInstalledRuntimeVerifier(
+            _root,
+            dataRoot,
+            fixture.Provider);
+        verifier.PersistGitHubReleaseAuthorization(
+            fixture.Release with { Descriptor = null },
+            fixture.ManifestBytes);
+
+        Assert.True(verifier.IsAuthorized(executablePath));
+        File.WriteAllText(executablePath, "replaced");
+        Assert.False(verifier.IsAuthorized(executablePath));
+
+        File.WriteAllBytes(executablePath, fixture.ApiBytes);
+        var receiptPath = Path.Combine(
+            dataRoot,
+            "HandleScopeAuthorization",
+            "github-release-receipt.json");
+        File.WriteAllText(receiptPath, "{}");
+        Assert.False(verifier.IsAuthorized(executablePath));
+    }
+
+    [Fact]
+    public void InstalledRuntimeVerifier_SwitchesAuthorizationModesFailClosed()
+    {
+        Directory.CreateDirectory(_root);
+        var dataRoot = Path.Combine(_root, "SessionDock");
+        var installRoot = Path.Combine(_root, "Programs", "HandleScope", "Api");
+        Directory.CreateDirectory(dataRoot);
+        Directory.CreateDirectory(installRoot);
+        using var fixture = CreateFixture();
+        var executablePath = Path.Combine(installRoot, "HandleScope.Api.exe");
+        File.WriteAllBytes(executablePath, fixture.ApiBytes);
+        var verifier = new HandleScopeInstalledRuntimeVerifier(
+            _root,
+            dataRoot,
+            fixture.Provider);
+        var authorizationRoot = Path.Combine(
+            dataRoot,
+            "HandleScopeAuthorization");
+        var descriptorPath = Path.Combine(
+            authorizationRoot,
+            HandleScopeReleaseAuthorizationPolicy.DescriptorFileName);
+        var receiptPath = Path.Combine(
+            authorizationRoot,
+            "github-release-receipt.json");
+
+        verifier.PersistAuthorization(
+            fixture.DescriptorBytes,
+            fixture.ManifestBytes);
+        Assert.True(verifier.IsAuthorized(executablePath));
+        Assert.True(File.Exists(descriptorPath));
+        Assert.False(File.Exists(receiptPath));
+
+        verifier.PersistGitHubReleaseAuthorization(
+            fixture.Release with { Descriptor = null },
+            fixture.ManifestBytes);
+        Assert.True(verifier.IsAuthorized(executablePath));
+        Assert.False(File.Exists(descriptorPath));
+        Assert.True(File.Exists(receiptPath));
+
+        verifier.PersistAuthorization(
+            fixture.DescriptorBytes,
+            fixture.ManifestBytes);
+        Assert.True(verifier.IsAuthorized(executablePath));
+        Assert.True(File.Exists(descriptorPath));
+        Assert.False(File.Exists(receiptPath));
+    }
+
     private static Fixture CreateFixture(DateTimeOffset? publishedAt = null)
     {
         var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
